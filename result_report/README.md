@@ -18,8 +18,10 @@ result_report/
 │   └── VERIFICATION.md        라이브 검증 증거(MCP stdio 핸드셰이크·도구 호출 결과)
 ├── verification/          ← 검증 재현 스크립트 (MCP 클라이언트)
 │   ├── verify_stdio.py        3개 MCP 서버 stdio 핸드셰이크(initialize + tools/list) 점검
-│   └── dryrun_sample.py       sample 앱 대상 extract_test_targets/detect_build_tool 등 도구 실호출
-└── sample-spring-app/     ← 드라이런용 Spring Boot 4.1.0 샘플 (OrderController/OrderQueryService 등)
+│   ├── dryrun_sample.py       (Boot 4.x) extract_test_targets/detect_build_tool 도구 실호출
+│   └── dryrun_boot2.py        (Boot 2.x) detect_spring_profile 포함 버전 인식 파이프라인 + 프로파일 단언
+├── sample-spring-app/     ← 드라이런용 Spring Boot 4.1.0 샘플 (jakarta/@MockitoBean)
+└── sample-spring-boot2/   ← 드라이런용 Spring Boot 2.7.18 샘플 (javax/@MockBean, gradle+pom, 실제 mvn test 통과)
 ```
 
 ---

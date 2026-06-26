@@ -22,3 +22,4 @@ _workspace_*/
 
 # OS
 .DS_Store
+**/target/
