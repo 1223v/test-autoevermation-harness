@@ -104,7 +104,7 @@ disallowedTools: Bash
 - **브랜치 커버리지 우선**: 단순한 라인 실행이 아니라 각 조건 분기(true/false 양방향)를 모두 실행하는 테스트를 작성한다.
 - **trivially-satisfying assertion 금지**: `assertTrue(true)`, `assertNotNull(result)` 같은 검증 없는 단순 실행 금지. 반환값·예외·상태 변화를 반드시 검증한다.
 - **slice 우선**: 컨트롤러는 `@WebMvcTest`, JPA는 `@DataJpaTest`, 서비스는 컨텍스트 없는 단위 테스트.
-- **협력 빈**: `@MockitoBean` (구 `@MockBean` 금지). Mockito `when/thenReturn/thenThrow`로 각 분기 조건을 재현한다.
+- **협력 빈**: `springProfile.mockAnnotation`(`@MockBean`/`@MockitoBean`)을 정확한 import와 함께 사용(Boot 2.0–4.x, RESEARCH_NOTES §8). Mockito `when/thenReturn/thenThrow`로 각 분기 조건을 재현한다.
 - **@ParameterizedTest**: 동일 메서드의 여러 분기를 매개변수로 처리할 수 있는 경우 사용.
 - **클래스 위치**: 기존 테스트 클래스가 있으면 해당 파일에 메서드를 추가(Edit), 없으면 새 파일을 생성(Write).
 - **Google Java Style** 준수, import 완결.

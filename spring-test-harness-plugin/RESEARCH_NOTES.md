@@ -49,7 +49,7 @@
 - JUnit5 지원: `pitest-junit5-plugin **1.0.0+**` (PIT 1.9.0+ 요구). 공식: [pitest/pitest-junit5-plugin](https://github.com/pitest/pitest-junit5-plugin)
 - 해석: line/branch 100%여도 살아남은 mutant가 있으면 **assertion 부재/약함** → mutation-analyst가 테스트 강화.
 
-## 5. Spring 최신 테스트 API (Boot 4.1.0)
+## 5. Spring 최신 테스트 API (Boot 4.1.0 = "latest" 프로파일)
 - Boot 4.1.0 / Framework 7.0.8+ / Java 17–26 / Gradle 8.14+(9.x) / Maven 3.6.3+. 공식: [System Requirements](https://docs.spring.io/spring-boot/system-requirements.html)
 - BOM 관리: JUnit Jupiter/Platform **6.0.x**, Mockito **5.2x** (정확 patch는 resolved BOM에서 확인). 공식: [Dependency Versions](https://docs.spring.io/spring-boot/appendix/dependency-versions/index.html)
 - 슬라이스/관용구 (공식: [Testing Spring Boot Applications](https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html)):
@@ -59,6 +59,31 @@
   - `@SpringBootTest` = full context, 꼭 필요할 때만.
   - 테스트 한정 프로퍼티: `@TestPropertySource`.
 - JUnit 정책: **jupiter-style 기본**(버전은 BOM 위임). `strict-5x`는 정책 예외(별도 pin + 경고).
+
+> ⚠️ 위 관용구는 **Boot 4.x("latest") 프로파일 전용**이다. Boot 2.x/3.x 대상에서는 §8의 버전별 프로파일을 따라야 컴파일된다. 전체 코드 템플릿은 [version-compatibility.md](./references/version-compatibility.md) 참조.
+
+## 8. 버전 호환 프로파일 매트릭스 (Boot 2.0 – 4.x) — 하위호환의 단일 진실 소스
+> 하네스는 대상 프로젝트의 **`springProfile`** 을 감지(`build-test-mcp.detect_spring_profile`)하거나 인터뷰로 받아, 아래 4개 축의 관용구를 분기 선택한다. 감지 실패 시 인터뷰(대화형) 또는 latest 가정(CI)+경고. 출처: [Boot 2.x System Requirements](https://docs.spring.io/spring-boot/docs/2.7.x/reference/html/getting-started.html#getting-started-system-requirements), [Boot 3.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide), [@MockitoBean(6.2)](https://docs.spring.io/spring-framework/docs/6.2.x/javadoc-api/org/springframework/test/context/bean/override/mockito/MockitoBean.html), [@MockBean(deprecated 3.4)](https://docs.spring.io/spring-boot/3.5/api/java/org/springframework/boot/test/mock/mockito/MockBean.html).
+
+| Boot | Framework | Java(min) | 네임스페이스 | JUnit 기본 | Mock 애노테이션 | Mock import |
+|---|---|---|---|---|---|---|
+| 2.0–2.1 | 5.0–5.1 | **8** | `javax.*` | **JUnit 4**(Vintage) | `@MockBean` | `org.springframework.boot.test.mock.mockito.MockBean` |
+| 2.2–2.3 | 5.2 | 8 | `javax.*` | JUnit 5(Vintage 제외) | `@MockBean` | (동일) |
+| 2.4–2.7 | 5.3 | 8(≤17) | `javax.*` | JUnit 5(Vintage 제거) | `@MockBean` | (동일) |
+| 3.0–3.3 | 6.0–6.1 | **17** | `jakarta.*` | JUnit 5 | `@MockBean` | (동일) |
+| 3.4–3.x | 6.2 | 17 | `jakarta.*` | JUnit 5 | `@MockitoBean`(권장) | `org.springframework.test.context.bean.override.mockito.MockitoBean` |
+| 4.x | 7.x | 17 | `jakarta.*` | JUnit 5/6 | `@MockitoBean`(필수, `@MockBean` 제거) | (동일) |
+
+**4개 분기 축**
+1. **네임스페이스**: Boot 2.x = `javax.persistence/validation/servlet`, Boot 3.x+ = `jakarta.*`. 생성 코드 import·엔티티 참조에 직접 영향.
+2. **JUnit 엔진**: `junit4`(=`@RunWith(SpringRunner.class)`+`org.junit.Test`, `@DisplayName` 없음) vs `jupiter`(`@ExtendWith`/`@Test`+`@DisplayName`). 2.0–2.1 기본 junit4; 2.2+ jupiter. 단 프로젝트가 vintage/junit:junit을 쓰면 junit4 유지.
+3. **Mock 애노테이션**: Boot ≤3.3 = `@MockBean`(boot.test.mock.mockito), 3.4+ = `@MockitoBean`(test.context.bean.override.mockito). 4.0에서 `@MockBean` 제거.
+4. **빌드/툴 베이스라인**: Java 8(2.x)/17(3.x+); Gradle `useJUnit()`(순수 junit4) vs `useJUnitPlatform()`; JaCoCo/PITest 버전 폴백(§아래).
+
+**JaCoCo / PITest 버전 폴백** (Java 베이스라인별)
+- JaCoCo: **0.8.12**는 Java 8 런타임에서도 정상(바이트코드 5–23 지원). 매우 오래된 Gradle(≤6.x)이면 `toolVersion`만 0.8.8+로 낮춰도 됨. 공식: [JaCoCo Releases](https://www.jacoco.org/jacoco/trunk/doc/changes.html)
+- PITest(Gradle): `info.solidsoft.pitest` **1.19.0**은 Gradle 6.4+ 필요. Gradle 5.x(구 2.0/2.1)면 **1.7.4**로 폴백하거나 뮤테이션 단계를 **graceful skip + warning**. JUnit5는 `pitest-junit5-plugin`, **순수 JUnit4면 어댑터 불필요**(PIT 내장).
+- 뮤테이션 단계는 advanced·선택. 버전 폴백이 불확실하면 측정만 스킵하고 커버리지 게이트는 유지.
 
 ## 6. near-100% 커버리지 정책(현실화)
 - 목표 게이트(기본, 런타임 조정 가능): LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS ≥ 1.00, mutationThreshold ≥ 0.80.

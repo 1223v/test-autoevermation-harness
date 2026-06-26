@@ -108,7 +108,7 @@ disallowedTools: Write, Edit, Bash
           "mockTargets": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "@MockitoBean 대상 협력 객체 FQCN"
+            "description": "Mock 대상 협력 객체 FQCN (프로파일에 따라 @MockBean/@MockitoBean)"
           },
           "sliceAnnotation": {
             "type": "string",

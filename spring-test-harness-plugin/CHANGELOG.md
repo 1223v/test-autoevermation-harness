@@ -9,6 +9,38 @@
 
 ---
 
+## [0.3.0] - 2026-06-26
+
+### Added
+
+- **Spring Boot 2.0 – 4.x 버전 인식(하위호환)**: 대상 프로젝트의 Boot 버전 프로파일을 감지해 테스트
+  관용구를 4개 축으로 자동 분기. 사용자 요구(최소 사양 2.x·구버전 포함, JUnit4 생성 포함, 미감지 시 인터뷰).
+  - **`detect_spring_profile` MCP 도구**(`mcp/build_test_server.py`): build.gradle[.kts]/pom.xml/
+    gradle.properties에서 Boot 버전, src/main의 `javax`↔`jakarta` import, src/test의 JUnit 엔진을 읽어
+    `springProfile{bootVersion,bootMajor,namespace,junitEngine,mockAnnotation,mockImport,javaBaseline,
+    gradleTestMode,degraded}` 반환. 혼용 프로젝트는 실제 소스 import를 우선(override + notes).
+  - **버전 매트릭스 SSOT**: `RESEARCH_NOTES.md` §8 + `references/version-compatibility.md`(프로파일별
+    전체 코드 템플릿). 출처: Boot 2.x System Requirements, Boot 3.0 Migration Guide, @MockitoBean(6.2)/
+    @MockBean(deprecated 3.4) 공식 문서(웹 검증 2026-06-26).
+  - **프로파일 구동 생성**: `generate-tests`·`test-code-generator`가 `@MockBean`(≤3.3)↔`@MockitoBean`(3.4+),
+    `javax`↔`jakarta`, JUnit4(`@RunWith(SpringRunner.class)`/`org.junit.Test`/`@DisplayName` 없음)↔Jupiter를
+    분기. `test-code-generator` tools에 `detect_spring_profile` 추가.
+  - **인터뷰 폴백**: `configure-harness` 0.5단계에서 프로파일을 감지하고, 미감지+대화형이면 Boot 메이저/
+    JUnit 엔진을 AskUserQuestion으로 질문, CI면 latest(4.x) 가정+경고. `HarnessConfig.springProfile` 추가.
+  - **Boot 2.x 예제**: `examples/gradle/build-boot2.gradle`, `examples/maven/pom-snippet-boot2.xml`,
+    `examples/java/OrderControllerTest_boot2_jupiter.java`(@MockBean+Jupiter),
+    `OrderControllerTest_boot2_junit4.java`(@RunWith(SpringRunner.class)+JUnit4).
+
+### Changed
+
+- `plugin.json`·`marketplace.json` 0.2.2 → 0.3.0, 설명에 "Spring Boot 2.0–4.x 버전 인식" 반영.
+- `full-pipeline`·`source-code-analyzer`·`scenario-generator`·`coverage-closer`·`mutation-analyst`·
+  `generate-scenarios`의 하드코딩 `@MockitoBean` 관용구를 `springProfile` 기반으로 일반화.
+- README 버전 호환표를 Boot 2.0–4.x 범위 + 프로파일 분기로 갱신.
+- **JaCoCo 0.8.12는 Java 8 런타임 정상**, PITest는 Gradle 5.x/구버전에서 폴백 또는 graceful skip(문서화).
+
+---
+
 ## [0.2.2] - 2026-06-25
 
 ### Changed

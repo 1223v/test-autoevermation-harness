@@ -112,6 +112,8 @@ disallowedTools: Bash
 
 #### 권장 패턴
 
+> 아래 예시는 jupiter 프로파일 기준이다. **junit4 프로파일**(Boot 2.0–2.1 등)에서는 `@DisplayName` 대신 서술적 메서드명을 쓰고, `@ParameterizedTest` 대신 `@RunWith(Parameterized.class)` 또는 데이터 루프를 사용한다. 기존 테스트의 엔진을 유지하며 assertion만 강화한다(RESEARCH_NOTES §8).
+
 ```java
 // CONDITIONALS_BOUNDARY 처리 예시: 경계값 ±1 파라미터화
 @ParameterizedTest

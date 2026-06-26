@@ -128,7 +128,7 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
       "target": "com.example.order.OrderController",
       "priority": "P1",
       "criteriaRefs": ["AC-002"],
-      "seamRefs": ["OrderService — @MockitoBean"],
+      "seamRefs": ["OrderService — Mock(@MockBean/@MockitoBean, 프로파일)"],
       "isParameterized": false,
       "slowReason": ""
     },

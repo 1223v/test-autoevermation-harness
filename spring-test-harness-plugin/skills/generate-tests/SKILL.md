@@ -5,7 +5,9 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 
 ## 목적
 
-`generate-scenarios` 결과(ScenarioSet)를 받아 각 시나리오에 대응하는 테스트 클래스·메서드를 작성한다. 컨트롤러는 `@WebMvcTest + MockMvc`, JPA 레포는 `@DataJpaTest`, 서비스/순수 로직은 스프링 컨텍스트 없는 단위 테스트, 다계층 통합은 `@SpringBootTest`(최소화) 방식을 따른다. 협력 빈은 `@MockitoBean`으로 대체하고, Google Java Style을 준수하며 import를 완결한다. 결과 파일은 `run-tests` 스킬로 전달된다.
+`generate-scenarios` 결과(ScenarioSet)를 받아 각 시나리오에 대응하는 테스트 클래스·메서드를 작성한다. 컨트롤러는 `@WebMvcTest + MockMvc`, JPA 레포는 `@DataJpaTest`, 서비스/순수 로직은 스프링 컨텍스트 없는 단위 테스트, 다계층 통합은 `@SpringBootTest`(최소화) 방식을 따른다.
+
+**버전 인식(Boot 2.0–4.x)**: 협력 빈 Mock 애노테이션·네임스페이스·JUnit 엔진은 `HarnessConfig.springProfile`에 따라 분기한다 — `mockAnnotation`(`@MockBean`/`@MockitoBean`)과 정확한 `mockImport`, `namespace`(javax/jakarta), `junitEngine`(junit4/jupiter)을 그대로 적용한다. 전체 코드 템플릿은 [references/version-compatibility.md](../../references/version-compatibility.md), 매트릭스는 `[[../../RESEARCH_NOTES.md]]` §8. Google Java Style을 준수하며 import를 완결한다. 결과 파일은 `run-tests` 스킬로 전달된다.
 
 ---
 
@@ -26,6 +28,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 {
   "scenarios": [...],
   "buildTool": "gradle",
+  "springProfile": { "bootMajor": 2, "namespace": "javax", "junitEngine": "jupiter", "mockAnnotation": "MockBean", "mockImport": "org.springframework.boot.test.mock.mockito.MockBean", "javaBaseline": 8, "gradleTestMode": "useJUnitPlatform" },
   "junitPolicy": "jupiter-style",
   "stylePolicy": "google-java"
 }
@@ -39,6 +42,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 |---|---|---|---|---|
 | `scenarios` | `Scenario[]` | 예 | — | `generate-scenarios` 출력의 `scenarios` 배열 |
 | `buildTool` | `string` | 아니오 | `"미지정"` → auto-detect | `gradle` 또는 `maven` |
+| `springProfile` | `object` | 아니오 | `detect_spring_profile` 결과 | Boot 2.0–4.x 프로파일. 미지정 시 build-test-mcp로 감지 |
 | `junitPolicy` | `string` | 아니오 | `"jupiter-style"` | `jupiter-style`(BOM 위임) 또는 `strict-5x`(정책 예외, 명시 필요) |
 | `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
 | `astResult` | `AstAnalysisResult` | 아니오 | `null` | 메서드 시그니처 확인용 |
@@ -72,21 +76,31 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
      "astResult": <astResult>
    }
 
+   springProfile(버전 분기 — Boot 2.0–4.x):
+   - springProfile이 입력에 없으면 build-test-mcp.detect_spring_profile(projectRoot)로 먼저 감지하라.
+   - mockAnnotation/mockImport를 그대로 사용: @MockBean(Boot ≤3.3) 또는 @MockitoBean(3.4+/4.x).
+     · @MockBean import = org.springframework.boot.test.mock.mockito.MockBean
+     · @MockitoBean import = org.springframework.test.context.bean.override.mockito.MockitoBean
+   - namespace 적용: 엔티티/검증/서블릿 타입은 javax.*(Boot 2.x) 또는 jakarta.*(3.x+). 대상 소스의 실제 import를 우선.
+   - junitEngine 분기:
+     · jupiter → org.junit.jupiter.api.Test + @DisplayName(한국어), 순수 단위는 @ExtendWith(MockitoExtension.class), 빌드 useJUnitPlatform().
+     · junit4 → @RunWith(SpringRunner.class)(슬라이스/컨텍스트) 또는 @RunWith(MockitoJUnitRunner.class)(순수 단위), org.junit.Test, public void 메서드, @DisplayName 미사용(메서드명으로 의도 표현), 빌드 useJUnit()(2.0/2.1) 또는 junit-vintage 안내.
+   - 정확한 import·전체 템플릿은 references/version-compatibility.md를 따른다.
+
    코드 생성 규칙:
    - 클래스 네이밍: <Target>Test (단위/슬라이스), <Target>IT (통합/Failsafe).
    - 패키지: 대상과 동일 패키지의 src/test/java.
-   - 컨트롤러 → @WebMvcTest + MockMvc + @MockitoBean 협력 빈.
-   - JPA 레포 → @DataJpaTest.
+   - 컨트롤러 → @WebMvcTest + MockMvc + 협력 빈은 springProfile.mockAnnotation.
+   - JPA 레포 → @DataJpaTest (junit4면 @RunWith(SpringRunner.class) 동반).
    - 서비스/순수 로직 → 스프링 컨텍스트 없는 단위 테스트.
    - 다계층 통합 → @SpringBootTest (꼭 필요할 때만).
-   - 협력 빈 대체: @MockitoBean (구 @MockBean 사용 금지).
+   - 협력 빈 대체: springProfile.mockAnnotation을 import와 함께 정확히 사용(프로파일과 무관한 임의 고정 금지).
    - fixture: 테스트 데이터 빌더(<Type>Fixtures/<Type>Builder) 우선, 매직값 금지.
-   - 동치류/경계값 3개 이상 → @ParameterizedTest.
-   - @DisplayName: 한국어 행위 서술 권장.
+   - 동치류/경계값 3개 이상 → @ParameterizedTest (jupiter). junit4면 @RunWith(Parameterized.class) 또는 데이터 루프.
    - 각 테스트 메서드 javadoc에 scenarioRef/criteriaRef 기록.
    - Google Java Style 준수, import 완결.
    - 실제 네트워크/Thread.sleep/broad catch 금지.
-   - junitPolicy가 strict-5x이면 빌드 파일에 명시적 version pin 추가.
+   - junitPolicy가 strict-5x이면 빌드 파일에 명시적 version pin 추가(jupiter 프로파일 한정).
    - astResult에서 메서드 시그니처를 확인해 unresolved 시그니처는 생성 보류 + warnings 기록.
    - repo-ast-mcp로 시그니처를 재확인하고, build-test-mcp로 의존성/스타일을 검증하라.
    - 결과를 아래 JSON 스키마에 맞게 반환하라.
@@ -149,7 +163,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
     }
   ],
   "buildChanges": [
-    "build.gradle.kts: useJUnitPlatform() 확인, testLogging 추가"
+    "build.gradle.kts: springProfile.gradleTestMode(useJUnitPlatform/useJUnit) 확인, testLogging 추가"
   ],
   "rationale": [
     "SC-001: 외부 DB mock으로 단위 테스트 가능, 스프링 컨텍스트 불필요",

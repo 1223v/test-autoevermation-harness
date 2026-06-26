@@ -3,6 +3,11 @@
 Claude Code CLI 기반 Spring 테스트코드 자동 생성 플러그인.
 스펙 문서·AST 분석·시나리오 설계·코드 생성·실행·보정을 하나의 파이프라인으로 연결한다.
 
+> **버전 인식(Spring Boot 2.0 – 4.x):** 대상 프로젝트의 Boot 버전 프로파일을 감지(`detect_spring_profile`)하여
+> 네임스페이스(`javax`/`jakarta`), JUnit 엔진(JUnit4/Jupiter), Mock 애노테이션(`@MockBean`/`@MockitoBean`)을
+> **자동 분기**해 컴파일 가능한 테스트를 생성한다. 매트릭스: [RESEARCH_NOTES §8](./RESEARCH_NOTES.md),
+> 전체 템플릿: [references/version-compatibility.md](./references/version-compatibility.md).
+
 > **독립 실행(OMC 비의존):** 이 플러그인은 `oh-my-claudecode`나 다른 외부 플러그인에 의존하지 않는다.
 > Claude Code 네이티브 기능(플러그인 시스템·`Task` 서브에이전트·`AskUserQuestion`·MCP·훅)과 표준 툴체인
 > (Python 3.10+, 선택적 JDK/Maven)만으로 동작한다. 상세: [DEPENDENCIES.md](./DEPENDENCIES.md).
@@ -143,16 +148,22 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"
 > opus 전용이 아니므로 sonnet·haiku 등 어떤 모델 환경에서도 동작한다. 특정 티어를 강제하려면 해당
 > `agents/*.md`의 `model:` 또는 스킬의 `Task(model="...")`를 명시 pin한다.
 
-| 항목 | 권장 버전 | 최소 버전 | 비고 |
+> **대상 Spring Boot 범위:** **2.0 – 4.x** (버전 프로파일 자동 분기). 아래 "권장/최소"는 latest(4.x) 프로파일 기준이며,
+> Boot 2.x/3.x 대상은 프로파일에 맞춰 Java 8/17·`javax`/`jakarta`·JUnit4/5·`@MockBean`/`@MockitoBean`가 적용된다.
+> 버전별 상세 매트릭스는 [RESEARCH_NOTES §8](./RESEARCH_NOTES.md), 빌드 예제는 `examples/`(`build-boot2.gradle`, `pom-snippet-boot2.xml`).
+
+| 항목 | 권장(latest) | 지원 범위 | 비고 |
 |---|---|---|---|
 | Claude Code 모델 | inherit(현재 세션) | — | opus 불필요 |
-| Spring Boot | 4.1.0 | 4.x | 현재 stable |
-| Spring Framework | 7.0.8+ | 7.0.8 | Boot 4.1 요구 |
-| Java | 17 | 17 (≤26 호환) | |
-| Gradle | 9.6 | 8.14 | 9.x 권장 |
-| Maven | 최신 3.9.x+ | 3.6.3 | |
-| JUnit (BOM) | Jupiter/Platform 6.0.x | — | `strict-5x`는 CHANGELOG 참조 |
-| Mockito (BOM) | 5.2x | — | BOM 위임 |
+| Spring Boot | 4.1.0 | **2.0 – 4.x** | 버전 프로파일 자동 감지/분기 |
+| Spring Framework | 7.0.8+ | 5.0 – 7.x | Boot 버전에 종속 |
+| Java | 17 | **8**(Boot 2.x) – 26 | 프로파일 `javaBaseline` |
+| 네임스페이스 | `jakarta` | `javax`(Boot 2.x) / `jakarta`(3.x+) | 자동 분기 |
+| JUnit | Jupiter/Platform 6.0.x | **JUnit 4**(Boot 2.0–2.1) / Jupiter | 자동 분기 |
+| Mock 애노테이션 | `@MockitoBean` | `@MockBean`(≤3.3) / `@MockitoBean`(3.4+) | 자동 분기 |
+| Gradle | 9.6 | 5.x – 9.x | 9.x 권장 |
+| Maven | 최신 3.9.x+ | 3.6.3+ | |
+| Mockito (BOM) | 5.2x | 2.x – 5.x | BOM 위임 |
 | JDT LS (선택) | 최신 | Java 21+ runtime | `.lsp.json`으로 연결 |
 | JaCoCo | 0.8.12 | — | line/branch/method/class 게이트 |
 | PITest (Gradle) | gradle-pitest 1.19.0 | — | `junit5PluginVersion 1.0.0` |
@@ -167,13 +178,17 @@ JUnit 버전 정책 상세(`jupiter-style` vs `strict-5x`)는 [CHANGELOG.md](./C
 
 | 파일 | 설명 |
 |---|---|
-| `examples/java/OrderControllerTest.java` | `@WebMvcTest` + `MockMvc` + `@MockitoBean` 슬라이스 테스트 |
+| `examples/java/OrderControllerTest.java` | (Boot 4.x/3.4+) `@WebMvcTest` + `MockMvc` + `@MockitoBean` 슬라이스 |
+| `examples/java/OrderControllerTest_boot2_jupiter.java` | (Boot 2.2–2.7) `@WebMvcTest` + `@MockBean` + Jupiter |
+| `examples/java/OrderControllerTest_boot2_junit4.java` | (Boot 2.0–2.1) `@RunWith(SpringRunner.class)` + `@MockBean` + JUnit 4 |
 | `examples/java/OrderAmountCalculatorTest.java` | 순수 단위 테스트 + `@ParameterizedTest` `@CsvSource` |
 | `examples/json/scenario-example.json` | ScenarioSet JSON 스키마 예시 |
 | `examples/json/test-run-result.json` | TestRunResult JSON (실패 포함) |
 | `examples/json/repair-example.md` | 실패→최소 diff 보정 서술 |
-| `examples/gradle/build.gradle.kts` | Gradle 9.x 빌드 설정 |
-| `examples/maven/pom-snippet.xml` | Maven Surefire/Compiler 설정 스니펫 |
+| `examples/gradle/build.gradle.kts` | (Boot 4.x) Gradle 9.x 빌드 설정 |
+| `examples/gradle/build-boot2.gradle` | (Boot 2.x) Groovy DSL, Java 8/11, JaCoCo/PITest + JUnit4 폴백 주석 |
+| `examples/maven/pom-snippet.xml` | (Boot 4.x) Maven Surefire/Compiler 설정 스니펫 |
+| `examples/maven/pom-snippet-boot2.xml` | (Boot 2.x) Java 8 parent + JaCoCo/PITest + JUnit4 폴백 주석 |
 | `examples/ci/gradle-ci.yml` | GitHub Actions (Gradle) |
 | `examples/ci/maven-ci.yml` | GitHub Actions (Maven) |
 

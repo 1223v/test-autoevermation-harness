@@ -1,0 +1,96 @@
+<!-- Spring Boot 2.x (하위호환 프로파일) Maven 스니펫 — Java 8 / JUnit 5(Jupiter) + @MockBean
+     매트릭스: RESEARCH_NOTES.md §8 / references/version-compatibility.md
+     Boot 3.x+/4.x는 examples/maven/pom-snippet.xml 참조. -->
+
+<!-- 부모: spring-boot-starter-parent 2.7.x (JUnit 5 기본, Mockito/AssertJ BOM 관리) -->
+<parent>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-parent</artifactId>
+  <version>2.7.18</version>
+  <relativePath/>
+</parent>
+
+<properties>
+  <!-- Boot 2.x 베이스라인: Java 8. (11로 올리려면 8 → 11) -->
+  <java.version>8</java.version>
+  <maven.compiler.release>8</maven.compiler.release>
+</properties>
+
+<build>
+  <plugins>
+
+    <!-- Surefire: 버전은 Boot BOM 관리. JUnit Platform(2.22+)·JUnit4 모두 지원. -->
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-surefire-plugin</artifactId>
+      <configuration>
+        <trimStackTrace>false</trimStackTrace>
+        <systemPropertyVariables>
+          <user.timezone>UTC</user.timezone>
+        </systemPropertyVariables>
+      </configuration>
+    </plugin>
+
+    <!-- JaCoCo 0.8.12: Java 8 런타임 정상 (RESEARCH_NOTES §8). -->
+    <plugin>
+      <groupId>org.jacoco</groupId>
+      <artifactId>jacoco-maven-plugin</artifactId>
+      <version>0.8.12</version>
+      <configuration>
+        <excludes>
+          <exclude>**/*Application*</exclude>
+          <exclude>**/config/**</exclude>
+          <exclude>**/dto/**</exclude>
+          <exclude>**/generated/**</exclude>
+        </excludes>
+      </configuration>
+      <executions>
+        <execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>
+        <execution><id>report</id><phase>test</phase><goals><goal>report</goal></goals></execution>
+        <execution>
+          <id>check</id><goals><goal>check</goal></goals>
+          <configuration>
+            <rules>
+              <rule>
+                <element>BUNDLE</element>
+                <limits>
+                  <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.95</minimum></limit>
+                  <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.90</minimum></limit>
+                  <limit><counter>METHOD</counter><value>COVEREDRATIO</value><minimum>0.95</minimum></limit>
+                  <limit><counter>CLASS</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                </limits>
+              </rule>
+            </rules>
+          </configuration>
+        </execution>
+      </executions>
+    </plugin>
+
+    <!-- PITest: JUnit5(Jupiter) 어댑터. 순수 JUnit4(Boot 2.0/2.1) 프로파일이면
+         pitest-junit5-plugin 의존성을 제거(내장 JUnit4 지원). -->
+    <plugin>
+      <groupId>org.pitest</groupId>
+      <artifactId>pitest-maven</artifactId>
+      <version>1.9.11</version>
+      <dependencies>
+        <dependency>
+          <groupId>org.pitest</groupId>
+          <artifactId>pitest-junit5-plugin</artifactId>
+          <version>1.0.0</version>
+        </dependency>
+      </dependencies>
+      <configuration>
+        <targetClasses><param>com.example.*</param></targetClasses>
+        <targetTests><param>com.example.*Test</param></targetTests>
+        <mutationThreshold>80</mutationThreshold>
+        <timestampedReports>false</timestampedReports>
+      </configuration>
+    </plugin>
+
+  </plugins>
+</build>
+
+<!-- JUnit4 폴백 (Boot 2.0 / 2.1):
+     · 테스트는 @RunWith(SpringRunner.class) + org.junit.Test (version-compatibility.md §2-C)
+     · 레거시 JUnit4를 Platform과 함께 돌리려면 junit-vintage-engine 의존성 추가
+     · pitest: pitest-junit5-plugin 의존성 제거 -->

@@ -1,0 +1,105 @@
+// Spring Boot 2.x (하위호환 프로파일) — Groovy DSL, Java 11, JUnit 5(Jupiter) + @MockBean
+// 매트릭스: RESEARCH_NOTES.md §8 / references/version-compatibility.md
+//
+// 이 파일은 Boot 2.2–2.7(jupiter) 기준이다. Boot 2.0–2.1(JUnit4)이라면 하단의
+// "JUnit4 폴백" 주석을 따른다. Boot 3.x+/4.x는 examples/gradle/build.gradle.kts 참조.
+
+plugins {
+    id 'java'
+    id 'jacoco'
+    id 'org.springframework.boot' version '2.7.18'
+    id 'io.spring.dependency-management' version '1.0.15.RELEASE'
+    // PITest: Gradle 6.4+ 필요. 매우 오래된 Gradle 5.x면 1.7.4로 폴백하거나 뮤테이션 단계 생략.
+    id 'info.solidsoft.pitest' version '1.9.11'
+}
+
+group = 'com.example'
+version = '0.1.0-SNAPSHOT'
+
+// Boot 2.x 베이스라인: Java 8 최소. 여기서는 11을 사용(8로 낮추려면 VERSION_1_8).
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // spring-boot-starter-test: Boot 2.2+는 JUnit 5(Jupiter) + Mockito + AssertJ를 BOM으로 관리.
+    // (Boot 2.0–2.1은 JUnit 4가 기본 — JUnit4 폴백 주석 참조)
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+    // 레거시 JUnit4 테스트가 함께 있으면(2.4+는 vintage 미포함) 명시 추가:
+    // testImplementation 'org.junit.vintage:junit-vintage-engine'
+}
+
+test {
+    useJUnitPlatform()          // Jupiter. ← JUnit4 폴백 시 useJUnit() 으로 교체
+    maxParallelForks = 2
+    systemProperty 'user.timezone', 'UTC'
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+    finalizedBy jacocoTestReport
+}
+
+// JaCoCo 0.8.12는 Java 8 런타임에서도 정상 (RESEARCH_NOTES §8).
+jacoco { toolVersion = '0.8.12' }
+
+def coverageExcludes = [
+    '**/*Application*',
+    '**/config/**',
+    '**/dto/**',
+    '**/generated/**',
+]
+
+jacocoTestReport {
+    dependsOn test
+    reports { xml.required = true; html.required = true }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: coverageExcludes)
+        }))
+    }
+}
+
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: coverageExcludes)
+        }))
+    }
+    violationRules {
+        rule {
+            limit { counter = 'LINE';   value = 'COVEREDRATIO'; minimum = 0.95 }
+            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.90 }
+            limit { counter = 'METHOD'; value = 'COVEREDRATIO'; minimum = 0.95 }
+            limit { counter = 'CLASS';  value = 'COVEREDRATIO'; minimum = 1.00 }
+        }
+    }
+}
+
+check.dependsOn jacocoTestCoverageVerification
+
+// PITest 뮤테이션. JUnit5(Jupiter) 어댑터 연결. 순수 JUnit4 프로파일이면 junit5PluginVersion 줄 제거.
+pitest {
+    junit5PluginVersion = '1.0.0'
+    targetClasses = ['com.example.*']
+    targetTests = ['com.example.*Test']
+    mutators = ['DEFAULTS']
+    mutationThreshold = 80
+    threads = 2
+    timestampedReports = false
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// JUnit4 폴백 (Boot 2.0 / 2.1, 순수 JUnit 4)
+//   - test { useJUnit() }              // useJUnitPlatform() 대신
+//   - 테스트는 @RunWith(SpringRunner.class) + org.junit.Test 사용 (version-compatibility.md §2-C)
+//   - pitest: junit5PluginVersion 줄 삭제 (PIT 내장 JUnit4 지원)
+//   - 매우 오래된 Gradle(5.x)이면 gradle-pitest 1.7.4로 낮추거나 뮤테이션 단계 생략
+// ──────────────────────────────────────────────────────────────────────────

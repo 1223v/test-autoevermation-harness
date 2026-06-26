@@ -82,8 +82,8 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 - `specDocPaths: []` → ingest-specs를 `status: "partial"`로 실행, 이후 단계는 스펙 없이 진행
 - `targets: []` → analyze-ast가 `list_spring_components`로 auto-detect
 - `buildTool: "미지정"` → `build-test-mcp.detect_build_tool`로 auto-detect
-- `javaVersion: "미지정"` → 빌드 파일에서 auto-detect (17–26 호환)
-- `springVersion: "미지정"` → 빌드 파일에서 auto-detect (4.1.0 기준)
+- `javaVersion: "미지정"` → `springProfile.javaBaseline`(Boot 2.x=8, 3.x+=17) 또는 빌드 파일에서 auto-detect
+- `springVersion: "미지정"` → `build-test-mcp.detect_spring_profile`로 `springProfile`(Boot 2.0–4.x) 감지. 감지 실패 시 대화형=인터뷰 / CI=latest(4.x) 가정+경고. 이 프로파일이 모든 테스트 생성 관용구(javax/jakarta, junit4/jupiter, @MockBean/@MockitoBean)를 결정한다(RESEARCH_NOTES §8)
 - `junitPolicy: "strict-5x"` → 빌드 파일에 version pin + CHANGELOG 경고 추가
 
 ---
@@ -260,20 +260,21 @@ Task(
 }
 
 지시:
+- springProfile(Boot 2.0–4.x) 우선 적용: namespace(javax/jakarta), junitEngine(junit4/jupiter), mockAnnotation(@MockBean/@MockitoBean)+정확한 import. springProfile이 없으면 detect_spring_profile로 감지. 전체 템플릿: references/version-compatibility.md.
 - 클래스 네이밍: <Target>Test (단위/슬라이스), <Target>IT (통합).
 - 패키지: 대상과 동일 패키지의 src/test/java.
-- 컨트롤러 → @WebMvcTest + MockMvc + @MockitoBean.
-- JPA 레포 → @DataJpaTest.
-- 서비스/순수 로직 → 스프링 컨텍스트 없는 단위 테스트.
+- 컨트롤러 → @WebMvcTest + MockMvc + 협력 빈은 springProfile.mockAnnotation.
+- JPA 레포 → @DataJpaTest (junit4면 @RunWith(SpringRunner.class)).
+- 서비스/순수 로직 → 스프링 컨텍스트 없는 단위 테스트 (jupiter @ExtendWith(MockitoExtension) / junit4 @RunWith(MockitoJUnitRunner)).
 - 다계층 통합 → @SpringBootTest (최소화).
-- 협력 빈: @MockitoBean (구 @MockBean 금지).
+- 협력 빈: springProfile.mockAnnotation을 정확한 import와 함께 사용(임의 고정 금지).
 - fixture: <Type>Fixtures/<Type>Builder, 매직값 금지.
-- @ParameterizedTest: isParameterized=true인 시나리오.
-- @DisplayName: 한국어 행위 서술.
+- @ParameterizedTest: isParameterized=true인 시나리오 (jupiter). junit4면 Parameterized 또는 데이터 루프.
+- @DisplayName: 한국어 행위 서술 (jupiter 한정; junit4는 서술적 메서드명).
 - 각 메서드 javadoc에 scenarioRef/criteriaRef 기록.
 - Google Java Style, import 완결.
 - 실제 네트워크/Thread.sleep/broad catch 금지.
-- junitPolicy=strict-5x이면 빌드 파일에 version pin + CHANGELOG 경고.
+- junitPolicy=strict-5x이면 빌드 파일에 version pin + CHANGELOG 경고 (jupiter 한정).
 - unresolved 시그니처는 생성 보류 + warnings 기록.
 - TestGenResult JSON으로 반환하라.
 """

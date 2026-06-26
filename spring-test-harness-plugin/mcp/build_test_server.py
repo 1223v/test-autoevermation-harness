@@ -23,6 +23,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import shlex
 import subprocess
 import xml.etree.ElementTree as ET
@@ -352,6 +353,117 @@ def _parse_pitest(pitest_path: str) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Spring Boot version-profile detection (Boot 2.0 – 4.x backward compatibility)
+# Drives version-aware test generation. See RESEARCH_NOTES.md §8 and
+# references/version-compatibility.md. Stdlib-only (regex + file walk).
+# ---------------------------------------------------------------------------
+
+_BOOT_GRADLE_RE = re.compile(
+    r"org\.springframework\.boot['\"]?\s*\)?\s*version\s*[('\"]+\s*"
+    r"([0-9]+\.[0-9]+\.[0-9]+[^'\")\s]*)"
+)
+_BOOT_GRADLE_CLASSPATH_RE = re.compile(
+    r"spring-boot-gradle-plugin:([0-9]+\.[0-9]+\.[0-9]+[^'\")\s]*)"
+)
+_BOOT_PROP_RE = re.compile(
+    r"(?:springBootVersion|spring-boot\.version|spring_boot_version)\s*[=:]\s*"
+    r"['\"]?([0-9]+\.[0-9]+\.[0-9]+[^'\"\s]*)"
+)
+_BOOT_MAVEN_PARENT_RE = re.compile(
+    r"spring-boot-starter-parent.*?<version>\s*([0-9]+\.[0-9]+\.[0-9]+[^<\s]*)\s*</version>",
+    re.DOTALL,
+)
+_BOOT_MAVEN_DEPS_RE = re.compile(
+    r"spring-boot-dependencies.*?<version>\s*([0-9]+\.[0-9]+\.[0-9]+[^<\s]*)\s*</version>",
+    re.DOTALL,
+)
+
+
+def _read_text(path: str, limit: int = 400_000) -> str:
+    """Read a text file defensively (returns '' on any error)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read(limit)
+    except OSError:
+        return ""
+
+
+def _detect_boot_version(root: str) -> tuple[str | None, str]:
+    """Best-effort Spring Boot version from build files. Returns (version|None, source)."""
+    for name in ("build.gradle.kts", "build.gradle"):
+        text = _read_text(os.path.join(root, name))
+        if text:
+            m = _BOOT_GRADLE_RE.search(text) or _BOOT_GRADLE_CLASSPATH_RE.search(text)
+            if m:
+                return m.group(1), name
+    props = _read_text(os.path.join(root, "gradle.properties"))
+    if props:
+        m = _BOOT_PROP_RE.search(props)
+        if m:
+            return m.group(1), "gradle.properties"
+    pom = _read_text(os.path.join(root, "pom.xml"))
+    if pom:
+        m = _BOOT_MAVEN_PARENT_RE.search(pom) or _BOOT_MAVEN_DEPS_RE.search(pom)
+        if m:
+            return m.group(1), "pom.xml"
+    return None, ""
+
+
+def _scan_imports(root: str, subdir: str, needles: tuple[str, ...],
+                  max_files: int = 400) -> dict:
+    """Count Java files under root/subdir containing each needle substring."""
+    counts = {n: 0 for n in needles}
+    base = os.path.join(root, *subdir.split("/"))
+    if not os.path.isdir(base):
+        return counts
+    seen = 0
+    for dirpath, _dirs, files in os.walk(base):
+        for fn in files:
+            if not fn.endswith(".java"):
+                continue
+            seen += 1
+            if seen > max_files:
+                return counts
+            text = _read_text(os.path.join(dirpath, fn), limit=60_000)
+            for n in needles:
+                if n in text:
+                    counts[n] += 1
+    return counts
+
+
+def _profile_from_version(bv: str | None) -> dict:
+    """Derive the idiom axes from a Boot version string (None => 'latest' 4.x assumption)."""
+    major = minor = 0
+    if bv:
+        parts = bv.split(".")
+        try:
+            major = int(parts[0])
+            minor = int(parts[1]) if len(parts) > 1 else 0
+        except ValueError:
+            major = minor = 0
+    if major == 0:
+        major = 4  # unknown -> assume latest; caller flags degraded
+    namespace = "javax" if major == 2 else "jakarta"
+    if major >= 4 or (major == 3 and minor >= 4):
+        mock, mock_import = ("MockitoBean",
+                             "org.springframework.test.context.bean.override.mockito.MockitoBean")
+    else:
+        mock, mock_import = ("MockBean",
+                             "org.springframework.boot.test.mock.mockito.MockBean")
+    junit_engine = "junit4" if (major == 2 and minor < 2) else "jupiter"
+    return {
+        "bootMajor": major,
+        "bootMinor": minor,
+        "namespace": namespace,
+        "junitEngine": junit_engine,
+        "mockAnnotation": mock,
+        "mockImport": mock_import,
+        "javaBaseline": 8 if major == 2 else 17,
+        "gradleTestMode": "useJUnit" if junit_engine == "junit4" else "useJUnitPlatform",
+    }
+
+
 def _run_subprocess(cmd: list[str], cwd: str) -> dict:
     """Run a subprocess with network-off env merge; return execution metadata."""
     env = dict(os.environ)
@@ -397,6 +509,84 @@ def detect_build_tool(root: str = ".") -> dict:
     Returns {status, buildTool, wrapper} or a BUILD_TOOL_UNDETECTED failure.
     """
     return _detect(os.path.abspath(root))
+
+
+@mcp.tool()
+def detect_spring_profile(root: str = ".") -> dict:
+    """Detect the target's Spring Boot version profile for version-aware test generation.
+
+    Reads build.gradle[.kts]/pom.xml/gradle.properties for the Boot version, scans
+    src/main for javax vs jakarta imports and src/test for the JUnit engine, then derives
+    namespace, junitEngine, mockAnnotation/mockImport, javaBaseline and gradleTestMode.
+    Supports Boot 2.0–4.x. Returns springProfile.degraded=true when the version cannot be
+    detected (caller should interview interactively or assume the latest profile + warn).
+    """
+    root = os.path.abspath(root)
+    if not os.path.isdir(root):
+        return {"status": "failed", "error": "PROJECT_ROOT_NOT_FOUND",
+                "message": f"directory not found: {root}"}
+
+    bv, bv_source = _detect_boot_version(root)
+    prof = _profile_from_version(bv)
+    notes: list[str] = []
+
+    # Namespace override from actual main-source imports (mixed-project defense).
+    main_ns = _scan_imports(root, "src/main/java", (
+        "import javax.persistence", "import jakarta.persistence",
+        "import javax.validation", "import jakarta.validation",
+        "import javax.servlet", "import jakarta.servlet",
+    ))
+    javax_hits = (main_ns["import javax.persistence"] + main_ns["import javax.validation"]
+                  + main_ns["import javax.servlet"])
+    jakarta_hits = (main_ns["import jakarta.persistence"] + main_ns["import jakarta.validation"]
+                    + main_ns["import jakarta.servlet"])
+    if javax_hits or jakarta_hits:
+        src_ns = "javax" if javax_hits >= jakarta_hits else "jakarta"
+        if src_ns != prof["namespace"]:
+            notes.append(f"namespace overridden by source imports: "
+                         f"{prof['namespace']} -> {src_ns} (javax={javax_hits}, jakarta={jakarta_hits})")
+            prof["namespace"] = src_ns
+
+    # JUnit engine override from existing tests; note vintage availability.
+    test_eng = _scan_imports(root, "src/test/java",
+                             ("import org.junit.jupiter", "import org.junit.Test", "@RunWith"))
+    build_text = (_read_text(os.path.join(root, "build.gradle.kts"))
+                  + _read_text(os.path.join(root, "build.gradle"))
+                  + _read_text(os.path.join(root, "pom.xml")))
+    jupiter_tests = test_eng["import org.junit.jupiter"]
+    junit4_tests = test_eng["import org.junit.Test"]
+    if jupiter_tests or junit4_tests:
+        src_engine = "jupiter" if jupiter_tests >= junit4_tests else "junit4"
+        if src_engine != prof["junitEngine"]:
+            notes.append(f"junitEngine overridden by existing tests: "
+                         f"{prof['junitEngine']} -> {src_engine} "
+                         f"(jupiter={jupiter_tests}, junit4={junit4_tests})")
+            prof["junitEngine"] = src_engine
+            prof["gradleTestMode"] = "useJUnit" if src_engine == "junit4" else "useJUnitPlatform"
+    if "junit-vintage" in build_text:
+        notes.append("junit-vintage-engine present: JUnit4 tests run alongside Jupiter")
+
+    degraded = bv is None
+    if degraded:
+        notes.append("Spring Boot version not detected from build files; profile assumes "
+                     "'latest' (Boot 4.x). Caller should interview (interactive) or warn (CI).")
+
+    return {
+        "status": "ok",
+        "springProfile": {
+            "bootVersion": bv,
+            "bootMajor": prof["bootMajor"],
+            "namespace": prof["namespace"],
+            "junitEngine": prof["junitEngine"],
+            "mockAnnotation": prof["mockAnnotation"],
+            "mockImport": prof["mockImport"],
+            "javaBaseline": prof["javaBaseline"],
+            "gradleTestMode": prof["gradleTestMode"],
+            "degraded": degraded,
+        },
+        "versionSource": bv_source,
+        "notes": notes,
+    }
 
 
 @mcp.tool()

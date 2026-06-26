@@ -5,7 +5,7 @@ description: Spring 테스트 하네스 실행 전 인터랙티브 인터뷰를 
 
 ## 목적
 
-사용자와 4항목 인터뷰(RESEARCH_NOTES §7)를 진행하여 `HarnessConfig` JSON을 생성한다. 생성된 `HarnessConfig`는 `full-pipeline` 및 개별 스킬(measure-coverage, mutation-test 등)의 입력으로 사용된다.
+먼저 대상의 **Spring Boot 버전 프로파일(Boot 2.0–4.x)을 감지/확정**(0.5단계, RESEARCH_NOTES §8)한 뒤, 사용자와 4항목 인터뷰(RESEARCH_NOTES §7)를 진행하여 `HarnessConfig` JSON을 생성한다. 생성된 `HarnessConfig`(`springProfile` 포함)는 `full-pipeline` 및 개별 스킬(measure-coverage, mutation-test 등)의 입력으로 사용된다.
 
 **인터랙티브 CLI 전용 주의**: `AskUserQuestion`은 대화형 Claude Code CLI에서만 의미가 있다. `claude -p` 또는 CI 환경에서는 인터뷰를 건너뛰고 입력된 `HarnessRequest` JSON의 값과 아래 기본값을 병합하여 `HarnessConfig`를 생성한다.
 
@@ -51,7 +51,43 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 
 ### 0단계: 모드 판별
 
-CI 모드 여부를 확인한다. CI 모드이면 5단계로 건너뛴다.
+CI 모드 여부를 확인한다. CI 모드이면 인터뷰 단계(1~4)는 건너뛰되, **0.5단계(Spring 프로파일 감지)는 항상 수행**한다.
+
+---
+
+### 0.5단계: Spring 버전 프로파일 감지 (항상 수행 — Boot 2.0–4.x 하위호환)
+
+테스트 관용구(네임스페이스·JUnit 엔진·Mock 애노테이션·Java 베이스라인)는 대상의 Spring Boot 버전에 따라 달라지므로, **인터뷰 전에 먼저 프로파일을 확정**한다. 근거·매트릭스: `[[../../RESEARCH_NOTES.md]]` §8, [references/version-compatibility.md](../../references/version-compatibility.md).
+
+```
+build-test-mcp.detect_spring_profile(root=projectRoot)
+→ springProfile { bootVersion, bootMajor, namespace, junitEngine, mockAnnotation, mockImport, javaBaseline, gradleTestMode, degraded }
+```
+
+- **감지 성공(`degraded:false`)**: `springProfile`을 그대로 `HarnessConfig`에 채택. `notes`(네임스페이스/엔진 override)는 `warnings`에 전달.
+- **감지 실패(`degraded:true`) + 대화형**: 아래 인터뷰로 사용자에게 직접 질문(사용자 결정사항: 미감지 시 인터뷰).
+
+```
+AskUserQuestion(
+  question="대상 프로젝트의 Spring Boot 메이저 버전을 선택하세요. (빌드 파일에서 자동 감지하지 못했습니다)",
+  options=["2.x (javax, Java 8)", "3.x (jakarta, Java 17)", "4.x (jakarta, 최신)", "모름 — 최신(4.x) 가정"]
+)
+```
+
+  - 2.x 선택 시 후속 질문으로 JUnit 엔진을 확정한다(2.0–2.1은 기본 JUnit4):
+
+```
+AskUserQuestion(
+  question="이 프로젝트의 테스트는 어떤 JUnit을 사용하나요?",
+  options=["JUnit 5 (Jupiter, @Test/@DisplayName)", "JUnit 4 (@RunWith(SpringRunner.class)/org.junit.Test)", "모름 — 기존 테스트/빌드로 추정"]
+)
+```
+
+  선택 결과로 `springProfile`을 구성한다: 2.x→`namespace=javax, mockAnnotation=MockBean, javaBaseline=8`; 3.0–3.3→`MockBean`; 3.4+/4.x→`MockitoBean, jakarta, java 17`. (정확한 import·게이트는 version-compatibility.md를 따른다.)
+
+- **감지 실패 + CI**: `springProfile`을 latest(4.x: jakarta/jupiter/MockitoBean/Java17)로 가정하고 `warnings`에 "Spring 버전 미감지 — 최신(4.x) 프로파일 가정. 부정확하면 HarnessRequest.springVersion 명시 필요" 기록.
+
+확정된 `springProfile`은 5단계 `HarnessConfig`에 포함되어 generate-scenarios/generate-tests/measure-coverage 전 단계로 전파된다.
 
 ---
 
@@ -197,8 +233,19 @@ AskUserQuestion(
   "buildTool": "<입력값 또는 미지정>",
   "junitPolicy": "jupiter-style",
   "testScope": "mixed",
-  "javaVersion": "<입력값 또는 미지정>",
-  "springVersion": "<입력값 또는 미지정>",
+  "javaVersion": "<입력값 또는 springProfile.javaBaseline>",
+  "springVersion": "<입력값 또는 springProfile.bootVersion>",
+  "springProfile": {
+    "bootVersion": "<감지/인터뷰 결과>",
+    "bootMajor": 4,
+    "namespace": "jakarta",
+    "junitEngine": "jupiter",
+    "mockAnnotation": "MockitoBean",
+    "mockImport": "org.springframework.test.context.bean.override.mockito.MockitoBean",
+    "javaBaseline": 17,
+    "gradleTestMode": "useJUnitPlatform",
+    "degraded": false
+  },
   "stylePolicy": "google-java",
   "lspAvailable": false,
   "maxRepairRetries": 2,
@@ -298,8 +345,19 @@ description: 주문 도메인 특화 테스트 생성 및 커버리지 검증을
     "buildTool": "미지정",
     "junitPolicy": "jupiter-style",
     "testScope": "mixed",
-    "javaVersion": "미지정",
-    "springVersion": "미지정",
+    "javaVersion": "17",
+    "springVersion": "4.1.0",
+    "springProfile": {
+      "bootVersion": "4.1.0",
+      "bootMajor": 4,
+      "namespace": "jakarta",
+      "junitEngine": "jupiter",
+      "mockAnnotation": "MockitoBean",
+      "mockImport": "org.springframework.test.context.bean.override.mockito.MockitoBean",
+      "javaBaseline": 17,
+      "gradleTestMode": "useJUnitPlatform",
+      "degraded": false
+    },
     "stylePolicy": "google-java",
     "lspAvailable": false,
     "maxRepairRetries": 2,
