@@ -149,6 +149,20 @@ disallowedTools: Bash
 - 단위·슬라이스 테스트: `<Target>Test` (예: `OrderServiceTest`)
 - 통합 테스트(Failsafe): `<Target>IT` (예: `OrderServiceIT`)
 
+### 메서드 네이밍 — scenarioRef 포함 (필수)
+- 형식: **`<scenarioRefSlug>_<행위 서술>`**. `scenarioRefSlug`는 scenarioRef를 소문자화하고 영숫자만 남긴 값(`SC-001` → `sc001`).
+- 예: scenarioRef `SC-001` → `void sc001_listActiveOrders_returnsOkJson()`.
+- 행위 서술 부분은 의도를 드러내는 camelCase/snake 혼용 허용. 매핑된 criteriaRef는 javadoc에 함께 기록.
+- 동일 scenarioRef가 파라미터화로 여러 케이스를 커버하면 단일 `@ParameterizedTest` 메서드에 ref 접두사를 유지한다.
+
+### BDD 본문 구조 — Given/When/Then (필수)
+- 각 테스트 본문을 **`// given` / `// when` / `// then` 3단 섹션**으로 명시 구성한다.
+  - `// given`: 입력·전제·협력 객체 stub(BDDMockito `given(...).willReturn()/willThrow()`).
+  - `// when`: 검증 대상 **단일 행위** 호출. 결과(반환값/`ResultActions`)를 변수로 캡처한다.
+  - `// then`: 반환·상태변화·예외에 대한 단언.
+- 예외 검증처럼 행위와 단언이 분리 불가한 경우 `// when & then`(`assertThrows`/`assertThatThrownBy`)으로 병합 허용.
+- 시나리오의 `given`/`when`/`then` 필드를 본문 각 섹션에 1:1로 반영한다.
+
 ### 패키지 위치
 - 대상 클래스와 동일 패키지의 `src/test/java`
 - 예: `com.example.order.OrderService` → `src/test/java/com/example/order/OrderServiceTest.java`
@@ -211,7 +225,7 @@ junit4 프로파일이면: 슬라이스/컨텍스트 테스트에 `@RunWith(Spri
 
 ## 핵심 지시문
 
-컨트롤러는 `@WebMvcTest` + `MockMvc`, 협력 객체는 **`springProfile.mockAnnotation`**(`@MockBean`/`@MockitoBean`)으로 작성하라. 네임스페이스(javax/jakarta)와 JUnit 엔진(junit4/jupiter)도 `springProfile`을 따른다 — 입력에 없으면 `detect_spring_profile`로 먼저 감지하라. Google Java Style을 따르고 import를 완결하라. 실제 네트워크 호출·`Thread.sleep`·broad catch를 금지한다. 파일 생성 전 `repo-ast-mcp`로 대상 클래스 시그니처를 반드시 확인하라. unresolved 시그니처가 있는 시나리오는 생성을 보류하고 `warnings`에 기록한다.
+컨트롤러는 `@WebMvcTest` + `MockMvc`, 협력 객체는 **`springProfile.mockAnnotation`**(`@MockBean`/`@MockitoBean`)으로 작성하라. 네임스페이스(javax/jakarta)와 JUnit 엔진(junit4/jupiter)도 `springProfile`을 따른다 — 입력에 없으면 `detect_spring_profile`로 먼저 감지하라. **각 테스트 메서드명은 `<scenarioRefSlug>_<행위>` 형식으로 scenarioRef를 포함하고, 본문은 `// given`/`// when`/`// then` 3단 BDD 구조로 작성하라**(시나리오의 given/when/then 필드를 1:1 반영). Google Java Style을 따르고 import를 완결하라. 실제 네트워크 호출·`Thread.sleep`·broad catch를 금지한다. 파일 생성 전 `repo-ast-mcp`로 대상 클래스 시그니처를 반드시 확인하라. unresolved 시그니처가 있는 시나리오는 생성을 보류하고 `warnings`에 기록한다.
 
 ---
 

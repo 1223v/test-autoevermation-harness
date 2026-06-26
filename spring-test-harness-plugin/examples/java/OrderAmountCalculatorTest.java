@@ -40,12 +40,15 @@ class OrderAmountCalculatorTest {
     "99999, 33,     66999",
   })
   @DisplayName("정상 할인율 범위 내 금액 계산이 기대값과 일치한다")
-  void applyDiscount_validRate_returnsExpectedAmount(
+  void sc004_applyDiscount_validRate_returnsExpectedAmount(
       long originalAmount, double discountRatePercent, long expectedAmount) {
+    // given
     Money original = Money.of(new BigDecimal(originalAmount), "KRW");
 
+    // when
     Money result = calculator.applyDiscount(original, discountRatePercent);
 
+    // then
     assertThat(result.getAmount()).isEqualByComparingTo(new BigDecimal(expectedAmount));
     assertThat(result.getCurrency()).isEqualTo("KRW");
   }
@@ -59,9 +62,11 @@ class OrderAmountCalculatorTest {
     "-100",
   })
   @DisplayName("허용 범위를 벗어난 할인율은 IllegalArgumentException을 던진다")
-  void applyDiscount_outOfRangeRate_throwsIllegalArgumentException(double invalidRate) {
+  void sc004_applyDiscount_outOfRangeRate_throwsIllegalArgumentException(double invalidRate) {
+    // given
     Money original = Money.of(new BigDecimal("10000"), "KRW");
 
+    // when & then (예외 검증 — 행위와 단언 병합)
     assertThatThrownBy(() -> calculator.applyDiscount(original, invalidRate))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("할인율은 0 이상 100 이하여야 합니다");

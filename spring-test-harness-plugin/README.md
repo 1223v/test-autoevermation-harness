@@ -129,6 +129,16 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"
 
 ---
 
+## 테스트 생성 컨벤션 (BDD)
+
+- **시나리오 = BDD 구조**: 각 시나리오는 `given`(전제·입력 배열) / `when`(검증 대상 단일 행위) /
+  `then`(기대 결과·단언 배열)로 구조화된다. 스펙의 acceptance criteria(Given/When/Then 정규화)에서 파생.
+- **메서드명에 scenarioRef 포함**: 테스트 메서드는 `<scenarioRefSlug>_<행위>` 형식(`SC-001` → `sc001_...`).
+- **본문 3단 구조**: `// given` → `// when`(단일 행위, 결과 캡처) → `// then`(단언). 예외 검증은
+  `// when & then` 병합 허용. 협력 stub은 BDDMockito `given().willReturn()/willThrow()`.
+- **설명**: jupiter 프로파일은 `@DisplayName`(한국어 행위 서술), junit4 프로파일은 서술적 메서드명으로 대체.
+- TDD(red-green) 워크플로는 제공하지 않으며, 기존 코드 대상 spec 기반 사후 생성 + BDD 표현에 집중한다.
+
 ## 보안 기본값
 
 - **네트워크**: 기본 차단. 명시적으로 허용한 도메인만 접근 가능.

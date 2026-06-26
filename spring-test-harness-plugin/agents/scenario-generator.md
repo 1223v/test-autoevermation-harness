@@ -89,13 +89,27 @@ disallowedTools: Write, Edit, Bash
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "title", "type", "target", "priority"],
+        "required": ["id", "title", "type", "target", "priority", "given", "when", "then"],
         "properties": {
           "id": { "type": "string" },
           "title": { "type": "string" },
           "type": { "enum": ["unit", "slice", "integration"] },
           "target": { "type": "string", "description": "대상 FQCN" },
           "priority": { "enum": ["P0", "P1", "P2"] },
+          "given": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "BDD Given — 전제/입력 상태 (criteriaRefs의 Given을 시나리오 단위로 구체화)"
+          },
+          "when": {
+            "type": "string",
+            "description": "BDD When — 검증 대상 행위/트리거 (호출 메서드·요청)"
+          },
+          "then": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "BDD Then — 기대 결과/단언 (반환·상태변화·예외)"
+          },
           "criteriaRefs": {
             "type": "array",
             "items": { "type": "string" },
@@ -169,7 +183,7 @@ disallowedTools: Write, Edit, Bash
 
 ## 핵심 지시문
 
-acceptance criteria와 `testSeams`를 매핑해 최소 시나리오 집합을 만들라. unit → slice → integration 순으로 우선순위를 부여하고 중복은 병합하라. integration 타입을 선택할 때는 반드시 `slowReason`을 기재하라. 동치류·경계값이 3개 이상인 시나리오는 `parameterized: true`로 표시하라. `uncoveredCriteria`가 존재하면 `warnings`에 기록하고 `nextActions`에 수동 시나리오 추가를 권고하라.
+acceptance criteria와 `testSeams`를 매핑해 최소 시나리오 집합을 만들라. **각 시나리오는 BDD Given/When/Then으로 구조화한다** — `given`(전제/입력 상태), `when`(검증 대상 행위 1개), `then`(기대 결과/단언)을 반드시 채운다. criteriaRefs의 Given/When/Then을 시나리오 단위로 구체화하되, 한 시나리오의 `when`은 단일 행위로 유지하라(복합 행위는 분리). unit → slice → integration 순으로 우선순위를 부여하고 중복은 병합하라. integration 타입을 선택할 때는 반드시 `slowReason`을 기재하라. 동치류·경계값이 3개 이상인 시나리오는 `parameterized: true`로 표시하라. `uncoveredCriteria`가 존재하면 `warnings`에 기록하고 `nextActions`에 수동 시나리오 추가를 권고하라.
 
 ---
 

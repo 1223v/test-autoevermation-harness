@@ -18,13 +18,12 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * @WebMvcTest slice: OrderController 계층만 로드. Spring Security 자동설정을 비활성화하고
- * OrderQueryService를 @MockitoBean으로 대체한다.
+ * @WebMvcTest slice: OrderController 계층만 로드. 협력 빈은 @MockitoBean으로 대체.
  *
- * <p>scenarioRef: SC-001(주문 목록 조회 - 정상), SC-002(주문 목록 조회 - 빈 결과)
- * criteriaRef: AC-ORDER-001
+ * <p>메서드명은 scenarioRef(sc001..)를 접두로 포함하고, 본문은 BDD given/when/then 3단으로 구성한다.
  */
 @WebMvcTest(OrderController.class)
 @TestPropertySource(
@@ -38,10 +37,11 @@ class OrderControllerTest {
 
   @MockitoBean private OrderQueryService orderQueryService;
 
+  /** scenarioRef: SC-001 / criteriaRef: AC-ORDER-001 */
   @Test
-  @DisplayName("활성 주문 목록 조회 - 단건 응답이 JSON 구조를 준수한다")
-  void listActiveOrders_singleOrder_returnsCorrectJsonStructure() throws Exception {
-    // scenarioRef: SC-001
+  @DisplayName("활성 주문 단건 조회 - 응답 JSON 구조를 준수한다")
+  void sc001_listActiveOrders_returnsOkJsonStructure() throws Exception {
+    // given
     Order order =
         Order.builder()
             .id(1L)
@@ -50,11 +50,14 @@ class OrderControllerTest {
             .status(OrderStatus.CONFIRMED)
             .placedAt(Instant.parse("2026-06-01T09:00:00Z"))
             .build();
-
     given(orderQueryService.findActiveOrders()).willReturn(List.of(order));
 
-    mockMvc
-        .perform(get("/api/orders/active").accept("application/json"))
+    // when
+    ResultActions result =
+        mockMvc.perform(get("/api/orders/active").accept("application/json"));
+
+    // then
+    result
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.orders").isArray())
         .andExpect(jsonPath("$.orders.length()").value(1))
@@ -64,28 +67,38 @@ class OrderControllerTest {
         .andExpect(jsonPath("$.orders[0].totalAmount.currency").value("KRW"));
   }
 
+  /** scenarioRef: SC-002 / criteriaRef: AC-ORDER-001 */
   @Test
   @DisplayName("활성 주문이 없을 때 - 빈 배열과 200 OK를 반환한다")
-  void listActiveOrders_noOrders_returnsEmptyArray() throws Exception {
-    // scenarioRef: SC-002
+  void sc002_listActiveOrders_returnsEmptyArray() throws Exception {
+    // given
     given(orderQueryService.findActiveOrders()).willReturn(List.of());
 
-    mockMvc
-        .perform(get("/api/orders/active").accept("application/json"))
+    // when
+    ResultActions result =
+        mockMvc.perform(get("/api/orders/active").accept("application/json"));
+
+    // then
+    result
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.orders").isArray())
         .andExpect(jsonPath("$.orders.length()").value(0));
   }
 
+  /** scenarioRef: SC-003 / criteriaRef: AC-ORDER-003 */
   @Test
   @DisplayName("존재하지 않는 주문 ID 조회 - 404 Not Found를 반환한다")
-  void getOrderById_notFound_returns404() throws Exception {
-    // scenarioRef: SC-003
+  void sc003_getOrderById_returns404() throws Exception {
+    // given
     given(orderQueryService.findById(999L))
         .willThrow(new OrderNotFoundException("Order 999 not found"));
 
-    mockMvc
-        .perform(get("/api/orders/999").accept("application/json"))
+    // when
+    ResultActions result =
+        mockMvc.perform(get("/api/orders/999").accept("application/json"));
+
+    // then
+    result
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.errorCode").value("ORDER_NOT_FOUND"));
   }

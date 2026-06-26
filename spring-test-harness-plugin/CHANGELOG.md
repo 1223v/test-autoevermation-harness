@@ -9,6 +9,32 @@
 
 ---
 
+## [0.4.0] - 2026-06-26
+
+### Added
+
+- **BDD 구조화(시나리오 + 테스트 본문)**: 시나리오 객체에 `given`(string[]) / `when`(string) /
+  `then`(string[]) 필드를 추가하고 필수화(`scenario-generator`, `generate-scenarios`). 생성 테스트
+  본문은 **`// given` → `// when`(단일 행위, 결과 캡처) → `// then`** 3단 섹션으로 작성한다(예외 검증은
+  `// when & then` 병합 허용). 협력 stub은 BDDMockito `given().willReturn()/willThrow()`.
+- **메서드명에 scenarioRef 포함**: 테스트 메서드명을 **`<scenarioRefSlug>_<행위>`** 형식으로 생성
+  (`SC-001` → `sc001_...`). criteriaRef/scenarioRef는 javadoc에도 계속 기록해 추적성 유지.
+
+### Changed
+
+- `test-code-generator`·`generate-tests`·`full-pipeline`에 메서드 네이밍 규칙과 BDD 본문 구조 규칙 추가.
+- 예제 동기화: `examples/java/OrderControllerTest.java`(+boot2 jupiter/junit4), `OrderAmountCalculatorTest.java`,
+  `examples/json/scenario-example.json`(given/then 배열화)와 `sample-spring-boot2`의 생성 테스트를
+  scenarioRef 접두 + given/when/then 구조로 갱신. **Boot 2.7.18 실 빌드 재검증: Tests run 9, Failures 0**.
+- `plugin.json`·`marketplace.json` 0.3.0 → 0.4.0.
+
+### Notes
+
+- TDD(red-green-refactor) 모드는 이번 범위에서 도입하지 않음(사용자 결정). 본 하네스는 기존 코드 대상
+  spec/characterization 기반 사후 테스트 생성이며, BDD 표현(Given/When/Then)만 강화했다.
+
+---
+
 ## [0.3.0] - 2026-06-26
 
 ### Added

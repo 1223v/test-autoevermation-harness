@@ -89,6 +89,8 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 
    코드 생성 규칙:
    - 클래스 네이밍: <Target>Test (단위/슬라이스), <Target>IT (통합/Failsafe).
+   - 메서드 네이밍(필수): <scenarioRefSlug>_<행위> 형식으로 scenarioRef 포함. scenarioRefSlug=ref 소문자+영숫자만(SC-001→sc001). 예: sc001_listActiveOrders_returnsOkJson.
+   - BDD 본문(필수): // given(stub/입력) → // when(단일 행위 호출, 결과 캡처) → // then(단언) 3단 섹션. 시나리오의 given/when/then 필드를 1:1 반영. 예외 검증은 // when & then(assertThrows/assertThatThrownBy) 병합 허용. 협력 stub은 BDDMockito given().willReturn()/willThrow().
    - 패키지: 대상과 동일 패키지의 src/test/java.
    - 컨트롤러 → @WebMvcTest + MockMvc + 협력 빈은 springProfile.mockAnnotation.
    - JPA 레포 → @DataJpaTest (junit4면 @RunWith(SpringRunner.class) 동반).

@@ -59,6 +59,7 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
    지시:
    - spec-doc-mcp의 `search_requirements`와 repo-ast-mcp의 `extract_test_targets`를 보조로 활용할 수 있다.
    - acceptance criteria(criteriaRefs)와 testSeams를 매핑해 최소 시나리오 집합을 만들라.
+   - **각 시나리오를 BDD Given/When/Then으로 구조화하라**: `given`(전제/입력 상태 배열), `when`(검증 대상 단일 행위), `then`(기대 결과/단언 배열)을 필수로 채운다. 한 시나리오의 `when`은 단일 행위로 유지(복합 행위는 별도 시나리오로 분리).
    - 시나리오 유형 우선순위: unit(P0 우선) → slice(P1) → integration(P2, 사유 명시 필수).
    - 동치류/경계값이 3개 이상인 경우 ParameterizedTest 시나리오로 표기하라.
    - 중복 시나리오는 병합하고 병합 사유를 summary에 기록하라.
@@ -116,6 +117,9 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
       "type": "unit",
       "target": "com.example.order.OrderService",
       "priority": "P0",
+      "given": ["재고가 0인 상품", "주문 수량 1"],
+      "when": "createOrder(상품, 수량) 호출",
+      "then": ["OutOfStockException 발생", "주문이 저장되지 않음"],
       "criteriaRefs": ["AC-001"],
       "seamRefs": ["OrderRepository — mock 대상"],
       "isParameterized": false,
@@ -127,6 +131,9 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
       "type": "slice",
       "target": "com.example.order.OrderController",
       "priority": "P1",
+      "given": ["유효한 주문 생성 요청 본문", "OrderService가 생성된 주문을 반환하도록 stub"],
+      "when": "POST /api/orders 요청",
+      "then": ["201 Created", "응답 JSON의 orderId가 존재"],
       "criteriaRefs": ["AC-002"],
       "seamRefs": ["OrderService — Mock(@MockBean/@MockitoBean, 프로파일)"],
       "isParameterized": false,
@@ -138,6 +145,9 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
       "type": "integration",
       "target": "com.example.order.OrderService",
       "priority": "P2",
+      "given": ["승인된 주문", "결제 클라이언트가 성공 응답"],
+      "when": "confirmAndPay(주문) 호출",
+      "then": ["주문 상태가 PAID로 전이", "결제 클라이언트가 1회 호출됨"],
       "criteriaRefs": ["AC-003"],
       "seamRefs": [],
       "isParameterized": false,
