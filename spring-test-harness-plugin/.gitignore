@@ -1,0 +1,22 @@
+# OMC operational state (not part of the plugin)
+.omc/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# JavaParser CLI build output (rebuild with: mvn -q -DskipTests package)
+mcp/javaparser-cli/target/
+mcp/javaparser-cli/dependency-reduced-pom.xml
+
+# JDT LS workspace
+.jdt-workspace/
+
+# Build/coverage/mutation outputs (generated in target projects)
+build/
+target/
+
+# Pipeline intermediate artifacts
+_workspace/
+_workspace_*/

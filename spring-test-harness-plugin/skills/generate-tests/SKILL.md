@@ -1,0 +1,176 @@
+---
+name: generate-tests
+description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기반의 컴파일 가능한 테스트 코드를 작성하고 빌드 설정 변경안을 제안한다. "테스트 코드 생성", "테스트 작성", "JUnit 생성"처럼 테스트 파일 생성이 필요한 상황에서 자동 호출된다.
+---
+
+## 목적
+
+`generate-scenarios` 결과(ScenarioSet)를 받아 각 시나리오에 대응하는 테스트 클래스·메서드를 작성한다. 컨트롤러는 `@WebMvcTest + MockMvc`, JPA 레포는 `@DataJpaTest`, 서비스/순수 로직은 스프링 컨텍스트 없는 단위 테스트, 다계층 통합은 `@SpringBootTest`(최소화) 방식을 따른다. 협력 빈은 `@MockitoBean`으로 대체하고, Google Java Style을 준수하며 import를 완결한다. 결과 파일은 `run-tests` 스킬로 전달된다.
+
+---
+
+## 자동 호출 조건
+
+- 사용자가 "테스트 코드 생성", "테스트 작성", "JUnit 생성", "테스트 파일 만들기"와 같은 키워드를 사용할 때
+- `full-pipeline` 스킬의 5단계(시나리오 확정 후)에서 순차 호출될 때
+
+## 수동 호출 예시
+
+```
+/spring-test-harness:generate-tests
+```
+
+입력 JSON을 별도로 전달하는 경우:
+
+```json
+{
+  "scenarios": [...],
+  "buildTool": "gradle",
+  "junitPolicy": "jupiter-style",
+  "stylePolicy": "google-java"
+}
+```
+
+---
+
+## 입력
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|---|---|---|---|---|
+| `scenarios` | `Scenario[]` | 예 | — | `generate-scenarios` 출력의 `scenarios` 배열 |
+| `buildTool` | `string` | 아니오 | `"미지정"` → auto-detect | `gradle` 또는 `maven` |
+| `junitPolicy` | `string` | 아니오 | `"jupiter-style"` | `jupiter-style`(BOM 위임) 또는 `strict-5x`(정책 예외, 명시 필요) |
+| `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
+| `astResult` | `AstAnalysisResult` | 아니오 | `null` | 메서드 시그니처 확인용 |
+
+`junitPolicy: "strict-5x"` 사용 시 빌드 파일에 명시적 version pin과 CHANGELOG 경고를 `buildChanges`에 포함한다.
+
+---
+
+## 단계별 절차
+
+1. **입력 검증**
+   - `scenarios`가 비어 있으면 `status: "failed"`, `errors: ["시나리오 없음 — generate-scenarios 실행 필요"]` 반환.
+   - `buildTool`이 `"미지정"`이면 `build-test-mcp.detect_build_tool`로 auto-detect.
+   - `junitPolicy: "strict-5x"` 감지 시 `warnings`에 "BOM 기본값(Jupiter 6.0.x)과의 충돌 주의, 명시적 version pin 필요" 추가.
+
+2. **subagent 호출**
+
+   ```
+   Task(
+     subagent_type="test-code-generator",
+     model="inherit",
+     prompt="""
+   다음 시나리오 집합으로 테스트 코드를 작성하라.
+
+   입력:
+   {
+     "scenarios": <scenarios>,
+     "buildTool": <buildTool>,
+     "junitPolicy": <junitPolicy>,
+     "stylePolicy": <stylePolicy>,
+     "astResult": <astResult>
+   }
+
+   코드 생성 규칙:
+   - 클래스 네이밍: <Target>Test (단위/슬라이스), <Target>IT (통합/Failsafe).
+   - 패키지: 대상과 동일 패키지의 src/test/java.
+   - 컨트롤러 → @WebMvcTest + MockMvc + @MockitoBean 협력 빈.
+   - JPA 레포 → @DataJpaTest.
+   - 서비스/순수 로직 → 스프링 컨텍스트 없는 단위 테스트.
+   - 다계층 통합 → @SpringBootTest (꼭 필요할 때만).
+   - 협력 빈 대체: @MockitoBean (구 @MockBean 사용 금지).
+   - fixture: 테스트 데이터 빌더(<Type>Fixtures/<Type>Builder) 우선, 매직값 금지.
+   - 동치류/경계값 3개 이상 → @ParameterizedTest.
+   - @DisplayName: 한국어 행위 서술 권장.
+   - 각 테스트 메서드 javadoc에 scenarioRef/criteriaRef 기록.
+   - Google Java Style 준수, import 완결.
+   - 실제 네트워크/Thread.sleep/broad catch 금지.
+   - junitPolicy가 strict-5x이면 빌드 파일에 명시적 version pin 추가.
+   - astResult에서 메서드 시그니처를 확인해 unresolved 시그니처는 생성 보류 + warnings 기록.
+   - repo-ast-mcp로 시그니처를 재확인하고, build-test-mcp로 의존성/스타일을 검증하라.
+   - 결과를 아래 JSON 스키마에 맞게 반환하라.
+
+   출력 스키마:
+   {
+     "status": "ok" | "partial" | "failed",
+     "summary": string,
+     "files": [
+       {
+         "path": string,
+         "content": string,
+         "scenarioRef": string,
+         "testClass": string
+       }
+     ],
+     "buildChanges": [string],
+     "rationale": [string],
+     "evidence": [string],
+     "warnings": [string],
+     "errors": [string],
+     "nextActions": [string]
+   }
+   """
+   )
+   ```
+
+3. **결과 검증**
+   - `files`가 비어 있으면 `status: "failed"`.
+   - `warnings`에 "UNRESOLVED_SIGNATURE" 항목이 있으면 해당 시나리오는 생성 보류로 표기하고 `nextActions`에 AST 보강 안내 추가.
+   - `buildChanges`에 `strict-5x` pin이 포함된 경우 `warnings`에 버전 충돌 위험 문구 추가.
+
+4. **파일 쓰기**
+   - `files[]`의 각 항목을 `path` 경로에 Write한다.
+   - 이미 존재하는 파일은 덮어쓰기 전 사용자에게 확인을 요청한다.
+
+5. **결과 반환**
+   - `TestGenResult` JSON(파일 목록 + buildChanges)을 메인 세션으로 반환한다.
+
+---
+
+## 출력 (TestGenResult)
+
+```json
+{
+  "status": "ok",
+  "summary": "3개 테스트 파일 생성 완료",
+  "files": [
+    {
+      "path": "src/test/java/com/example/order/OrderServiceTest.java",
+      "content": "...",
+      "scenarioRef": "SC-001",
+      "testClass": "com.example.order.OrderServiceTest"
+    },
+    {
+      "path": "src/test/java/com/example/order/OrderControllerTest.java",
+      "content": "...",
+      "scenarioRef": "SC-002",
+      "testClass": "com.example.order.OrderControllerTest"
+    }
+  ],
+  "buildChanges": [
+    "build.gradle.kts: useJUnitPlatform() 확인, testLogging 추가"
+  ],
+  "rationale": [
+    "SC-001: 외부 DB mock으로 단위 테스트 가능, 스프링 컨텍스트 불필요",
+    "SC-002: 컨트롤러 요청/응답 검증은 @WebMvcTest 슬라이스가 최적"
+  ],
+  "evidence": [],
+  "warnings": [],
+  "errors": [],
+  "nextActions": []
+}
+```
+
+---
+
+## 실패 처리
+
+| 오류 코드 | 발생 조건 | 처리 방식 |
+|---|---|---|
+| `UNRESOLVED_SIGNATURE` | astResult에 미해석 시그니처 | 해당 시나리오 생성 보류 + `warnings` 기록 |
+| `scenarios` 비어 있음 | 입력 없음 | `status: "failed"`, `generate-scenarios` 실행 안내 |
+| `BUILD_TOOL_UNDETECTED` | buildTool auto-detect 실패 | `warnings` 기록 후 기본 Gradle 가정으로 진행 |
+| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+
+보안: 파일 쓰기(Write/Edit) 외 실행(Bash) 권한 없음. 생성 코드에 실제 네트워크/Thread.sleep/broad catch 포함 금지.

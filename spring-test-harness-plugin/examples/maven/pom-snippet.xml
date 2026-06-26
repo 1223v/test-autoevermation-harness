@@ -1,0 +1,155 @@
+<!-- Maven build 설정 스니펫 (Spring Boot 4.1.0 / Java 17 / JUnit Platform)
+     전체 pom.xml에서 <build> 블록을 이 내용으로 교체하거나 병합한다.
+
+     주의: 통합 테스트(*IT.java / *ITCase.java)는 maven-surefire-plugin이 아닌
+     maven-failsafe-plugin으로 실행해야 한다. Failsafe 설정은 이 스니펫 하단 주석 참조.
+-->
+<build>
+  <plugins>
+
+    <!-- Java 17 컴파일러 설정
+         --release 17: 소스·타깃·부트스트랩 클래스패스를 Java 17로 한번에 고정.
+         -parameters: Spring @RequestParam 등 파라미터 이름 리플렉션에 필요. -->
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-compiler-plugin</artifactId>
+      <!-- 버전은 Spring Boot BOM(io.spring.dependency-management)이 관리 -->
+      <configuration>
+        <release>17</release>
+        <compilerArgs>
+          <arg>-parameters</arg>
+        </compilerArgs>
+      </configuration>
+    </plugin>
+
+    <!-- Surefire: 단위·슬라이스 테스트 (JUnit Platform)
+         통합 테스트(*IT)는 Failsafe로 분리하여 verify phase에서 실행한다. -->
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-surefire-plugin</artifactId>
+      <!-- 버전은 Spring Boot BOM이 관리; JUnit Platform 지원은 2.22.0+ -->
+      <configuration>
+        <!-- JUnit XML 리포트 출력 경로: CI artifact 업로드 경로와 일치 -->
+        <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
+
+        <!-- 보수적 재실행: flaky 탐지용. 0으로 두면 재실행 비활성화.
+             주의: 재실행이 잦으면 flaky를 숨길 수 있으므로 1 이하로 유지 권장. -->
+        <rerunFailingTestsCount>1</rerunFailingTestsCount>
+
+        <!-- JUnit Platform 활성화 -->
+        <includes>
+          <include>**/*Test.java</include>
+          <include>**/*Tests.java</include>
+        </includes>
+
+        <!-- 타임존 고정으로 날짜 관련 flaky 방지 -->
+        <systemPropertyVariables>
+          <user.timezone>UTC</user.timezone>
+        </systemPropertyVariables>
+
+        <!-- 실패 시 전체 스택 출력 -->
+        <trimStackTrace>false</trimStackTrace>
+      </configuration>
+    </plugin>
+
+    <!-- JaCoCo 커버리지 게이트 (RESEARCH_NOTES §3, 0.8.12)
+         prepare-agent → test → report → check(rule 위반 시 빌드 실패) -->
+    <plugin>
+      <groupId>org.jacoco</groupId>
+      <artifactId>jacoco-maven-plugin</artifactId>
+      <version>0.8.12</version>
+      <configuration>
+        <!-- near-100% 게이트 제외 allowlist (RESEARCH_NOTES §6) -->
+        <excludes>
+          <exclude>**/*Application*</exclude>
+          <exclude>**/config/**</exclude>
+          <exclude>**/dto/**</exclude>
+          <exclude>**/generated/**</exclude>
+        </excludes>
+      </configuration>
+      <executions>
+        <execution>
+          <id>prepare-agent</id>
+          <goals><goal>prepare-agent</goal></goals>
+        </execution>
+        <execution>
+          <id>report</id>
+          <phase>test</phase>
+          <goals><goal>report</goal></goals>
+          <!-- XML 리포트: target/site/jacoco/jacoco.xml → parse_jacoco_report 소비 -->
+        </execution>
+        <execution>
+          <id>check</id>
+          <goals><goal>check</goal></goals>
+          <configuration>
+            <rules>
+              <rule>
+                <element>BUNDLE</element>
+                <limits>
+                  <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.95</minimum></limit>
+                  <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.90</minimum></limit>
+                  <limit><counter>METHOD</counter><value>COVEREDRATIO</value><minimum>0.95</minimum></limit>
+                  <limit><counter>CLASS</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                </limits>
+              </rule>
+            </rules>
+          </configuration>
+        </execution>
+      </executions>
+    </plugin>
+
+    <!-- PITest 뮤테이션 (RESEARCH_NOTES §4); 실행: mvn -DwithHistory test-compile org.pitest:pitest-maven:mutationCoverage -->
+    <plugin>
+      <groupId>org.pitest</groupId>
+      <artifactId>pitest-maven</artifactId>
+      <version>1.19.0</version>
+      <dependencies>
+        <!-- JUnit5 지원 (pitest-junit5-plugin 1.0.0+) -->
+        <dependency>
+          <groupId>org.pitest</groupId>
+          <artifactId>pitest-junit5-plugin</artifactId>
+          <version>1.2.1</version>
+        </dependency>
+      </dependencies>
+      <configuration>
+        <targetClasses><param>com.example.*</param></targetClasses>
+        <targetTests><param>com.example.*Test</param></targetTests>
+        <excludedClasses>
+          <param>com.example.*Application</param>
+          <param>com.example.config.*</param>
+          <param>com.example.*.dto.*</param>
+        </excludedClasses>
+        <mutators><mutator>DEFAULTS</mutator></mutators>
+        <mutationThreshold>80</mutationThreshold>
+        <threads>2</threads>
+        <timestampedReports>false</timestampedReports>
+        <!-- 리포트: target/pit-reports/ → parse_pitest_report 소비 -->
+      </configuration>
+    </plugin>
+
+  </plugins>
+</build>
+
+<!--
+  통합 테스트는 maven-failsafe-plugin으로 분리:
+
+  <plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-failsafe-plugin</artifactId>
+    <executions>
+      <execution>
+        <goals>
+          <goal>integration-test</goal>
+          <goal>verify</goal>
+        </goals>
+      </execution>
+    </executions>
+    <configuration>
+      <includes>
+        <include>**/*IT.java</include>
+        <include>**/*ITCase.java</include>
+      </includes>
+      <reportsDirectory>${project.build.directory}/failsafe-reports</reportsDirectory>
+    </configuration>
+  </plugin>
+-->

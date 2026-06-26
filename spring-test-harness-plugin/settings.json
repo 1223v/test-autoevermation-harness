@@ -1,0 +1,28 @@
+{
+  "//": "프로젝트에 적용할 권장 권한/보안 기본값. 네트워크 차단, 생성/벤더/시크릿 read deny, 타깃 테스트만 허용.",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash(./gradlew test --tests *)",
+      "Bash(mvn -B test -Dtest=*)",
+      "Bash(./scripts/detect-build-tool.sh)"
+    ],
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/*.pem)",
+      "Read(./**/secrets/**)",
+      "Read(./**/build/**)",
+      "Read(./**/target/**)",
+      "Read(./**/node_modules/**)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "WebFetch"
+    ]
+  },
+  "env": {
+    "SPRING_TEST_HARNESS_NETWORK": "off",
+    "SPRING_TEST_HARNESS_TEST_SCOPE": "targeted"
+  }
+}

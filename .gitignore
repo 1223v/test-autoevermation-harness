@@ -1,0 +1,24 @@
+# OMC / session operational state (not part of distribution)
+.omc/
+.omx/
+.claude/
+
+# Python
+.mcp-venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Java / build artifacts
+spring-test-harness-plugin/mcp/javaparser-cli/target/
+spring-test-harness-plugin/mcp/javaparser-cli/dependency-reduced-pom.xml
+**/build/
+**/.gradle/
+**/.jdt-workspace/
+
+# Harness runtime workspaces
+_workspace/
+_workspace_*/
+
+# OS
+.DS_Store

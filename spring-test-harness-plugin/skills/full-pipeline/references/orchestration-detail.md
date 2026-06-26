@@ -1,0 +1,114 @@
+# full-pipeline 오케스트레이션 상세
+
+> 본문(SKILL.md)에서 "실행 모드 · _workspace · 부분 재실행" 절의 상세 레퍼런스. 필요할 때만 로드한다.
+> 설계 근거: revfactory/harness `references/orchestrator-template.md`(Phase 0, §5-1 데이터 전달, §5-2 에러), `references/skill-testing-guide.md` §3-3(타이밍 캡처).
+
+## 목차
+1. 실행 모드 선택 근거
+2. `_workspace/` 디렉터리 규약
+3. 부분 재실행 매트릭스
+4. 단계 간 데이터 전달 표
+5. timing.json 계측 스키마
+6. 에러 핸들링
+
+---
+
+## 1. 실행 모드 선택 근거
+
+| 구간 | 모드 | 이유 |
+|---|---|---|
+| 1·2단계(ingest-specs ∥ analyze-ast) | 서브에이전트 팬아웃 (`Task`, 병렬) | 상호 통신 불필요한 독립 작업. 에이전트 팀의 조율/브로드캐스트 토큰·지연 비용이 이득보다 큼 |
+| 3~9단계 | 서브에이전트 파이프라인 (순차) | 이전 단계 산출물에 강하게 의존 |
+| 보정·커버리지·뮤테이션 루프 | 생성-검증(producer-reviewer) | 최대 반복 한도로 무한루프 방지 |
+
+> 참고 하네스의 의사결정 트리("팀 통신이 정말 불필요한가?")를 통과 → 서브에이전트가 올바른 선택. 팀 모드는 팀원 간 실시간 토론이 품질을 좌우할 때만 채택한다(본 파이프라인은 해당 없음).
+
+---
+
+## 2. `_workspace/` 디렉터리 규약
+
+작업 루트 하위에 중간 산출물을 보존한다. 파일명: `{단계번호}_{에이전트}_{산출물}.json`.
+
+```
+_workspace/
+├── 00_config_harness-config.json        # configure-harness 결과(HarnessConfig)
+├── 01_spec-reviewer_criteria.json
+├── 02_ast_targets.json
+├── 03_source_seams.json
+├── 04_scenario_set.json
+├── 05_test-gen_files.json               # 생성 파일 경로 목록
+├── 06_run_result.json
+├── 07_repair_result.json                # 실패 시에만
+├── 08_coverage_result.json
+├── 09_mutation_result.json
+├── timing.json                          # 단계별 토큰/시간 누적
+└── pipeline_result.json                 # 최종 집계
+```
+
+규칙:
+- 최종 산출물(생성된 테스트 파일)만 프로젝트의 `src/test/java`에 쓰고, 중간 JSON은 `_workspace/`에 보존(사후 검증·감사 추적).
+- 메인 컨텍스트에는 각 단계의 `{status, 핵심수치, 경로}`만 환원한다. 대용량 배열(시나리오·uncovered·survivor 목록)은 파일에만 둔다.
+- `.gitignore`에 `_workspace/` 추가(운영 산출물).
+
+---
+
+## 3. 부분 재실행 매트릭스
+
+Phase 0에서 요청 유형을 분류해 영향 단계만 재실행한다. 나머지는 `_workspace/`의 기존 JSON을 Read로 재사용.
+
+| 사용자 요청 유형 | 재실행 단계 | 재사용(Read) |
+|---|---|---|
+| "이 패키지/클래스만 다시" | 2(ast)→3→4→5→6→8→(9) (대상 스코프 한정) | 01_spec |
+| "스펙 문서 추가했어" | 1(spec)→4→5→6→8→(9) | 02_ast, 03_source |
+| "커버리지만 더 올려" | 8(measure-coverage 루프) | 01~06 |
+| "뮤테이션만 다시" | 9(mutation-test 루프) | 01~08 |
+| "테스트 실패 고쳐" | 7(repair)→6(재실행) | 01~05 |
+| "임계값 바꿔서 다시" | configure(0)→8→9 | 01~06 |
+
+부분 재실행 시 해당 에이전트 프롬프트에 **이전 산출물 경로**를 전달해 "기존 결과를 읽고 변경분만 반영"하도록 지시한다(전량 재생성 금지).
+
+---
+
+## 4. 단계 간 데이터 전달 표
+
+| 전략 | 방식 | 적용 | 적합 |
+|---|---|---|---|
+| 파일 기반 | `_workspace/*.json` 경로 전달 | 전 단계 | 대용량 구조화 산출물(기본) |
+| 반환값 기반 | `Task` 반환 요약 | 1·2단계 병렬 수집 | 짧은 상태/수치 |
+| 요약 환원 | `{status,수치,경로}`만 메인에 | 전 단계 | 컨텍스트 절약 |
+
+권장 조합: **파일 기반(산출물) + 반환값 요약(조율)**. 대용량 목록은 절대 메인 컨텍스트로 통째 전달하지 않는다.
+
+---
+
+## 5. timing.json 계측 스키마
+
+각 서브에이전트 **완료 알림 시점**에만 `total_tokens`/`duration_ms`를 얻을 수 있다(이후 복구 불가). 즉시 누적 저장한다.
+
+```json
+{
+  "stages": [
+    {"stage": "02_ast", "agent": "ast-structure-analyzer", "model": "inherit",
+     "total_tokens": 63505, "duration_ms": 444344}
+  ],
+  "totals": {"total_tokens": 0, "duration_ms": 0, "total_duration_seconds": 0.0},
+  "slowest": "02_ast",
+  "most_expensive": "05_test-gen"
+}
+```
+
+헬퍼 `scripts/record-timing.py`로 한 줄씩 append + totals/slowest 재계산. 이 데이터로 단계별 병목(느린/비싼 단계)을 식별해 모델 티어·스코프를 조정한다.
+
+---
+
+## 6. 에러 핸들링
+
+| 상황 | 전략 |
+|---|---|
+| 단계 1회 실패 | 1회 재시도 → 재실패 시 해당 결과 없이 진행, 보고서에 누락 명시 |
+| 1·2단계 모두 실패 | 중단, `status: failed` |
+| 2단계(ast) 실패 | 중단(AST 없이 이후 불가) |
+| 상충 데이터 | 삭제하지 않고 출처 병기 |
+| 커버리지/뮤테이션 미수렴 | `maxIterations` 도달 시 `partial` + 잔여 gap/survivor 보고(임의 제외/무시 금지) |
+
+> 본문 "실패 처리 및 중단 조건" 표와 일관. 차이가 생기면 본문을 정본으로 한다.

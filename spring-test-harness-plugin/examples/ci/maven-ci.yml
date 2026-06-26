@@ -1,0 +1,89 @@
+# GitHub Actions CI — Maven + Spring Boot 4.1.0 + Java 17
+#
+# Secret scanning은 GitHub 저장소 설정(Settings > Security > Secret scanning)에서
+# 활성화하는 저장소 기능이다. 이 워크플로에 secret scanning 스텝을 추가하지 않는다.
+# CI secrets은 Actions Secrets(Settings > Secrets and variables > Actions)에만 저장하고
+# 로그에 절대 출력하지 않는다.
+
+name: CI (Maven)
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main", "develop"]
+
+# 최소 권한 원칙: 기본적으로 읽기만 허용
+permissions:
+  contents: read
+  # SARIF 업로드에 필요한 권한 (코드 스캐닝 결과 게시)
+  security-events: write
+  # PR 체크 상태 게시에 필요
+  checks: write
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17 (Temurin) with Maven cache
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          # Maven 의존성 캐시 키를 pom.xml 기준으로 고정
+          cache-dependency-path: "**/pom.xml"
+
+      # jacoco:check 가 verify phase에 묶여 near-100% 게이트 미달 시 빌드 실패 (RESEARCH_NOTES §3·§6)
+      - name: Run tests + coverage gate
+        run: mvn -B verify --no-transfer-progress
+        env:
+          # 타임존 고정: 날짜 의존 flaky 방지
+          TZ: UTC
+          # Maven 옵션: 빌드 재현성 및 메모리 설정
+          MAVEN_OPTS: "-Xmx1g -Djava.awt.headless=true"
+
+      # 뮤테이션 테스트는 비용이 크므로 PR에서만 분리 실행 권장. 게이트 미달 시 실패.
+      - name: Mutation testing (PITest)
+        if: github.event_name == 'pull_request'
+        run: mvn -B test-compile org.pitest:pitest-maven:mutationCoverage --no-transfer-progress
+
+      - name: Upload test reports (항상 업로드 — 실패 시 디버깅용)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-maven
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          retention-days: 14
+
+      - name: Upload coverage report (JaCoCo)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-maven
+          path: "**/target/site/jacoco/"
+          retention-days: 14
+
+      - name: Upload mutation report (PITest)
+        if: always() && hashFiles('**/target/pit-reports/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitest-mutation-maven
+          path: "**/target/pit-reports/"
+          retention-days: 14
+
+      # SARIF 파일이 존재할 때만 업로드 (SpotBugs/ErrorProne 등 정적 분석 도구 연동 시)
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always() && hashFiles('**/target/reports/sarif/*.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: target/reports/sarif/
+          category: static-analysis

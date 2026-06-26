@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "repo-ast": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/repo_ast_server.py"],
+      "env": {
+        "REPO_AST_ALLOW_ROOT": "${workspaceFolder}",
+        "REPO_AST_NETWORK": "off"
+      }
+    },
+    "spec-doc": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/spec_doc_server.py"],
+      "env": {
+        "SPEC_DOC_ALLOWLIST": "docs,specs,requirements",
+        "SPEC_DOC_REDACT": "on",
+        "SPEC_DOC_NETWORK": "off"
+      }
+    },
+    "build-test": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/build_test_server.py"],
+      "env": {
+        "BUILD_TEST_NETWORK": "off",
+        "BUILD_TEST_SCOPE": "targeted"
+      }
+    }
+  }
+}

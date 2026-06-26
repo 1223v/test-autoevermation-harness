@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "status": "partial",
+  "summary": "4건 실행, 3건 통과, 1건 실패(TEST_RUNTIME_FAILED)",
+  "passed": 3,
+  "failed": [
+    {
+      "test": "com.example.order.OrderControllerTest#listActiveOrders_singleOrder_returnsCorrectJsonStructure",
+      "type": "TEST_RUNTIME_FAILED",
+      "message": "JSON path \"$.orders[0].totalAmount.amount\" expected:<15000> but was:<15000.00>",
+      "scenarioRef": "SC-001",
+      "stackTrace": [
+        "org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(MockMvcResultMatchers.java:248)",
+        "com.example.order.OrderControllerTest.listActiveOrders_singleOrder_returnsCorrectJsonStructure(OrderControllerTest.java:55)"
+      ]
+    }
+  ],
+  "reportPaths": [
+    "build/test-results/test/TEST-com.example.order.OrderControllerTest.xml",
+    "build/test-results/test/TEST-com.example.order.OrderAmountCalculatorTest.xml"
+  ],
+  "failureClasses": ["TEST_RUNTIME_FAILED"],
+  "evidence": [
+    "Gradle test task: ./gradlew test --tests 'com.example.order.*'",
+    "JUnit XML parsed: build/test-results/test/TEST-com.example.order.OrderControllerTest.xml"
+  ],
+  "warnings": [
+    "BigDecimal JSON 직렬화 시 소수점 트레일링 제로 포함 여부는 ObjectMapper 설정에 따라 달라짐"
+  ],
+  "errors": [],
+  "nextActions": [
+    "test-fixer 호출: rootCauseClass=TEST_RUNTIME_FAILED, 대상=OrderControllerTest#listActiveOrders_singleOrder_returnsCorrectJsonStructure",
+    "assertion을 value(15000) 대신 value(new BigDecimal(\"15000.00\")) 또는 jsonPath(...).value(15000.00)으로 수정"
+  ]
+}

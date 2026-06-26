@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "status": "ok",
+  "summary": "OrderController 및 OrderAmountCalculator 대상 시나리오 4건 생성 완료",
+  "scenarios": [
+    {
+      "id": "SC-001",
+      "title": "활성 주문 목록 조회 - 단건 정상 응답",
+      "type": "slice",
+      "target": "com.example.order.OrderController#listActiveOrders",
+      "priority": "P0",
+      "criteriaRefs": ["AC-ORDER-001"],
+      "description": "GET /api/orders/active 호출 시 OrderQueryService가 단건 Order를 반환하면 응답 JSON 구조가 스펙을 준수한다.",
+      "given": "OrderQueryService.findActiveOrders()가 CONFIRMED 상태의 Order 1건을 반환하도록 MockitoBean 설정",
+      "when": "GET /api/orders/active 요청 (Accept: application/json)",
+      "then": "HTTP 200, $.orders 배열 길이 1, $.orders[0].status == 'CONFIRMED', $.orders[0].totalAmount.currency == 'KRW'"
+    },
+    {
+      "id": "SC-002",
+      "title": "활성 주문 목록 조회 - 빈 결과",
+      "type": "slice",
+      "target": "com.example.order.OrderController#listActiveOrders",
+      "priority": "P0",
+      "criteriaRefs": ["AC-ORDER-001"],
+      "description": "활성 주문이 없을 때 빈 배열과 200 OK를 반환한다.",
+      "given": "OrderQueryService.findActiveOrders()가 빈 리스트를 반환하도록 MockitoBean 설정",
+      "when": "GET /api/orders/active 요청",
+      "then": "HTTP 200, $.orders 배열 길이 0"
+    },
+    {
+      "id": "SC-003",
+      "title": "존재하지 않는 주문 ID 조회 - 404",
+      "type": "slice",
+      "target": "com.example.order.OrderController#getOrderById",
+      "priority": "P1",
+      "criteriaRefs": ["AC-ORDER-003"],
+      "description": "존재하지 않는 주문 ID로 GET 요청 시 404와 errorCode를 반환한다.",
+      "given": "OrderQueryService.findById(999L)가 OrderNotFoundException을 던지도록 설정",
+      "when": "GET /api/orders/999 요청",
+      "then": "HTTP 404, $.errorCode == 'ORDER_NOT_FOUND'"
+    },
+    {
+      "id": "SC-004",
+      "title": "OrderAmountCalculator 할인 금액 경계값 검증",
+      "type": "unit",
+      "target": "com.example.order.OrderAmountCalculator#applyDiscount",
+      "priority": "P0",
+      "criteriaRefs": ["AC-ORDER-002"],
+      "description": "할인율 0%, 0.01%, 50%, 100% 및 음수·100% 초과 경계값에 대해 계산 결과 또는 예외를 검증한다. Spring 컨텍스트 불필요.",
+      "given": "OrderAmountCalculator 인스턴스 직접 생성 (new)",
+      "when": "applyDiscount(Money, double) 호출 - 각 경계값 파라미터",
+      "then": "정상 범위: 반환된 Money.amount가 기대값과 일치. 범위 초과: IllegalArgumentException 발생"
+    }
+  ],
+  "evidence": [
+    "AC-ORDER-001: OrderController 스펙 문서 §3.2 '활성 주문 목록 API' 참조",
+    "AC-ORDER-002: OrderAmountCalculator 스펙 문서 §4.1 '할인 정책' 참조",
+    "AC-ORDER-003: OrderController 스펙 문서 §3.4 '에러 응답 규격' 참조"
+  ],
+  "warnings": [],
+  "errors": [],
+  "nextActions": [
+    "SC-001~SC-003: @WebMvcTest + MockMvc 기반 테스트로 구현 → examples/java/OrderControllerTest.java",
+    "SC-004: 순수 단위 테스트 + @ParameterizedTest @CsvSource로 구현 → examples/java/OrderAmountCalculatorTest.java"
+  ]
+}
