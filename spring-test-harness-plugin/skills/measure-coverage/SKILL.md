@@ -31,7 +31,7 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
 ## 절차
 1. **측정 실행**: test-runner(또는 build-test `run_targeted_tests(with_coverage=true)`)로 타깃 범위 테스트 + JaCoCo 리포트 생성. 네트워크 off, 최소 범위.
 2. **파싱**: `mcp__build-test__parse_jacoco_report(root)` → 카운터별 overall + per-class + `uncovered[]`.
-3. **게이트**: `mcp__build-test__coverage_gate(root, line, branch, method, class, mutation)` → counter별 pass/fail + gaps.
+3. **게이트**: `mcp__build-test__coverage_gate(root, line, branch, method, klass, mutation)` → counter별 pass/fail + gaps. (서버 파라미터명은 `klass` — `class`는 파이썬 예약어이므로 위치 인자로 전달.)
 4. **분기**:
    - 게이트 통과 → 상태 `ok`, 종료.
    - 미달 → `uncovered[]`를 **coverage-closer** 에이전트에 전달:
@@ -39,7 +39,7 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
      Task(subagent_type="coverage-closer", model="inherit",
           prompt="<uncovered[] + 대상 소스 + 제외 allowlist + 목표 임계값>")
      ```
-5. **재측정 루프**: coverage-closer가 추가한 테스트를 포함해 1~3 재실행. `maxIterations` 도달 또는 게이트 통과 시 중단.
+5. **재측정 루프**: coverage-closer가 추가한 테스트를 포함해 재실행한다. 게이트 통과 시 중단. `maxIterations`는 고정 상한이 아니라 **진전 추적 단위**다 — 진전(미커버 집합 감소)이 있는 한 계속하고, **동일 미커버 집합이 3회 연속(무진전)**이면 `partial`로 `remainingGaps[]`를 전량 보고 후 중단한다(fallback-policy.md #12).
 6. **수렴 실패 처리**: 잔여 gap이 남으면 `partial` 상태로 `remainingGaps[]`와 사유(예: 도달 불가 코드, 제외 후보)를 보고하고 nextActions에 "exclude 검토" 제안.
 
 ## 출력

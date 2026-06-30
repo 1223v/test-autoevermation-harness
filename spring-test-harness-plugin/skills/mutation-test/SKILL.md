@@ -31,7 +31,7 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 > `mutation` 깊이/대상/임계값은 `configure-harness` 인터뷰(§7 항목 c)에서 사용자가 조정. `mutators`는 DEFAULTS 또는 STRONGER.
 
 ## 절차
-1. **실행**: build-test로 PITest 실행(Gradle `pitest`, Maven `pitest:mutationCoverage`). `withHistory=true`로 증분, `timestampedReports=false`. 네트워크 off.
+1. **실행**: build-test로 PITest 실행(Gradle `pitest`, Maven `org.pitest:pitest-maven:mutationCoverage`). `withHistory=true`로 증분, `timestampedReports=false`. 네트워크 off.
 2. **파싱**: `mcp__build-test__parse_pitest_report(root)` → `mutationScore`, `survivedMutants[]{class,method,line,mutator,status}`.
 3. **분기**:
    - score ≥ threshold 이고 survivors 없음(또는 허용 범위) → `ok`, 종료.
@@ -41,7 +41,7 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
           prompt="<survivedMutants[] + 대상 테스트/소스 + 목표 score>")
      ```
      - 금지: `Thread.sleep`, broad `catch`, over-mock, 의미 없는 assert 추가. mutant를 **실제로 죽이는** 단언만.
-4. **재실행 루프**: 강화된 테스트로 1~2 재실행. `maxIterations` 또는 threshold 충족 시 중단.
+4. **재실행 루프**: 강화된 테스트로 재실행한다. threshold 충족 시 중단. `maxIterations`는 고정 상한이 아니라 **진전 추적 단위**다 — 진전(생존 mutant 감소)이 있는 한 계속하고, **동일 survivor 집합이 3회 연속(무진전)**이면 `partial`로 `survivingMutants[]`(+동등 mutant 사유)를 전량 보고 후 중단한다(fallback-policy.md #12).
 5. **수렴 실패**: 잔여 survivor는 `partial`로 보고하고 `survivingMutants[]`에 사유(동등 mutant 가능성 포함) 명시. 동등(equivalent) mutant 의심은 임의 무시하지 말고 보고.
 
 ## 출력

@@ -5,13 +5,13 @@ FastMCP server named "build-test". Coverage/mutation-aware test execution engine
 the Spring test-harness plugin.
 
 Design source of truth:
-  - RESEARCH_NOTES.md  (§1 FastMCP API, §3 JaCoCo 0.8.12, §4 PITest, §6 near-100% policy)
-  - REPORT.md          (build-test-mcp design + TestRunResult schema)
+  - RESEARCH_NOTES.md  (§1 FastMCP API, §3 JaCoCo 0.8.12, §4 PITest, §6 near-100% policy;
+                        build-test-mcp design + TestRunResult schema)
   - scripts/detect-build-tool.sh, scripts/collect-test-reports.py (heuristics reused)
 
 Standard library only (subprocess, xml.etree, json, os, shlex). Python 3.10+.
 
-Security posture (REPORT.md §권한과 보안, RESEARCH_NOTES §build-test-mcp):
+Security posture (RESEARCH_NOTES §build-test-mcp, §권한과 보안):
   - All shell arguments are shlex-quoted.
   - Targeted/narrowest test scope by default.
   - Network is OFF by default (gradle --offline, maven -o) unless
@@ -317,13 +317,18 @@ def _parse_pitest(pitest_path: str) -> dict:
     killed = 0
     survived_mutants: list[dict] = []
 
-    # status values: KILLED, SURVIVED, NO_COVERAGE, TIMED_OUT, MEMORY_ERROR, RUN_ERROR
+    # status values: KILLED, SURVIVED, NO_COVERAGE, TIMED_OUT, MEMORY_ERROR, RUN_ERROR.
+    # PIT counts a mutation as *detected* (killed) whenever a test run against it
+    # fails or aborts abnormally — KILLED, TIMED_OUT, MEMORY_ERROR, RUN_ERROR.
+    # Only SURVIVED / NO_COVERAGE are undetected. Matching PIT's own definition
+    # avoids understating mutationScore and spurious MUTATION-gate failures.
     _surviving_statuses = ("SURVIVED", "NO_COVERAGE")
+    _detected_statuses = ("KILLED", "TIMED_OUT", "MEMORY_ERROR", "RUN_ERROR")
 
     for mut in root_el.findall("mutation"):
         total += 1
         status = (mut.get("status") or "").upper()
-        if status == "KILLED" or status == "TIMED_OUT":
+        if status in _detected_statuses:
             killed += 1
 
         if status in _surviving_statuses:
@@ -529,8 +534,13 @@ def detect_spring_profile(root: str = ".") -> dict:
     bv, bv_source = _detect_boot_version(root)
     prof = _profile_from_version(bv)
     notes: list[str] = []
+    next_actions: list[str] = []
+    conflicts: list[dict] = []
 
-    # Namespace override from actual main-source imports (mixed-project defense).
+    # Namespace conflict from actual main-source imports (mixed-project defense).
+    # Per fallback-policy.md #6 we DO NOT silently override: the build-file-derived
+    # value stays as the proposed default and the conflict is surfaced for the
+    # caller (agent) to confirm via AskUserQuestion.
     main_ns = _scan_imports(root, "src/main/java", (
         "import javax.persistence", "import jakarta.persistence",
         "import javax.validation", "import jakarta.validation",
@@ -543,11 +553,16 @@ def detect_spring_profile(root: str = ".") -> dict:
     if javax_hits or jakarta_hits:
         src_ns = "javax" if javax_hits >= jakarta_hits else "jakarta"
         if src_ns != prof["namespace"]:
-            notes.append(f"namespace overridden by source imports: "
-                         f"{prof['namespace']} -> {src_ns} (javax={javax_hits}, jakarta={jakarta_hits})")
-            prof["namespace"] = src_ns
+            conflicts.append({
+                "field": "namespace",
+                "buildFileValue": prof["namespace"],
+                "sourceValue": src_ns,
+                "evidence": f"javax={javax_hits}, jakarta={jakarta_hits} (src/main imports)",
+            })
+            notes.append(f"namespace conflict (NOT auto-applied): build-file={prof['namespace']} "
+                         f"vs source={src_ns}; confirm before use")
 
-    # JUnit engine override from existing tests; note vintage availability.
+    # JUnit engine conflict from existing tests; note vintage availability.
     test_eng = _scan_imports(root, "src/test/java",
                              ("import org.junit.jupiter", "import org.junit.Test", "@RunWith"))
     build_text = (_read_text(os.path.join(root, "build.gradle.kts"))
@@ -558,18 +573,29 @@ def detect_spring_profile(root: str = ".") -> dict:
     if jupiter_tests or junit4_tests:
         src_engine = "jupiter" if jupiter_tests >= junit4_tests else "junit4"
         if src_engine != prof["junitEngine"]:
-            notes.append(f"junitEngine overridden by existing tests: "
-                         f"{prof['junitEngine']} -> {src_engine} "
-                         f"(jupiter={jupiter_tests}, junit4={junit4_tests})")
-            prof["junitEngine"] = src_engine
-            prof["gradleTestMode"] = "useJUnit" if src_engine == "junit4" else "useJUnitPlatform"
+            conflicts.append({
+                "field": "junitEngine",
+                "buildFileValue": prof["junitEngine"],
+                "sourceValue": src_engine,
+                "evidence": f"jupiter={jupiter_tests}, junit4={junit4_tests} (src/test imports)",
+            })
+            notes.append(f"junitEngine conflict (NOT auto-applied): build-file={prof['junitEngine']} "
+                         f"vs tests={src_engine}; confirm before use")
     if "junit-vintage" in build_text:
         notes.append("junit-vintage-engine present: JUnit4 tests run alongside Jupiter")
 
+    requires_confirmation = bool(conflicts)
+    if requires_confirmation:
+        next_actions.append("PROFILE_CONFLICT: build-file vs source disagree; the agent must "
+                            "confirm the correct value via AskUserQuestion (interactive) or stop (CI). "
+                            "See references/fallback-policy.md #6.")
+
     degraded = bv is None
     if degraded:
-        notes.append("Spring Boot version not detected from build files; profile assumes "
-                     "'latest' (Boot 4.x). Caller should interview (interactive) or warn (CI).")
+        notes.append("Spring Boot version not detected from build files.")
+        next_actions.append("INTERVIEW_REQUIRED: Spring Boot version undetected. The agent must ask "
+                            "the user for the Boot major/profile via AskUserQuestion (interactive) or "
+                            "stop (CI). Do NOT assume a profile. See references/fallback-policy.md #4.")
 
     return {
         "status": "ok",
@@ -585,7 +611,11 @@ def detect_spring_profile(root: str = ".") -> dict:
             "degraded": degraded,
         },
         "versionSource": bv_source,
+        "interviewRequired": degraded,
+        "requiresConfirmation": requires_confirmation,
+        "conflicts": conflicts,
         "notes": notes,
+        "nextActions": next_actions,
     }
 
 
@@ -620,7 +650,7 @@ def list_test_tasks(root: str = ".") -> dict:
 
 @mcp.tool()
 def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
-                       with_coverage: bool = True) -> dict:
+                       with_coverage: bool = True, online: bool = False) -> dict:
     """Run the NARROWEST test scope for a given pattern; return a TestRunResult.
 
     Gradle : ./gradlew test --tests <pat> [jacocoTestReport] [--offline]
@@ -628,6 +658,12 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
 
     All arguments are shlex-quoted. Network is OFF by default unless
     BUILD_TEST_ALLOW_NETWORK is set.
+
+    `online=True` requests a one-time NETWORK-ON run so a COLD dependency cache (or
+    newly added JaCoCo/PITest plugins) can be resolved — Gradle `--offline` fails fast
+    when a required module is not cached (Gradle Dependency Caching). The caller (skill)
+    decides this after `check_dependency_cache` + user approval (fallback-policy.md #18);
+    once primed, subsequent runs go offline again.
     """
     root = os.path.abspath(root)
     build_tool = (build_tool or "").strip().lower()
@@ -639,7 +675,7 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
         return {"status": "failed", "error": "BUILD_TOOL_UNDETECTED",
                 "message": f"directory not found: {root}"}
 
-    offline = not _network_allowed()
+    offline = (not _network_allowed()) and (not online)
     pattern_q = shlex.quote(test_pattern)
 
     if build_tool == "gradle":
@@ -662,6 +698,15 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
     # Human-readable command string with shlex quoting for transparency/logging.
     display_cmd = " ".join(shlex.quote(part) for part in cmd)
 
+    # Remove stale JUnit XML before the run so a failed build (e.g. a test/main
+    # compile error that produces no fresh reports) can't be reported green from
+    # a previous run's leftover reports. Surefire/Gradle do not always clear them.
+    for stale in _find_junit_xml(root):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
+
     exec_meta = _run_subprocess(cmd, cwd=root)
 
     # Parse JUnit XML regardless of exit code (compile failures still informative).
@@ -681,6 +726,11 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
         status = "failed"
     elif all_failures:
         status = "partial"
+    elif exec_meta["exitCode"] != 0:
+        # Build failed (compile error, coverage-verification failure, etc.) even
+        # though the parsed reports show no individual test failure — never call
+        # a non-zero build "ok".
+        status = "failed"
     else:
         status = "ok"
 
@@ -778,6 +828,11 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
     Returns overall pass flag plus a per-counter breakdown with the actual ratio,
     the required threshold, and pass/fail. Includes uncovered classes and surviving
     mutants as actionable gaps.
+
+    Note: `klass` (CLASS counter) defaults to 1.0 per the near-100% policy. On a
+    narrowly-targeted run whose JaCoCo report scope still includes uncovered sibling
+    classes, the overall CLASS ratio can be <1.0 and fail the gate; callers scoping
+    to a single class should override `klass` (or scope the report) accordingly.
     """
     root = os.path.abspath(root)
 
@@ -842,6 +897,225 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
         "missingReports": missing,
         "jacocoPath": jacoco_path,
         "pitestPath": pitest_path,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Build-capability provisioning (F1) + dependency-cache priming (F2)
+#
+# These tools EXPOSE SIGNALS ONLY (no file writes): the JaCoCo/PITest plugins and
+# JaCoCo XML output are NOT applied to a typical target build, so the coverage (8단계)
+# and mutation (9단계) stages call tasks that do not exist or produce no XML. Per
+# fallback-policy.md #17/#18 the consuming skill (configure-harness) detects the gap,
+# asks for approval (interactive) or stops with remediation (CI), then applies the
+# minimal build change itself. Sources are cited inline in references/build-provisioning.md.
+# ---------------------------------------------------------------------------
+
+# JaCoCo XML toggle is OFF by default for the Gradle plugin, so the harness's
+# parse_jacoco_report finds no jacoco.xml unless this is set explicitly.
+_GRADLE_JACOCO_PLUGIN_RE = re.compile(r"""(?:id\s*\(?\s*['"]jacoco['"]|apply\s+plugin:\s*['"]jacoco['"])""")
+_GRADLE_JACOCO_XML_RE = re.compile(r"""xml\s*\.\s*(?:required|enabled)\s*(?:\.\s*set\s*\(\s*)?=?\s*true""")
+_GRADLE_PITEST_PLUGIN_RE = re.compile(r"""info\.solidsoft\.pitest""")
+_GRADLE_PITEST_JUNIT5_RE = re.compile(r"""junit5PluginVersion|pitest-junit5-plugin""")
+_MAVEN_JACOCO_RE = re.compile(r"""jacoco-maven-plugin""")
+_MAVEN_JACOCO_REPORT_GOAL_RE = re.compile(r"""<goal>\s*report\s*</goal>""")
+_MAVEN_PITEST_RE = re.compile(r"""pitest-maven""")
+_MAVEN_PITEST_JUNIT5_RE = re.compile(r"""pitest-junit5-plugin""")
+
+
+def _gradle_build_text(root: str) -> tuple[str, str]:
+    """Return (build-file text, build-file name) for Gradle (.kts preferred)."""
+    for name in ("build.gradle.kts", "build.gradle"):
+        text = _read_text(os.path.join(root, name))
+        if text:
+            return text, name
+    return "", ""
+
+
+@mcp.tool()
+def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter") -> dict:
+    """Detect whether the TARGET build is provisioned for JaCoCo-XML + PITest (signal only).
+
+    The coverage gate (parse_jacoco_report) needs a JaCoCo **XML** report, but the Gradle
+    JaCoCo plugin emits HTML only by default (`reports { xml.required = true }` required);
+    the `pitest` task exists only when the PITest plugin is applied, and JUnit5 needs the
+    pitest-junit5 plugin. This tool reads the build file and reports each capability plus a
+    minimal, source-cited `proposedChanges[]` snippet for the consuming skill to apply after
+    approval (interactive) or to surface as remediation (CI). It does NOT modify any file.
+
+    Returns {status, buildTool, capabilities{jacoco,jacocoXml,pitest,pitestJunit5},
+    missing[], proposedChanges[], remediation}.
+    """
+    root = os.path.abspath(root)
+    det = _detect(root)
+    if det.get("status") != "ok":
+        return det
+    tool = det["buildTool"]
+    jupiter = (junit_engine or "jupiter").strip().lower() != "junit4"
+
+    caps: dict[str, bool] = {}
+    missing: list[str] = []
+    proposed: list[dict] = []
+
+    if tool == "gradle":
+        text, fname = _gradle_build_text(root)
+        kts = fname.endswith(".kts")
+        caps["jacoco"] = bool(_GRADLE_JACOCO_PLUGIN_RE.search(text))
+        caps["jacocoXml"] = bool(_GRADLE_JACOCO_XML_RE.search(text))
+        caps["pitest"] = bool(_GRADLE_PITEST_PLUGIN_RE.search(text))
+        caps["pitestJunit5"] = (not jupiter) or bool(_GRADLE_PITEST_JUNIT5_RE.search(text))
+
+        if not caps["jacoco"]:
+            missing.append("JACOCO_PLUGIN_MISSING")
+            proposed.append({
+                "file": fname or "build.gradle[.kts]",
+                "anchor": "plugins { }",
+                "snippet": ('id("jacoco")' if kts else "id 'jacoco'"),
+                "reason": "Gradle JaCoCo 플러그인 미적용 → jacocoTestReport 태스크 없음",
+                "source": "https://docs.gradle.org/current/userguide/jacoco_plugin.html",
+            })
+        if not caps["jacocoXml"]:
+            missing.append("JACOCO_XML_DISABLED")
+            proposed.append({
+                "file": fname or "build.gradle[.kts]",
+                "anchor": "tasks.named('jacocoTestReport') / tasks.jacocoTestReport",
+                "snippet": (
+                    'tasks.jacocoTestReport { reports { xml.required.set(true) } }'
+                    if kts else
+                    "tasks.named('jacocoTestReport') { reports { xml.required = true } }"
+                ),
+                "reason": "JaCoCo XML 기본 OFF → parse_jacoco_report가 XML 미발견(HTML만 생성)",
+                "source": "https://docs.gradle.org/current/userguide/jacoco_plugin.html",
+            })
+        if not caps["pitest"]:
+            missing.append("PITEST_PLUGIN_MISSING")
+            proposed.append({
+                "file": fname or "build.gradle[.kts]",
+                "anchor": "plugins { }",
+                "snippet": (
+                    'id("info.solidsoft.pitest") version "1.19.0"'
+                    if kts else
+                    "id 'info.solidsoft.pitest' version '1.19.0'"
+                ),
+                "reason": "PITest 플러그인 미적용 → pitest 태스크 없음(Task 'pitest' not found)",
+                "source": "https://gradle-pitest-plugin.solidsoft.info/",
+            })
+        if not caps["pitestJunit5"]:
+            missing.append("PITEST_JUNIT5_MISSING")
+            proposed.append({
+                "file": fname or "build.gradle[.kts]",
+                "anchor": "pitest { }",
+                "snippet": (
+                    'pitest { junit5PluginVersion.set("1.0.0") }'
+                    if kts else
+                    "pitest { junit5PluginVersion = '1.0.0' }"
+                ),
+                "reason": "JUnit5(Jupiter) 테스트는 pitest-junit5-plugin 필요",
+                "source": "https://github.com/pitest/pitest-junit5-plugin",
+            })
+    else:  # maven
+        pom = _read_text(os.path.join(root, "pom.xml"))
+        caps["jacoco"] = bool(_MAVEN_JACOCO_RE.search(pom))
+        caps["jacocoXml"] = bool(_MAVEN_JACOCO_RE.search(pom) and _MAVEN_JACOCO_REPORT_GOAL_RE.search(pom))
+        caps["pitest"] = bool(_MAVEN_PITEST_RE.search(pom))
+        caps["pitestJunit5"] = (not jupiter) or bool(_MAVEN_PITEST_JUNIT5_RE.search(pom))
+
+        if not caps["jacoco"] or not caps["jacocoXml"]:
+            missing.append("JACOCO_PLUGIN_MISSING" if not caps["jacoco"] else "JACOCO_REPORT_GOAL_MISSING")
+            proposed.append({
+                "file": "pom.xml",
+                "anchor": "<build><plugins>",
+                "snippet": (
+                    "<plugin><groupId>org.jacoco</groupId>"
+                    "<artifactId>jacoco-maven-plugin</artifactId><version>0.8.12</version>"
+                    "<executions>"
+                    "<execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>"
+                    "<execution><id>report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>"
+                    "</executions></plugin>"
+                ),
+                "reason": "jacoco-maven-plugin prepare-agent+report 미바인딩 → jacoco.xml 미생성",
+                "source": "https://www.eclemma.org/jacoco/trunk/doc/maven.html",
+            })
+        if not caps["pitest"]:
+            missing.append("PITEST_PLUGIN_MISSING")
+            proposed.append({
+                "file": "pom.xml",
+                "anchor": "<build><plugins>",
+                "snippet": (
+                    "<plugin><groupId>org.pitest</groupId>"
+                    "<artifactId>pitest-maven</artifactId><version>1.19.0</version>"
+                    + ("<dependencies><dependency><groupId>org.pitest</groupId>"
+                       "<artifactId>pitest-junit5-plugin</artifactId><version>1.0.0</version>"
+                       "</dependency></dependencies>" if jupiter else "")
+                    + "</plugin>"
+                ),
+                "reason": "pitest-maven 미적용 → mutationCoverage 골 없음" + (" (Jupiter는 pitest-junit5-plugin 포함)" if jupiter else ""),
+                "source": "https://gradle-pitest-plugin.solidsoft.info/",
+            })
+
+    all_ok = not missing
+    remediation = ("" if all_ok else
+                   "대화형: AskUserQuestion 승인 후 proposedChanges[]를 빌드 파일에 주입(buildChanges[]에 기록). "
+                   "CI: 누락 항목과 위 스니펫을 remediation으로 보고하고 중단(HarnessRequest 사전 제공). "
+                   "근거·전체 스니펫: references/build-provisioning.md")
+    return {
+        "status": "ok" if all_ok else "partial",
+        "buildTool": tool,
+        "junitEngine": "junit4" if not jupiter else "jupiter",
+        "capabilities": caps,
+        "missing": missing,
+        "proposedChanges": proposed,
+        "remediation": remediation,
+    }
+
+
+@mcp.tool()
+def check_dependency_cache(build_tool: str = "", root: str = ".") -> dict:
+    """Best-effort signal: is the dependency cache likely PRIMED, or COLD? (F2, signal only).
+
+    Network is OFF by default (`--offline`/`-o`), and Gradle fails fast when a required
+    module is not cached. A cold cache (or a build file just given new JaCoCo/PITest
+    plugins) therefore breaks the first offline run. This heuristic checks the shared
+    Gradle/Maven caches; it cannot guarantee per-project completeness, so when COLD it
+    recommends a one-time online priming run (run_targeted_tests(online=True)) gated by
+    approval (fallback-policy.md #18). It does NOT touch the network or any file.
+
+    Returns {status, buildTool, primed, evidence, primeCommand, recommendation}.
+    """
+    root = os.path.abspath(root)
+    tool = (build_tool or "").strip().lower()
+    if tool not in ("gradle", "maven"):
+        det = _detect(root)
+        tool = det.get("buildTool", "none")
+    home = os.path.expanduser("~")
+    primed = False
+    evidence = ""
+    prime_cmd = ""
+    if tool == "gradle":
+        modules = os.path.join(home, ".gradle", "caches", "modules-2", "files-2.1")
+        primed = os.path.isdir(modules) and bool(os.listdir(modules))
+        evidence = f"~/.gradle/caches/modules-2/files-2.1 present={primed}"
+        prime_cmd = "한 번 online 실행: run_targeted_tests(online=True) — Gradle은 첫 실행에서 의존성/플러그인 해석"
+    elif tool == "maven":
+        repo = os.path.join(home, ".m2", "repository")
+        primed = os.path.isdir(repo) and bool(os.listdir(repo))
+        evidence = f"~/.m2/repository present={primed}"
+        prime_cmd = "mvn dependency:go-offline (의존성+플러그인 일괄 다운로드) 또는 run_targeted_tests(online=True)"
+    else:
+        return {"status": "failed", "error": "BUILD_TOOL_UNDETECTED",
+                "message": f"unsupported build_tool: {build_tool!r}"}
+    return {
+        "status": "ok",
+        "buildTool": tool,
+        "primed": primed,
+        "evidence": evidence,
+        "primeCommand": prime_cmd,
+        "recommendation": (
+            "오프라인 실행 진행 가능(캐시 추정 PRIMED). 단 플러그인을 새로 추가했다면 1회 priming 권장."
+            if primed else
+            "캐시 COLD 추정 → 첫 실행이 --offline 의존성 해석 실패 위험. 대화형=승인 후 1회 online priming, "
+            "CI=BUILD_TEST_ALLOW_NETWORK=1 옵트인 또는 사전 캐시 워밍업. 근거: Gradle Dependency Caching."
+        ),
     }
 
 

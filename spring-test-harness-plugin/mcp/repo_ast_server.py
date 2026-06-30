@@ -70,6 +70,27 @@ JPA_REPOSITORY_HINTS = (
     "Repository",
 )
 
+#: Built-in Spring MVC/WebFlux request-mapping annotations. A custom annotation
+#: meta-annotated (transitively) with any of these is a "composed mapping" whose
+#: URL path/HTTP method live on @AliasFor overrides and are not visible on the
+#: bare annotation name -- the generator must confirm them before building a
+#: MockMvc request. See Spring ref "Composed @RequestMapping Variants".
+REQUEST_MAPPING_ANNOTATIONS = frozenset(
+    {
+        "RequestMapping",
+        "GetMapping",
+        "PostMapping",
+        "PutMapping",
+        "DeleteMapping",
+        "PatchMapping",
+    }
+)
+
+#: Specialization order: when a custom stereotype is meta-annotated with several
+#: stereotypes, the most specific kind wins (Spring treats @Service etc. as
+#: specializations of @Component).
+_STEREOTYPE_PRIORITY = ("controller", "repository", "service", "component")
+
 
 # ---------------------------------------------------------------------------
 # Path allowlist / security
@@ -184,6 +205,14 @@ def _jdk_available() -> bool:
         return False
 
 
+def _require_javaparser() -> bool:
+    """Strict mode: when truthy, the JavaParser jar + JDK are REQUIRED and the
+    pure-Python regex fallback is disabled (fallback-policy.md #2). Missing
+    capability becomes a hard failure instead of a silent degrade."""
+    val = os.environ.get("REPO_AST_REQUIRE_JAVAPARSER", "").strip().lower()
+    return val in {"1", "true", "yes", "on"}
+
+
 def _run_java_cli(jar: str, target: Path) -> Optional[dict[str, Any]]:
     """Invoke the JavaParser CLI jar and parse its JSON output.
 
@@ -230,8 +259,19 @@ _METHOD_RE = re.compile(
     r"native|default|\s)*)"
     r"(?P<ret>[\w.<>,\[\]?\s]+?)\s+"
     r"(?P<name>[A-Za-z_]\w*)\s*"
-    r"\((?P<params>[^)]*)\)"
+    # Allow one level of nested parens so parameter annotations carrying
+    # arguments (e.g. @PathVariable("id"), @RequestParam(value="x")) do not
+    # truncate the parameter list and drop the whole method.
+    r"\((?P<params>(?:[^()]|\([^()]*\))*)\)"
     r"(?:\s*throws\s+[\w.,\s]+)?\s*[{;]"
+)
+# Annotation type declaration: ``@interface Name`` plus the annotations that
+# precede it (its meta-annotations). Used to resolve custom stereotypes and
+# composed mapping annotations across files.
+_ANNO_DECL_RE = re.compile(
+    r"(?P<annos>(?:@[\w.]+(?:\([^)]*\))?\s*)*?)"
+    r"(?:public|protected|private|abstract|static|strictfp|\s)*"
+    r"@interface\s+(?P<name>[A-Za-z_]\w*)"
 )
 # Field: modifiers, type, name (no method parens before ; ).
 _FIELD_RE = re.compile(
@@ -290,10 +330,84 @@ def _annotations_from(blob: str) -> list[str]:
     return [_short(m.group(1)) for m in _ANNO_RE.finditer(blob or "")]
 
 
-def _classify_kind(annotations: list[str], implements_blob: str) -> str:
+def _scan_annotation_decls(text: str) -> dict[str, list[str]]:
+    """Map every ``@interface`` declared in ``text`` to its meta-annotations.
+
+    Returns ``{AnnotationSimpleName: [meta-anno simple names]}``. Used to resolve
+    custom stereotypes (``@UseCase`` -> ``@Component``) and composed mapping
+    annotations (``@GetJson`` -> ``@RequestMapping``) across files. Comments and
+    string literals must already be stripped by the caller.
+    """
+    decls: dict[str, list[str]] = {}
+    for m in _ANNO_DECL_RE.finditer(text):
+        name = m.group("name")
+        metas = [a for a in _annotations_from(m.group("annos")) if a != "interface"]
+        decls[name] = metas
+    return decls
+
+
+def _resolve_meta_to(
+    name: str,
+    decls: dict[str, list[str]],
+    base: dict[str, str] | frozenset,
+    _seen: set[str] | None = None,
+) -> set[str]:
+    """Transitively resolve ``name`` to the set of ``base`` keys it maps onto.
+
+    ``base`` is either ``SPRING_STEREOTYPES`` (dict) for stereotype resolution or
+    ``REQUEST_MAPPING_ANNOTATIONS`` (set) for composed-mapping resolution. Follows
+    meta-annotations to arbitrary depth (Spring resolves stereotypes transitively)
+    with a cycle guard.
+    """
+    _seen = _seen or set()
+    if name in _seen:
+        return set()
+    _seen.add(name)
+    hits: set[str] = set()
+    if name in base:
+        hits.add(name)
+    for meta in decls.get(name, []):
+        if meta in base:
+            hits.add(meta)
+        if meta in decls:  # custom annotation -> recurse for transitive depth
+            hits |= _resolve_meta_to(meta, decls, base, _seen)
+    return hits
+
+
+def _build_meta_index(decls: dict[str, list[str]]) -> tuple[dict[str, str], set[str]]:
+    """Build ``(custom_stereotype_kind, composed_mapping_names)`` from decls.
+
+    * ``custom_stereotype_kind``: custom annotation simple name -> coarse kind
+      (controller/service/repository/component), most-specific stereotype wins.
+    * ``composed_mapping_names``: custom annotations that are (transitively)
+      meta-annotated with a Spring request-mapping annotation.
+    """
+    stereotypes: dict[str, str] = {}
+    mappings: set[str] = set()
+    for name in decls:
+        stereo_hits = _resolve_meta_to(name, decls, SPRING_STEREOTYPES)
+        kinds = {SPRING_STEREOTYPES[h] for h in stereo_hits}
+        for kind in _STEREOTYPE_PRIORITY:
+            if kind in kinds:
+                stereotypes[name] = kind
+                break
+        if _resolve_meta_to(name, decls, REQUEST_MAPPING_ANNOTATIONS):
+            mappings.add(name)
+    return stereotypes, mappings
+
+
+def _classify_kind(
+    annotations: list[str],
+    implements_blob: str,
+    custom_stereotypes: dict[str, str] | None = None,
+) -> str:
     for anno in annotations:
         if anno in SPRING_STEREOTYPES:
             return SPRING_STEREOTYPES[anno]
+    if custom_stereotypes:
+        for anno in annotations:
+            if anno in custom_stereotypes:
+                return custom_stereotypes[anno]
     for hint in JPA_REPOSITORY_HINTS:
         if hint in implements_blob:
             return "repository"
@@ -314,9 +428,89 @@ def _normalize_params(params: str) -> str:
     return ", ".join(norm)
 
 
-def _fallback_parse_file(path: Path) -> dict[str, Any]:
+#: Tokens that can appear where ``_FIELD_RE`` expects a field *type* but are not
+#: real fields — control-flow keywords and (in the collapsed member skeleton)
+#: the leading keyword of a nested type declaration header.
+_NON_FIELD_TYPE_TOKENS = {
+    "return", "new", "throw", "class", "interface", "enum", "record",
+    "else", "do", "try", "finally", "case", "default", "yield", "assert",
+}
+
+
+def _matching_brace_end(text: str, open_idx: int) -> int:
+    """Index just past the ``}`` matching the ``{`` at ``open_idx``.
+
+    Falls back to end-of-string when the braces are unbalanced.
+    """
+    depth = 0
+    n = len(text)
+    i = open_idx
+    while i < n:
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
+
+def _type_body(text: str, header_end: int) -> str:
+    """Return the brace body of the type whose header ends at ``header_end``.
+
+    The result is the text strictly between the type's outermost ``{`` and its
+    matching ``}``. Returns ``""`` when no body brace follows (e.g. a forward or
+    abstract declaration).
+    """
+    open_idx = text.find("{", header_end)
+    if open_idx == -1:
+        return ""
+    end = _matching_brace_end(text, open_idx)
+    return text[open_idx + 1 : end - 1]
+
+
+def _member_skeleton(body: str) -> str:
+    """Collapse every nested ``{...}`` block in a class body to ``;``.
+
+    This removes method bodies AND nested type bodies, leaving only the
+    declarations that are *direct* members of the class (fields and method/ctor
+    signatures). Scanning this skeleton — rather than the whole file — keeps each
+    class's methods/fields scoped to that class and stops method-body local
+    variables from being mis-captured as fields. Each nested type is still visited
+    separately by the outer type-declaration loop, so its own members are scoped
+    to its own body.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(body)
+    while i < n:
+        if body[i] == "{":
+            i = _matching_brace_end(body, i)
+            out.append(";")  # terminate the signature/member that owned the block
+        else:
+            out.append(body[i])
+            i += 1
+    return "".join(out)
+
+
+def _fallback_parse_file(
+    path: Path, custom_stereotypes: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Heuristic, regex-based extraction. Never emits method bodies."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        # Degrade this one file instead of aborting the whole analysis (the
+        # JavaParser-fail and pass-2 callers rely on per-file resilience).
+        return {
+            "file": str(path),
+            "package": "",
+            "imports": [],
+            "classes": [],
+            "unresolvedSymbols": [f"FILE_UNREADABLE:{path.name}:{exc}"],
+        }
     cleaned = _strip_comments_and_strings(text)
 
     pkg_match = _PACKAGE_RE.search(cleaned)
@@ -337,10 +531,15 @@ def _fallback_parse_file(path: Path) -> dict[str, Any]:
         impl_match = re.match(r"[^{;]*", tail)
         implements_blob = impl_match.group(0) if impl_match else ""
 
-        kind = _classify_kind(annos, implements_blob)
+        kind = _classify_kind(annos, implements_blob, custom_stereotypes)
+
+        # Scope members to THIS type's own body (method bodies and nested type
+        # bodies collapsed) so multi-class files don't merge members and locals
+        # are not captured as fields.
+        body_skeleton = _member_skeleton(_type_body(cleaned, tdecl.end()))
 
         methods: list[dict[str, Any]] = []
-        for mm in _METHOD_RE.finditer(cleaned):
+        for mm in _METHOD_RE.finditer(body_skeleton):
             mods = mm.group("mods") or ""
             if "public" not in mods:
                 continue
@@ -361,10 +560,10 @@ def _fallback_parse_file(path: Path) -> dict[str, Any]:
             )
 
         fields: list[dict[str, Any]] = []
-        for fm in _FIELD_RE.finditer(cleaned):
+        for fm in _FIELD_RE.finditer(body_skeleton):
             ftype = fm.group("type")
             fname = fm.group("name")
-            if ftype in {"return", "new", "throw"}:
+            if ftype in _NON_FIELD_TYPE_TOKENS:
                 continue
             fields.append(
                 {
@@ -425,6 +624,17 @@ def _empty_result() -> dict[str, Any]:
     }
 
 
+def _failed_result(code: str, message: str, remediation: list[str]) -> dict[str, Any]:
+    """Build a hard-failure AstAnalysisResult (used by strict capability gates)."""
+    result = _empty_result()
+    result["status"] = "failed"
+    result["degraded"] = True
+    result["summary"] = message
+    result["errors"] = [{"code": code, "message": message}]
+    result["nextActions"] = remediation
+    return result
+
+
 def _public_methods(cls: dict[str, Any]) -> list[str]:
     return [m["signature"] for m in cls.get("methods", []) if m.get("signature")]
 
@@ -449,6 +659,33 @@ def _risk_points_for(cls: dict[str, Any]) -> list[str]:
     return risks
 
 
+def _composed_mapping_risks(
+    cls: dict[str, Any], composed_mappings: set[str]
+) -> list[str]:
+    """Flag controller endpoints whose HTTP path/verb hide behind a composed
+    ``@RequestMapping`` variant, so the generator confirms them instead of
+    guessing. The path lives on an ``@AliasFor`` override, invisible to AST."""
+    if not composed_mappings or cls.get("kind") != "controller":
+        return []
+    fqcn = cls.get("fqcn", "?")
+    risks: list[str] = []
+    cls_hits = sorted(set(cls.get("annotations", [])) & composed_mappings)
+    for anno in cls_hits:
+        risks.append(
+            f"{fqcn}: class-level composed mapping @{anno} detected; confirm base "
+            f"path/HTTP method (@AliasFor override) before building MockMvc requests"
+        )
+    for m in cls.get("methods", []):
+        hits = sorted(set(m.get("annotations", [])) & composed_mappings)
+        for anno in hits:
+            risks.append(
+                f"{fqcn}#{m.get('name', '?')}: composed mapping @{anno} detected; "
+                f"confirm URL path/HTTP method (@AliasFor override) before building "
+                f"the MockMvc request"
+            )
+    return risks
+
+
 def _build_result(
     parsed_files: list[dict[str, Any]],
     *,
@@ -456,9 +693,13 @@ def _build_result(
     denied: list[str],
     kinds_filter: Optional[list[str]],
     parse_mode: str,
+    custom_stereotypes: dict[str, str] | None = None,
+    composed_mappings: set[str] | None = None,
 ) -> dict[str, Any]:
     result = _empty_result()
     result["degraded"] = degraded
+    custom_stereotypes = custom_stereotypes or {}
+    composed_mappings = composed_mappings or set()
 
     nodes: list[str] = []
     edges: list[dict[str, str]] = []
@@ -470,7 +711,6 @@ def _build_result(
 
     for pf in parsed_files:
         unresolved.extend(pf.get("unresolvedSymbols", []))
-        imports = pf.get("imports", [])
         for cls in pf.get("classes", []):
             fqcn = cls.get("fqcn", "")
             kind = cls.get("kind", "unknown")
@@ -484,9 +724,6 @@ def _build_result(
                 ftype = _short(field.get("type", ""))
                 if ftype and ftype[:1].isupper():
                     edges.append({"from": fqcn, "to": ftype, "via": "field"})
-            for imp in imports:
-                if imp.endswith("*"):
-                    continue
             targets.append(
                 {
                     "fqcn": fqcn,
@@ -494,12 +731,17 @@ def _build_result(
                     "publicMethods": _public_methods(cls),
                     "annotations": cls.get("annotations", []),
                     "stereotype": next(
-                        (a for a in cls.get("annotations", []) if a in SPRING_STEREOTYPES),
+                        (
+                            a
+                            for a in cls.get("annotations", [])
+                            if a in SPRING_STEREOTYPES or a in custom_stereotypes
+                        ),
                         None,
                     ),
                 }
             )
             risks.extend(_risk_points_for(cls))
+            risks.extend(_composed_mapping_risks(cls, composed_mappings))
 
     result["testTargets"] = targets
     result["dependencyGraph"] = {"nodes": sorted(set(nodes)), "edges": edges}
@@ -550,31 +792,85 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None) -> dict[str, A
     parsed: list[dict[str, Any]] = []
     degraded = not use_java
 
+    # Strict mode (fallback-policy.md #2): JavaParser jar/JDK required. Hard-fail
+    # with remediation instead of degrading to the regex extractor.
+    if not use_java and _require_javaparser():
+        return _failed_result(
+            "JAVAPARSER_REQUIRED",
+            "JavaParser jar/JDK is required (REPO_AST_REQUIRE_JAVAPARSER=1) but "
+            f"unavailable (jar={'found' if jar else 'missing'}, "
+            f"jdk={'ok' if _jdk_available() else 'missing'}).",
+            [
+                "Build the CLI: (cd mcp/javaparser-cli && mvn -q -B package), or set "
+                "REPO_AST_JAVAPARSER_JAR to a prebuilt astcli shaded jar.",
+                "Ensure a JDK 'java' runtime is on PATH (or set REPO_AST_JAVA_BIN).",
+            ],
+        )
+
     if not files:
         return _build_result(
             [], degraded=degraded, denied=denied, kinds_filter=kinds, parse_mode="none"
         )
 
+    # Pass 1: scan every file for @interface declarations and resolve custom
+    # stereotypes / composed mapping annotations transitively across the whole
+    # file set. This must precede classification because a custom stereotype
+    # (e.g. @UseCase) is usually declared in a different file from where it is
+    # used, and neither extractor backend surfaces meta-annotations on its own.
+    decls: dict[str, list[str]] = {}
+    for f in files:
+        try:
+            cleaned = _strip_comments_and_strings(
+                f.read_text(encoding="utf-8", errors="replace")
+            )
+        except OSError:
+            continue
+        decls.update(_scan_annotation_decls(cleaned))
+    custom_stereotypes, composed_mappings = _build_meta_index(decls)
+
+    # Pass 2: parse + classify with the resolved meta index. Track per-file
+    # backend so a single fallback doesn't mislabel the whole run (L6): a run
+    # with some JavaParser files and some regex files is reported as "mixed".
+    java_parsed = 0
+    regex_parsed = 0
     if use_java and jar is not None:
         for f in files:
             data = _run_java_cli(jar, f)
             if data is None:
                 # Fall back per-file so one bad file doesn't abort everything.
                 degraded = True
-                parsed.append(_fallback_parse_file(f))
+                regex_parsed += 1
+                parsed.append(_fallback_parse_file(f, custom_stereotypes))
             else:
-                parsed.append(_normalize_java_cli_output(data, f))
+                java_parsed += 1
+                parsed.append(
+                    _normalize_java_cli_output(data, f, custom_stereotypes)
+                )
     else:
         for f in files:
-            parsed.append(_fallback_parse_file(f))
+            regex_parsed += 1
+            parsed.append(_fallback_parse_file(f, custom_stereotypes))
 
-    parse_mode = "javaparser" if (use_java and not degraded) else "regex-fallback"
+    if java_parsed and regex_parsed:
+        parse_mode = "mixed"
+    elif java_parsed:
+        parse_mode = "javaparser"
+    else:
+        parse_mode = "regex-fallback"
     return _build_result(
-        parsed, degraded=degraded, denied=denied, kinds_filter=kinds, parse_mode=parse_mode
+        parsed,
+        degraded=degraded,
+        denied=denied,
+        kinds_filter=kinds,
+        parse_mode=parse_mode,
+        custom_stereotypes=custom_stereotypes,
+        composed_mappings=composed_mappings,
     )
 
 
-def _normalize_java_cli_output(data: dict[str, Any], path: Path) -> dict[str, Any]:
+def _normalize_java_cli_output(
+    data: dict[str, Any], path: Path, custom_stereotypes: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Coerce the Java CLI JSON into the internal parsed-file shape.
 
     The Java CLI emits classes with annotations; ensure each class carries a
@@ -592,8 +888,15 @@ def _normalize_java_cli_output(data: dict[str, Any], path: Path) -> dict[str, An
         name = cls.get("name", "")
         if not cls.get("fqcn"):
             cls["fqcn"] = f"{package}.{name}" if package else name
-        if not cls.get("kind"):
-            cls["kind"] = _classify_kind(annos, cls.get("extendsImplements", ""))
+        # Always (re)classify with the cross-file custom-stereotype map so a
+        # class annotated with a meta-annotated custom stereotype (e.g. @UseCase)
+        # is not left as a bare pojo. The CLI never emits @interface declarations,
+        # so this map is the only source of meta-annotation knowledge.
+        cli_kind = cls.get("kind")
+        if not cli_kind or cli_kind == "pojo":
+            cls["kind"] = _classify_kind(
+                annos, cls.get("extendsImplements", ""), custom_stereotypes
+            )
         # Defensive: strip any body field a CLI might have included.
         for m in cls.get("methods", []):
             m.pop("body", None)

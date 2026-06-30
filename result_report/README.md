@@ -19,9 +19,11 @@ result_report/
 ├── verification/          ← 검증 재현 스크립트 (MCP 클라이언트)
 │   ├── verify_stdio.py        3개 MCP 서버 stdio 핸드셰이크(initialize + tools/list) 점검
 │   ├── dryrun_sample.py       (Boot 4.x) extract_test_targets/detect_build_tool 도구 실호출
-│   └── dryrun_boot2.py        (Boot 2.x) detect_spring_profile 포함 버전 인식 파이프라인 + 프로파일 단언
+│   ├── dryrun_boot2.py        (Boot 2.x) detect_spring_profile 포함 버전 인식 파이프라인 + 프로파일 단언
+│   └── dryrun_custom_components.py  (커스텀 컴포넌트) 메타 애노테이션 분류 baseline/fixed 단언
 ├── sample-spring-app/     ← 드라이런용 Spring Boot 4.1.0 샘플 (jakarta/@MockitoBean)
-└── sample-spring-boot2/   ← 드라이런용 Spring Boot 2.7.18 샘플 (javax/@MockBean, gradle+pom, 실제 mvn test 통과)
+├── sample-spring-boot2/   ← 드라이런용 Spring Boot 2.7.18 샘플 (javax/@MockBean, gradle+pom, 실제 mvn test 통과)
+└── sample-custom-components/ ← 커스텀 컴포넌트 샘플 (Boot 3.2.0, 커스텀 스테레오타입·전이·합성 매핑·validator, 실제 mvn test 14/14)
 ```
 
 ---

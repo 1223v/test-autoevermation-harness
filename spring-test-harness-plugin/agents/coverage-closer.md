@@ -34,18 +34,18 @@ disallowedTools: Bash
       "branches": ["line 42 branch 1", "line 55 branch 0"]
     }
   ],
-  "coverageGate": {
-    "LINE": 0.95,
-    "BRANCH": 0.90,
-    "METHOD": 0.95,
-    "CLASS": 1.00
+  "coverage": {
+    "line": 0.95,
+    "branch": 0.90,
+    "method": 0.95,
+    "class": 1.00,
+    "excludes": [
+      "**/*Application*",
+      "**/config/**",
+      "**/dto/**",
+      "**/generated/**"
+    ]
   },
-  "exclusionAllowlist": [
-    "**/*Application*",
-    "**/config/**",
-    "**/dto/**",
-    "**/generated/**"
-  ],
   "existingTestPaths": [
     "src/test/java/com/example/order/OrderServiceTest.java"
   ],
@@ -60,8 +60,7 @@ disallowedTools: Bash
 | `projectRoot` | string | 예 | — | Spring 프로젝트 루트 절대 경로 |
 | `jacocoReportPath` | string | 예 | — | JaCoCo XML 리포트 경로 (projectRoot 기준 상대 또는 절대) |
 | `uncovered` | object[] | 예 | — | `parse_jacoco_report`가 반환한 미커버 항목 목록 |
-| `coverageGate` | object | 아니오 | `LINE:0.95, BRANCH:0.90, METHOD:0.95, CLASS:1.00` | 목표 게이트 임계값 |
-| `exclusionAllowlist` | string[] | 아니오 | 기본 제외 패턴 | 게이트 및 테스트 생성에서 제외할 glob 패턴 |
+| `coverage` | object | 아니오 | `line:0.95, branch:0.90, method:0.95, class:1.00, excludes:기본패턴` | 목표 게이트 임계값 + 제외 glob (measure-coverage의 `coverage{...}`와 동일 스키마) |
 | `existingTestPaths` | string[] | 아니오 | `[]` | 이미 존재하는 테스트 파일 경로 목록 |
 | `buildTool` | string | 아니오 | `"미지정"` | `gradle` 또는 `maven` |
 | `junitPolicy` | string | 아니오 | `"jupiter-style"` | `jupiter-style`(BOM 위임) 또는 `strict-5x` |
@@ -71,9 +70,9 @@ disallowedTools: Bash
 
 ## 단계별 절차
 
-### 1. exclusionAllowlist 필터링
+### 1. coverage.excludes 필터링
 
-`uncovered[]`에서 `exclusionAllowlist` 패턴에 일치하는 클래스를 먼저 제거한다. 제외된 클래스는 `warnings`에 "제외 allowlist에 의해 스킵: {fqcn}" 형식으로 기록한다.
+`uncovered[]`에서 `coverage.excludes` 패턴에 일치하는 클래스를 먼저 제거한다. 제외된 클래스는 `warnings`에 "제외 allowlist에 의해 스킵: {fqcn}" 형식으로 기록한다.
 
 기본 제외 패턴 (입력 미지정 시 적용):
 - `**/*Application*`
@@ -213,7 +212,7 @@ src/test/java/{package}/{ClassName}IT.java     ← 통합
     "coverage_gate: CLASS=1.00 OK, METHOD=0.96 OK, LINE=0.96 OK, BRANCH=0.88 FAIL"
   ],
   "warnings": [
-    "com.example.order.config.OrderConfig: exclusionAllowlist(**/config/**)에 의해 스킵"
+    "com.example.order.config.OrderConfig: coverage.excludes(**/config/**)에 의해 스킵"
   ],
   "errors": [],
   "nextActions": [
@@ -246,7 +245,7 @@ src/test/java/{package}/{ClassName}IT.java     ← 통합
 
 ## 핵심 지시문
 
-브랜치 커버리지 미달 항목에 대해 true/false 양방향 분기를 모두 실행하는 테스트를 작성하라. trivially-satisfying assertion(빈 실행, `assertNotNull` 단독 등)을 금지한다. exclusionAllowlist에 포함된 클래스는 건너뛰고 warnings에 기록하라. 코드 본문을 parse_java_file에서 추론하지 말고 노드 메타 기반으로 시그니처를 확인하라. Bash 실행 권한이 없으므로 테스트 파일 작성은 Write/Edit로만 수행한다.
+브랜치 커버리지 미달 항목에 대해 true/false 양방향 분기를 모두 실행하는 테스트를 작성하라. trivially-satisfying assertion(빈 실행, `assertNotNull` 단독 등)을 금지한다. coverage.excludes에 포함된 클래스는 건너뛰고 warnings에 기록하라. 코드 본문을 parse_java_file에서 추론하지 말고 노드 메타 기반으로 시그니처를 확인하라. Bash 실행 권한이 없으므로 테스트 파일 작성은 Write/Edit로만 수행한다.
 
 ---
 
@@ -255,7 +254,7 @@ src/test/java/{package}/{ClassName}IT.java     ← 통합
 | 실패 코드 | 조건 | 처리 |
 |---|---|---|
 | `SYMBOL_UNRESOLVED` | parse_java_file이 메서드 시그니처를 해석 불가 | `warnings`에 기록, 해당 메서드 생성 건너뜀 |
-| `EXCLUSION_MATCH` | 미커버 클래스가 exclusionAllowlist에 해당 | `warnings`에 기록, `remainingGaps`에 reason=exclusion |
+| `EXCLUSION_MATCH` | 미커버 클래스가 coverage.excludes에 해당 | `warnings`에 기록, `remainingGaps`에 reason=exclusion |
 | `ABSTRACT_METHOD` | 미커버 메서드가 추상 메서드/인터페이스 | `warnings`에 기록, 구체 구현체 테스트 권고 |
 | `GATE_STILL_FAILING` | 추가 테스트 후에도 게이트 미달 | `status: "partial"`, `remainingGaps`에 기록, `nextActions`에 루프 재실행 안내 |
 

@@ -156,7 +156,7 @@ disallowedTools: Write, Edit, Bash
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
-| `SPEC_DOC_UNREADABLE` | 파일 존재하지 않거나, 포맷 파싱 불가(암호화 PDF 등) | 해당 문서를 `errors`에 기록. 나머지 문서로 `partial` 계속 진행 |
+| `SPEC_DOC_UNREADABLE` | 파일 존재하지 않거나, 포맷 파싱 불가(암호화 PDF 등) | 대화형: `AskUserQuestion("나머지로 계속 / 중단")`으로 확인 후 진행. CI: `status:"failed"` + remediation으로 하드 중단. ([fallback-policy.md](../references/fallback-policy.md) #10) |
 | 전체 문서 읽기 실패 | `specDocPaths` 전체 실패 | `failed` 반환. `nextActions`에 경로 확인 요청 |
 | 모호한 요구사항 | 테스트 가능한 기준으로 변환 불가한 서술형 조항 | 해당 조항을 `warnings`에 원문과 함께 기록. 나머지는 정상 처리 |
 

@@ -10,7 +10,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 `test-runner`가 반환한 실패 결과를 분석하여 **원인 유형을 분류**하고 **최소 diff**로 테스트를 수정한다. 무작정 재생성은 금지한다. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안한다. 수정 후 `rerunTargets`를 반환하여 `test-runner`가 재실행하도록 한다.
 
-이 에이전트는 `isolation: worktree`로 격리된 git worktree에서 실행된다. 파일 수정이 메인 브랜치에 직접 반영되지 않으며, 패치 검증 후 머지 여부는 사용자·파이프라인이 결정한다. 2회 재시도 후 미해결이면 보고하고 종료한다.
+이 에이전트는 `isolation: worktree`로 격리된 git worktree에서 실행된다. 파일 수정이 메인 브랜치에 직접 반영되지 않으며, 패치 검증 후 머지 여부는 사용자·파이프라인이 결정한다. 오케스트레이터(repair-tests/full-pipeline)는 **그린이 될 때까지 재시도**하며 `retryCount`는 진전 추적 단위일 뿐 고정 상한이 아니다(fallback-policy.md #12). **직전과 동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`로 잔여 실패를 보고하고 종료한다.
 
 ---
 
@@ -19,7 +19,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 - `test-runner`가 `failed[]`에 1개 이상의 항목을 반환했을 때
 - `/spring-test-harness:repair-tests` skill이 직접 호출될 때
 - `full-pipeline` skill에서 `test-runner` 결과에 실패가 포함될 때
-- 재시도 횟수: 최대 2회. 2회 후 미해결이면 `status: failed`로 보고하고 수동 개입 요청
+- 재시도: **그린까지 계속**(고정 상한 없음, #12). 직전과 동일한 실패 집합이 3회 연속(무진전)이면 `status: partial`로 잔여 보고 후 수동 개입 요청
 
 ---
 
@@ -49,7 +49,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 | `failResult` | object | `test-runner` 출력의 `TestRunResult` 전체 |
 | `originalTests` | object[] | 실패한 테스트 파일 경로 및 현재 내용 |
 | `relatedSources` | object[] | 실패와 관련된 프로덕션 소스 파일 경로·FQCN |
-| `retryCount` | integer | 현재 재시도 횟수 (0부터 시작). 2 이상이면 즉시 `failed` 반환 |
+| `retryCount` | integer | 현재 재시도 횟수 (0부터 시작; 진전 추적 단위 — 고정 상한 아님, #12) |
 
 ---
 
@@ -73,7 +73,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 | `rootCauseClass` | string | 식별된 실패 원인 유형 (enum) |
 | `patches` | object[] | 적용한 패치 목록 (파일 경로 + unified diff) |
 | `rerunTargets` | string[] | 재실행 요청할 테스트 FQCN 목록 (`test-runner` 입력으로 사용) |
-| `retryExhausted` | boolean | 2회 재시도 후 미해결인 경우 `true` |
+| `retryExhausted` | boolean | 무진전(동일 실패 3회 연속)으로 자동 보정을 중단한 경우 `true` |
 
 ---
 
@@ -151,7 +151,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 ## 핵심 지시문
 
-실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안하라. `retryCount`가 2 이상이면 즉시 `failed`와 `retryExhausted: true`를 반환하고 수동 개입을 요청하라.
+실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안하라. 진전이 있는 한(실패가 줄어드는 한) 고정 횟수 상한 없이 계속 보정하라(#12). 직전과 **동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`과 `retryExhausted: true`를 반환하고 수동 개입을 요청하라.
 
 ---
 
@@ -178,7 +178,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
-| 재시도 한도 초과 | `retryCount >= 2` | 즉시 `failed` + `retryExhausted: true`. `errors`에 미해결 실패 목록. `nextActions`에 수동 개입 요청 |
+| 무진전 | 동일 실패 집합 3회 연속 | `status: "partial"` + `retryExhausted: true`. `errors`에 잔여 실패 목록. `nextActions`에 수동 개입 요청 (#12) |
 | 원인 분류 불가 | 어떤 클래스에도 해당하지 않는 실패 | `TEST_RUNTIME_FAILED`로 분류(기본). `warnings`에 "자동 분류 불가, 수동 확인 필요" 기록 |
 | `SPEC_MISMATCH`에서 스펙 재조회 실패 | `spec-doc-mcp` 호출 불가 | 스펙 재확인 없이 기대값 분석만으로 수정 진행. `warnings`에 기록 |
 | 패치 적용 후 새 실패 발생 | 수정 후 재실행에서 다른 테스트 실패 | 회귀 가능성 `warnings`에 기록. 기존 실패만 해결 후 반환. 새 실패는 `nextActions`로 추가 처리 권고 |
@@ -190,8 +190,8 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 ```
 1. 실패 분류 → 패치 생성 → 파일 수정 → build-test-mcp 재실행 → XML 파싱
 2. 재실행 결과 통과 → status: ok, rerunTargets 반환
-3. 재실행 결과 실패 → retryCount + 1
-4. retryCount >= 2 → failed + retryExhausted: true
+3. 재실행 결과 실패하지만 실패 수/집합이 줄어듦(진전) → retryCount + 1 후 계속
+4. 직전과 동일한 실패 집합이 3회 연속(무진전) → status: partial + retryExhausted: true
 ```
 
 ---

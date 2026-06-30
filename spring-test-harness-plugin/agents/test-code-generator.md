@@ -197,6 +197,18 @@ junit4 프로파일이면: 슬라이스/컨텍스트 테스트에 `@RunWith(Spri
 - `MockMvcRequestBuilders` + `MockMvcResultMatchers` 사용
 - `@AutoConfigureMockMvc`는 `@SpringBootTest`와 함께만 사용
 
+### 커스텀 컴포넌트 규칙 (필수) — 상세: [references/custom-components.md](../references/custom-components.md)
+- **커스텀 스테레오타입**(`@UseCase` 등, `@Component` 메타 애노테이트): 표준 스테레오타입과
+  동일하게 처리한다. 비즈니스 컴포넌트는 슬라이스 없이 **순수 단위 테스트**(Mockito + BDD)로 생성.
+- **합성 매핑 애노테이션**(`@GetJson` 등): AST가 `riskPoints`에 "composed mapping … confirm URL
+  path/HTTP method"를 남긴 컨트롤러는, **MockMvc 요청 path·HTTP method를 추측하지 말고 확인**한다.
+  확인 순서: ① 커스텀 매핑 `@interface`의 메타 `@RequestMapping`/변형 종류와 `@AliasFor` →
+  ② 사용처 인자(`@GetJson("/orders/{id}")`) → ③ 불명확하면 시나리오의 명시 경로를 쓰고 `warnings`에 기록.
+  변형 종류로 method를 결정(`@GetMapping`류=GET 등).
+- **커스텀 인프라**(`ConstraintValidator`/`Converter`/`HandlerInterceptor`/`HandlerMethodArgumentResolver`):
+  Spring 컨텍스트 없이 계약 메서드를 직접 단위 테스트. `ConstraintValidator`는 `isValid(value, context)`를
+  null/경계/정상/위반 등치류로 파라미터화하고 `ConstraintValidatorContext`는 Mockito mock으로 주입.
+
 ### Fixture 규칙
 - 테스트 데이터 빌더(`<Type>Fixtures` 또는 `<Type>Builder`) 패턴 우선
 - 매직값(리터럴 숫자·문자열) 금지. 명명된 상수 또는 빌더 메서드로 표현

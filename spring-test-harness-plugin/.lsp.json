@@ -3,7 +3,7 @@
   "lspServers": {
     "jdt-ls": {
       "command": "jdtls",
-      "args": ["-data", "${workspaceFolder}/.jdt-workspace"],
+      "args": ["-data", "${CLAUDE_PROJECT_DIR}/.jdt-workspace"],
       "filetypes": ["java"],
       "rootMarkers": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle"]
     }

@@ -86,8 +86,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
          "publicMethods": [string]
        }
      ],
-     "astNodeMap": object,
-     "dependencyGraph": object,
+     "dependencyGraph": { "nodes": [string], "edges": [ { "from": string, "to": string, "via": string } ] },
      "unresolvedSymbols": [string],
      "riskPoints": [string],
      "evidence": [string],
@@ -127,9 +126,9 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
       "publicMethods": ["createOrder(OrderRequest)", "findById(Long)"]
     }
   ],
-  "astNodeMap": {},
   "dependencyGraph": {
-    "com.example.order.OrderController": ["com.example.order.OrderService"]
+    "nodes": ["com.example.order.OrderController", "com.example.order.OrderService"],
+    "edges": [{ "from": "com.example.order.OrderController", "to": "OrderService", "via": "field" }]
   },
   "unresolvedSymbols": [],
   "riskPoints": ["OrderService.createOrder: 외부 HTTP 호출 의심"],

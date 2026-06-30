@@ -54,7 +54,7 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
 
 2. **테스트 task 탐지**
    - `task`가 `"미지정"`이면 `build-test-mcp.list_test_tasks`로 사용 가능한 task 목록을 조회한다.
-   - Gradle: `test` task 기본, 통합은 `integrationTest`. Maven: `surefire:test` 기본, 통합은 `failsafe:integration-test`.
+   - Gradle: `test` task 기본, 통합은 `integrationTest`. Maven: `test`(Surefire) 기본, 통합은 `verify`(Failsafe). (build-test `list_test_tasks` 반환과 일치; `run_targeted_tests`는 `mvn -B test -Dtest=` 실행.)
 
 3. **subagent 호출**
 

@@ -27,6 +27,10 @@ cp -r spring-test-harness-plugin ~/.claude/plugins/spring-test-harness-plugin
 ln -s "$(pwd)/spring-test-harness-plugin" ~/.claude/plugins/spring-test-harness-plugin
 ```
 
+> `.gitignore` 항목(`.omc/`, `mcp/__pycache__/`, `mcp/javaparser-cli/target/` 등)은 배포에 불필요하다 —
+> 빌드/런타임 산출물이므로 복사하지 않아도 되고, JavaParser jar를 쓰려면 설치 후 `mcp/javaparser-cli`에서
+> `mvn -q -DskipTests package`로 다시 빌드한다(Group D 정책: 미빌드 시 정규식 fallback degrade).
+
 설치 후 Claude Code 세션에서 `/spring-test-harness:full-pipeline` 명령이 인식되면 정상이다.
 
 ---
@@ -43,21 +47,30 @@ ln -s "$(pwd)/spring-test-harness-plugin" ~/.claude/plugins/spring-test-harness-
 2. AST 구조 추출 (`analyze-ast`) — 스텝 1과 병렬
 3. 소스 동작·seam 분석 (`analyze-source`)
 4. 시나리오 설계 (`generate-scenarios`)
+4.5. **시나리오 승인 게이트 + `test_docs/` 저장** — 대화형은 `AskUserQuestion`으로 승인, 승인분만 진행
 5. 테스트 코드 생성 (`generate-tests`)
 6. 테스트 실행 (`run-tests`)
 7. 실패 보정 (`repair-tests`) — 실패가 있을 때만
+8. 커버리지 게이트 (`measure-coverage`)
+9. 뮤테이션 강화 (`mutation-test`)
+10. **시나리오 적합성 검증 (`verify-scenarios`)** — 통과한 테스트가 시나리오를 실제로 만족하는지 검증 후 `test_docs/` 정리
 
-결과는 Markdown 보고서 + JSON 산출물로 저장된다.
+결과는 Markdown 보고서 + JSON 산출물 + 대상 프로젝트의 `test_docs/`(시나리오↔테스트코드↔결과 living documentation)로 저장된다.
+
+> **흐름도**: 전체 구동 흐름(Phase E·승인 게이트·적합성 검증·fallback 분기)을 Mermaid로 시각화한 문서는
+> [docs/pipeline-flow.md](./docs/pipeline-flow.md) 참조.
 
 ---
 
-## Skills (11종)
+## Skills (12종)
 
 > v0.2 추가: `configure-harness`, `measure-coverage`, `mutation-test` (아래 "v0.2 신규" 절 참조)
+> v0.7 추가: `verify-scenarios` (시나리오 적합성 검증)
 
 
 | Skill | 호출 방법 | 역할 |
 |---|---|---|
+| `configure-harness` | `/spring-test-harness:configure-harness` | 환경 세팅(Phase E) + 인터랙티브 설정 → `HarnessConfig` 생성 |
 | `full-pipeline` | `/spring-test-harness:full-pipeline` | 전체 파이프라인 오케스트레이션 |
 | `ingest-specs` | `/spring-test-harness:ingest-specs` | 스펙 문서 인덱싱·acceptance criteria 정규화 |
 | `analyze-ast` | `/spring-test-harness:analyze-ast` | JavaParser 기반 AST 구조 추출 |
@@ -66,12 +79,16 @@ ln -s "$(pwd)/spring-test-harness-plugin" ~/.claude/plugins/spring-test-harness-
 | `generate-tests` | `/spring-test-harness:generate-tests` | JUnit Jupiter + Spring Test 코드 생성 |
 | `run-tests` | `/spring-test-harness:run-tests` | 빌드 도구 감지 후 최소 범위 테스트 실행 |
 | `repair-tests` | `/spring-test-harness:repair-tests` | 실패 원인 분류 후 최소 diff 보정 |
+| `measure-coverage` | `/spring-test-harness:measure-coverage` | JaCoCo near-100% 커버리지 게이트 루프 |
+| `mutation-test` | `/spring-test-harness:mutation-test` | PITest 뮤테이션 강화 루프 |
+| `verify-scenarios` | `/spring-test-harness:verify-scenarios` | 시나리오 적합성 검증 + `test_docs/` 정리 |
 
 ---
 
-## Agents (9종)
+## Agents (10종)
 
 > v0.2 추가: `coverage-closer`, `mutation-analyst`
+> v0.7 추가: `scenario-conformance-verifier`
 
 
 | Agent | 역할 | 권한 |
@@ -83,6 +100,9 @@ ln -s "$(pwd)/spring-test-harness-plugin" ~/.claude/plugins/spring-test-harness-
 | `test-code-generator` | 테스트 파일 생성 (write) | Read, Write, Edit, MCP(repo-ast, build-test) |
 | `test-runner` | 테스트 실행·XML 파싱 (execute) | Read, Bash, MCP(build-test) |
 | `test-fixer` | 실패 보정 (write+execute) | Read, Write, Edit, Bash, MCP(all) |
+| `coverage-closer` | 미커버 gap 보완 테스트 생성 (write, no Bash) | Read, Write, Edit, MCP(repo-ast, build-test) |
+| `mutation-analyst` | 생존 mutant 제거 단언 강화 (write, no Bash) | Read, Write, Edit, MCP(repo-ast, build-test) |
+| `scenario-conformance-verifier` | 시나리오 적합성 검증 + `test_docs/` 기록 (verify+write) | Read, Write, Edit, Grep, Glob, MCP(repo-ast, build-test) |
 
 plugin-shipped subagent는 `hooks`/`mcpServers`/`permissionMode` frontmatter를 선언할 수
 없다(Claude Code 공식 제약). MCP 접근은 공유 `.mcp.json` + skill 라우팅으로 구현한다.
@@ -97,18 +117,24 @@ plugin-shipped subagent는 `hooks`/`mcpServers`/`permissionMode` frontmatter를 
 |---|---|---|
 | `repo-ast` | `mcp/repo_ast_server.py` (+ JavaParser jar) | `parse_java_file`, `resolve_symbol`, `list_spring_components`, `extract_test_targets`. 코드 본문 미반환 |
 | `spec-doc` | `mcp/spec_doc_server.py` | `index_docs`, `search_requirements`, `extract_acceptance_criteria`. 경로 allowlist + redaction |
-| `build-test` | `mcp/build_test_server.py` | `detect_build_tool`, `run_targeted_tests`, `parse_junit_xml`, `parse_jacoco_report`, `parse_pitest_report`, `coverage_gate` |
+| `build-test` | `mcp/build_test_server.py` | `detect_build_tool`, `detect_spring_profile`, `detect_build_capabilities`(v0.8), `check_dependency_cache`(v0.8), `run_targeted_tests`(`online=` 프라이밍), `parse_junit_xml`, `parse_jacoco_report`, `parse_pitest_report`, `coverage_gate` |
 
 MCP 연결은 `.mcp.json`(Python으로 연결), 선택적 LSP(JDT LS)는 `.lsp.json` 참조.
 
 ### MCP 서버 설치
 
-```bash
-# 1) Python 의존성 (Python 3.10+)
-pip install -r mcp/requirements.txt        # mcp[cli]
+> **자동 세팅 권장**: 아래는 수동 명령이지만, 하네스는 시작 시 **Phase E 환경 세팅**
+> ([references/environment-setup.md](references/environment-setup.md))에서 이 항목들을 **선제적으로 세팅**한다 —
+> 대화형=항목별 `AskUserQuestion` 후 함께 세팅 / 비대화형·CI=자동 세팅.
 
-# 2) (선택, 권장) JavaParser AST 백엔드 빌드 — 없으면 정규식 fallback
-cd mcp/javaparser-cli && mvn -q -DskipTests package
+```bash
+# 1) Python 의존성 (Python 3.10+)  ── Phase E·E2
+pip install -r mcp/requirements.txt        # mcp[cli]>=1.2.0
+
+# 2) JavaParser AST 백엔드 빌드 (권장 — 정밀 AST)  ── Phase E·E6
+#    기본 배포는 REPO_AST_REQUIRE_JAVAPARSER 미설정 → jar 없으면 정규식 fallback으로 degrade(경고).
+#    정규식 없이 하드실패를 강제하려면 REPO_AST_REQUIRE_JAVAPARSER=1을 opt-in으로 설정.
+cd mcp/javaparser-cli && mvn -q -DskipTests package    # JDK 17+, Maven 3.6.3+
 export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"
 ```
 
@@ -116,9 +142,12 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"
 
 ## v0.2 신규: near-100% 커버리지 · 뮤테이션 · 인터랙티브 설정
 
+- **환경 세팅 선행(`Phase E`)**: 인터뷰 전에 [environment-setup.md](references/environment-setup.md)
+  체크리스트(MCP SDK·JavaParser jar·JDT LS·빌드도구·Spring 프로파일·테스트 실행 JDK)를 TODO로 **선세팅**한다 —
+  대화형=항목별 함께 세팅, CI=결정적 항목 자동 세팅. 미충족이면 파이프라인을 시작하지 않는다.
 - **인터랙티브 설정(`configure-harness`)**: 파이프라인 시작 시 AskUserQuestion으로 4항목을 질문해
   도메인 특화 `HarnessConfig`를 구성한다 — ① 스펙 문서 경로 추가, ② 테스트 대상 폴더/패키지 선별,
-  ③ 뮤테이션 깊이·대상, ④ 커버리지 임계값·제외 규칙. 비대화형(`claude -p`/CI)에서는 기본값으로 스킵.
+  ③ 뮤테이션 깊이·대상, ④ 커버리지 임계값·제외 규칙. 비대화형(`claude -p`/CI)에서는 `HarnessRequest` 값으로 진행.
 - **커버리지 게이트(`measure-coverage` + `coverage-closer`)**: JaCoCo로 LINE/BRANCH/METHOD/CLASS를
   측정하고 near-100% 미달 시 추가 테스트를 생성·재측정하는 루프(기본 LINE≥0.95 / BRANCH≥0.90 /
   METHOD≥0.95 / CLASS=1.00, 제외 allowlist 적용).
@@ -126,6 +155,24 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"
   강화(기본 mutation score ≥ 0.80). sleep/over-mock/broad-catch 금지.
 
 기준 버전·API는 [RESEARCH_NOTES.md](./RESEARCH_NOTES.md) 참조.
+
+---
+
+## v0.8 신규: 대상 빌드 능력 프로비저닝 · 캐시 프라이밍
+
+Phase E가 **하네스 런타임**만 세팅하던 공백을 메운다. 대부분의 실제 프로젝트는 JaCoCo **XML**(Gradle 기본 OFF)·
+PITest 플러그인이 없어 커버리지(8단계)·뮤테이션(9단계)이 깨지고, 네트워크 기본 OFF(`--offline`)라 콜드 캐시
+첫 실행(6단계)이 의존성 해석 실패로 깨질 수 있다. **0.6단계**에서 선제 처리한다(정본: [references/build-provisioning.md](./references/build-provisioning.md)).
+
+- **빌드 능력(#17)**: `detect_build_capabilities`가 JaCoCo XML·PITest·pitest-junit5 유무를 감지 → 대화형은
+  `AskUserQuestion` 승인 후 **최소 스니펫 주입**(`buildChanges[]` 기록), CI는 자동 주입 금지·remediation 중단. (`detect→approve→inject`)
+- **캐시 프라이밍(#18)**: `check_dependency_cache`가 콜드 캐시를 신호 → 대화형은 승인 후 `run_targeted_tests(online=True)`
+  **1회** 온라인 프라이밍(또는 Maven `dependency:go-offline`), 이후 오프라인 유지. 상시 온라인 아님(보안 기본값 유지).
+
+> 근거(공식문서): [Gradle JaCoCo XML 기본 OFF](https://docs.gradle.org/current/userguide/jacoco_plugin.html),
+> [gradle-pitest-plugin](https://gradle-pitest-plugin.solidsoft.info/),
+> [Gradle `--offline` 미캐시 실패](https://docs.gradle.org/current/userguide/dependency_caching.html),
+> [Maven `dependency:go-offline`](https://maven.apache.org/plugins/maven-dependency-plugin/go-offline-mojo.html).
 
 ---
 
@@ -138,6 +185,33 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"
   `// when & then` 병합 허용. 협력 stub은 BDDMockito `given().willReturn()/willThrow()`.
 - **설명**: jupiter 프로파일은 `@DisplayName`(한국어 행위 서술), junit4 프로파일은 서술적 메서드명으로 대체.
 - TDD(red-green) 워크플로는 제공하지 않으며, 기존 코드 대상 spec 기반 사후 생성 + BDD 표현에 집중한다.
+
+## 시나리오 승인 · 적합성 검증 · `test_docs/` (v0.7)
+
+시나리오는 **사용자 승인**을 받고, 모든 과정이 끝나면 **시나리오 충족 여부를 검증**한다. 결과는 대상 프로젝트의
+`test_docs/`에 living documentation으로 정리된다. 정본: [references/scenario-docs.md](./references/scenario-docs.md).
+
+- **승인 게이트(4.5단계)**: 시나리오 설계 직후, 테스트 생성 전에 `test_docs/scenarios/<id>.md`로 저장하고
+  대화형은 `AskUserQuestion`(전체 승인 / 일부 제외·수정 / 재설계)으로 묻는다. **승인된 시나리오만** 생성으로 진행.
+  비대화형·CI는 자동 승인 후 기록(승인은 본질적으로 대화형 전용). 제외분은 `excluded`로 보존.
+- **적합성 검증(10단계)**: `verify-scenarios` + `scenario-conformance-verifier`가 `scenarioRef`(메서드명 `sc001_…` +
+  javadoc)로 시나리오↔테스트를 매핑하고, 통과한 테스트가 시나리오 given/when/then을 **실제로 만족**하는지
+  판정한다(satisfied/unsatisfied/missing). `// then` 단언이 시나리오 then을 빠짐없이 반영해야 satisfied.
+  `unmet`이 있으면 파이프라인 `status: partial` + 잔여 전량 보고(임의 제외 금지).
+- **산출물 구조**:
+
+  ```
+  <projectRoot>/test_docs/
+  ├── INDEX.md                # 시나리오↔테스트코드↔결과 매핑 표 + 요약
+  └── scenarios/
+      ├── SC-001.md           # 시나리오 1건 = 파일 1개 (BDD + 매핑 + 검증 결과)
+      └── ...
+  ```
+
+  `test_docs/`는 사람이 읽는 **영속 산출물**이라 대상 프로젝트에 커밋될 수 있다(`_workspace/` 중간 JSON과 분리).
+
+> 설계 근거(BDD/Living Documentation 추적성, 웹 검증 2026-06-27): Serenity BDD Living Documentation,
+> Cucumber "How does BDD affect traceability", JUnit 5 `@DisplayName` 리포팅 추적성.
 
 ## 보안 기본값
 
@@ -181,6 +255,23 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"
 | MCP Python SDK | `mcp[cli]` | Python 3.10+ | FastMCP, stdio |
 
 JUnit 버전 정책 상세(`jupiter-style` vs `strict-5x`)는 [CHANGELOG.md](./CHANGELOG.md)의 "JUnit 버전 정책 — BOM 기본값과의 편차 명시" 절 참조.
+
+---
+
+## 커스텀 컴포넌트
+
+직접 만든 Spring 컴포넌트도 인식한다(상세·근거: [references/custom-components.md](./references/custom-components.md)).
+
+| 유형 | 분류 | 자동탐지 | 테스트 전략 |
+|---|---|---|---|
+| 커스텀 스테레오타입 `@UseCase`(`@Component` 메타) | component(또는 specialization) | 포함 | 순수 단위(Mockito + BDD) |
+| 거리 2 전이 `@ReadModel → @UseCase → @Component` | component | 포함 | 순수 단위 |
+| 합성 매핑 `@GetJson`(`@RequestMapping` 메타) 컨트롤러 | controller | 포함 | `@WebMvcTest`+MockMvc, **path/method 확인 후** |
+| 커스텀 `ConstraintValidator`/`Converter` 등 | pojo | (kinds 미지정 시) 포함 | 순수 단위(계약 메서드) |
+
+`repo-ast-mcp`가 `@interface` 메타 애노테이션을 **전이적으로** 해석한다. 합성 매핑 애노테이션은
+URL path/HTTP method가 `@AliasFor`에 숨으므로 `riskPoints`로 표시되어 생성기가 경로를 확인한다.
+실 샘플: `result_report/sample-custom-components/`, 드라이런: `result_report/verification/dryrun_custom_components.py` (개발 저장소 상위 경로 — 설치된 플러그인 배포물에는 미포함).
 
 ---
 

@@ -242,8 +242,14 @@ def _score_chunk(chunk: dict[str, Any], query_tokens: list[str]) -> float:
     text_lower = chunk["text"].lower()
     score = 0.0
     for token in query_tokens:
-        # Count occurrences (simple frequency)
-        count = text_lower.count(token.lower())
+        # Count whole-word occurrences (word-boundary aware so "id" does not
+        # match inside "valid"/"identity"). Falls back to plain count for tokens
+        # with no word characters (e.g. punctuation-only).
+        tok = token.lower()
+        if re.search(r"\w", tok):
+            count = len(re.findall(r"\b" + re.escape(tok) + r"\b", text_lower))
+        else:
+            count = text_lower.count(tok)
         if count > 0:
             # +1 for presence, log-weighted frequency
             score += 1.0 + min(count - 1, 4) * 0.2
@@ -363,8 +369,17 @@ def index_docs(paths: list[str]) -> dict:
     errors: list[str] = []
     all_chunks: list[dict[str, Any]] = []
 
-    def _process_file(fpath: Path) -> None:
+    def _process_file(fpath: Path, explicit: bool = False) -> None:
         if fpath.suffix.lower() not in _SUPPORTED_EXTENSIONS:
+            # A file the caller named explicitly (e.g. an advertised .pdf spec)
+            # must not be dropped silently — report it so the agent knows it was
+            # not ingested. Files discovered by directory scan are skipped quietly.
+            if explicit:
+                unreadable.append(
+                    f"SPEC_DOC_UNREADABLE: unsupported file type "
+                    f"'{fpath.suffix or '(none)'}' (supported: "
+                    f"{', '.join(sorted(_SUPPORTED_EXTENSIONS))}): {fpath}"
+                )
             return
         allowed, reason = _is_path_allowed(fpath)
         if not allowed:
@@ -390,7 +405,7 @@ def index_docs(paths: list[str]) -> dict:
             warnings.append(f"Path does not exist: {p}")
             continue
         if p.is_file():
-            _process_file(p)
+            _process_file(p, explicit=True)
         elif p.is_dir():
             allowed, reason = _is_path_allowed(p)
             if not allowed:
@@ -463,7 +478,8 @@ def search_requirements(query: str, top_k: int = 10) -> dict:
 
     # Sort descending by score
     scored.sort(key=lambda x: x[0], reverse=True)
-    top = scored[:max(1, top_k)]
+    # Respect the caller's limit literally: top_k<=0 returns no results.
+    top = scored[:top_k] if top_k > 0 else []
 
     results = []
     for score, chunk in top:

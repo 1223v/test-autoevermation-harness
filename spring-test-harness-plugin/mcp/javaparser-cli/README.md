@@ -1,7 +1,11 @@
 # astcli — JavaParser AST CLI (repo-ast MCP 백엔드)
 
 `repo_ast_server.py`가 정확한 Java AST/심볼 분석을 위해 호출하는 보조 CLI다.
-**jar가 없어도** repo-ast 서버는 순수 Python 정규식 fallback으로 동작하므로, 이 빌드는 선택이지만 정확도를 위해 권장한다.
+**이 jar는 권장이다(정밀 AST).** 기본 배포(`.mcp.json`)는 `REPO_AST_REQUIRE_JAVAPARSER`를 설정하지 않으므로,
+jar/JDK가 없으면 서버는 **정규식 fallback으로 degrade**한다(`degraded:true` + 경고). 더 정확한 심볼 분석을 위해
+환경 세팅 **Phase E·E6**에서 best-effort로 빌드한다 — 대화형=`AskUserQuestion` 후 함께 빌드 / CI=자동 빌드(실패 시 degrade).
+정규식 fallback 없이 **하드실패를 강제**하려면 `REPO_AST_REQUIRE_JAVAPARSER=1`을 opt-in으로 설정한다 —
+그때만 jar 부재 시 `JAVAPARSER_REQUIRED`로 실패한다.
 
 ## 요구사항
 - JDK 17+ (RESEARCH_NOTES §5의 Java 범위와 일치)

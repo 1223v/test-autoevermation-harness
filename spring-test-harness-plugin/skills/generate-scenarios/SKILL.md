@@ -5,7 +5,9 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
 
 ## 목적
 
-`ingest-specs`의 acceptance criteria, `analyze-ast`의 testTargets, `analyze-source`의 testSeams·collaborators를 수렴해 최소 중복의 테스트 시나리오 집합을 설계한다. unit → slice → integration 순으로 우선순위를 부여하고, 중복 시나리오는 병합하며, 느린 시나리오(integration)는 사유를 명시한다. 결과는 `generate-tests` 스킬의 입력으로 쓰인다.
+`ingest-specs`의 acceptance criteria, `analyze-ast`의 testTargets, `analyze-source`의 testSeams·collaborators를 수렴해 최소 중복의 테스트 시나리오 집합을 설계한다. unit → slice → integration 순으로 우선순위를 부여하고, 중복 시나리오는 병합하며, 느린 시나리오(integration)는 사유를 명시한다.
+
+> **승인 게이트 선행(다운스트림)**: 이 스킬의 출력(`ScenarioSet`)은 `generate-tests`로 바로 가지 않는다. `full-pipeline` 4.5단계에서 각 시나리오가 대상 프로젝트의 `test_docs/scenarios/<id>.md`로 저장되고 **사용자 승인 게이트**를 거친다(대화형=`AskUserQuestion`, CI=자동 승인). **승인된 시나리오만** 테스트 생성으로 넘어가고, 파이프라인 마지막에 적합성 검증(`verify-scenarios`)으로 시나리오 충족 여부가 확인된다. 정본: [references/scenario-docs.md](../../references/scenario-docs.md). 본 스킬 자체는 read-only이므로 `test_docs/` 저장·승인은 호출자(full-pipeline)가 수행한다.
 
 ---
 

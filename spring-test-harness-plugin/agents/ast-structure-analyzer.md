@@ -59,8 +59,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `testTargets` | object[] | 분석 완료된 FQCN 목록 (kind, publicMethods 포함) |
-| `astNodeMap` | object | FQCN → AST 노드 메타 맵 |
-| `dependencyGraph` | object | FQCN → 의존 FQCN 배열 |
+| `dependencyGraph` | object | `{ nodes: [FQCN], edges: [{from, to, via}] }` 그래프 (필드 타입 기반 협력 엣지) |
 | `unresolvedSymbols` | string[] | 파싱 중 resolve 불가한 심볼 목록 |
 | `riskPoints` | string[] | 테스트 어려움이 예상되는 지점(static, final, 외부 SDK 직접 호출 등) |
 
@@ -109,12 +108,21 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 
         }
       }
     },
-    "astNodeMap": { "type": "object" },
     "dependencyGraph": {
       "type": "object",
-      "additionalProperties": {
-        "type": "array",
-        "items": { "type": "string" }
+      "properties": {
+        "nodes": { "type": "array", "items": { "type": "string" } },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "via": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "unresolvedSymbols": {
@@ -156,12 +164,27 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 
 
 `repo-ast-mcp.extract_test_targets`로 대상 패키지의 public 메서드와 Spring stereotype을 추출하라. symbol을 추론하지 말고 `unresolvedSymbols`로 분리하라. 코드 본문은 반환하지 마라. 대상이 명시되지 않은 경우 `list_spring_components`로 후보를 자동 탐지한다.
 
+## 커스텀 컴포넌트 (커스텀 스테레오타입 · 합성 매핑)
+
+`repo-ast-mcp`는 분석 파일군의 `@interface` 선언을 스캔해 메타 애노테이션을 **전이적으로**
+해석한다. 따라서 다음을 인식할 때 `kind`/`riskPoints`를 그대로 신뢰하라(상세: [custom-components.md](../references/custom-components.md)).
+
+- **커스텀 스테레오타입**(예: `@UseCase` ← `@Component`, 거리 2 전이 포함): `pojo`가 아니라
+  controller/service/repository/component로 분류되며 `list_spring_components`에도 잡힌다.
+  자동탐지 결과를 그대로 후속 단계 입력으로 넘겨라.
+- **합성 매핑 애노테이션**(예: `@GetJson` ← `@RequestMapping`): 해당 엔드포인트에 대해
+  `riskPoints`에 "composed mapping … confirm URL path/HTTP method" 경고가 붙는다. 이 경고를
+  `nextActions`로 승격해 `test-code-generator`가 MockMvc 경로를 확인하도록 전달하라.
+- 커스텀 애노테이션 `@interface`가 분석 경로 밖(외부 jar)이면 메타 해석이 불가해 `pojo`로
+  남는다 → `warnings`에 기록하고, 필요한 FQCN을 `targets`로 명시 요청하라.
+
 ---
 
 ## 실패 처리
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
+| `JAVAPARSER_REQUIRED` (#2, opt-in) | `REPO_AST_REQUIRE_JAVAPARSER=1`이 **설정된 경우에만** repo-ast가 jar/JDK 미가용 시 `status:failed` 반환 | 그 경우 중단하고 remediation(jar 빌드 또는 `REPO_AST_JAVAPARSER_JAR` + JDK) 보고. **기본 배포는 플래그 미설정 → 정규식 fallback으로 degrade**(`degraded:true`+경고 보고)([fallback-policy.md](../references/fallback-policy.md) #2) |
 | `SYMBOL_UNRESOLVED` | 클래스패스 불완전, 제네릭 타입 추론 불가 | `partial` 반환. `unresolvedSymbols` 채움. `nextActions`에 "JDT LS LSP 보강 권고" 추가 |
 | `UNSUPPORTED_PROJECT_SHAPE` | 비표준 디렉터리 구조, annotation processor 전용 생성 클래스 | `partial` 반환. 탐지 가능한 범위만 결과 포함. `warnings`에 상세 기록 |
 | 프로젝트 루트 없음 | `projectRoot`가 존재하지 않음 | `failed` 반환. `errors`에 경로 명시 |

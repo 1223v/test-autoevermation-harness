@@ -157,7 +157,7 @@ disallowedTools: Write, Edit
 1. `targetScope.methods` 지정 → 해당 메서드만 실행 (가장 좁은 범위)
 2. `targetScope.classes` 지정 → 해당 클래스만 실행
 3. `targetScope.packages` 지정 → 해당 패키지만 실행
-4. 모두 미지정 → 전체 test task 실행 (fallback, `warnings`에 기록)
+4. 모두 미지정 → **[[fallback-policy.md](../references/fallback-policy.md) #8]**: 대화형이면 AskUserQuestion으로 "대상 지정 / 전체 실행" 확인 후 진행; CI이면 `status:"failed"` + remediation 안내 후 하드 중단
 
 ### Gradle 명령 패턴
 ```

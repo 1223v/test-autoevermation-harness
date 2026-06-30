@@ -9,6 +9,152 @@
 
 ---
 
+## [0.8.0] - 2026-06-28
+
+### Added
+
+- **대상 빌드 능력 프로비저닝(F1) + 의존성 캐시 프라이밍(F2)**: 신규 SSOT
+  [`references/build-provisioning.md`](references/build-provisioning.md). Phase E가 하네스 런타임만 세팅하던
+  공백을 메워, **대상 프로젝트 빌드 파일**이 커버리지/뮤테이션을 낼 수 있는지와 콜드 캐시 첫 실행을 선제 처리한다.
+  - **`build-test` MCP 신규 도구 2종(신호 전용, 파일 미수정)**:
+    - `detect_build_capabilities(root, junit_engine)` — JaCoCo 플러그인/**XML 활성화**·PITest 플러그인/JUnit5
+      플러그인 유무를 감지해 `missing[]` + 최소 `proposedChanges[{file,anchor,snippet,reason,source}]` 반환.
+    - `check_dependency_cache(build_tool, root)` — 공유 캐시 유무로 `primed` 추정 + 1회 프라이밍 권고.
+  - **`run_targeted_tests(..., online=True)`**: 콜드 캐시/신규 플러그인 해석을 위한 **1회 네트워크-ON** 프라이밍 경로
+    (이후 호출은 다시 오프라인). 기본은 종전대로 오프라인(보안 #14 유지).
+  - **0.6단계(configure-harness)**: 0.5 프로파일 확정 직후·6단계 run-tests 이전에 `detect→approve→inject`로
+    빌드 능력을 확정하고(대화형=`AskUserQuestion` 승인 후 스니펫 주입+`buildChanges[]` 기록 / CI=자동 주입 금지·
+    remediation 중단), 캐시 프라이밍을 결정한다.
+
+### Changed
+
+- `references/environment-setup.md`: 체크리스트에 **E11(빌드 능력)·E12(캐시 프라이밍)** 추가, 통과 기준에 0.6단계 명시.
+- `references/fallback-policy.md`: **#17(빌드 능력 미비 — detect→approve→inject)·#18(콜드 캐시 — 1회 온라인 프라이밍)** 추가.
+- `configure-harness`: **0.6단계**(빌드 능력 프로비저닝 + 캐시 프라이밍) 신설, 실패표에 #17·#18 행 추가.
+- `full-pipeline`: Phase E 목적/항목에 E11·E12 반영, 6단계에 콜드 캐시 1회 `online=True` 프라이밍 주석, 실패표에
+  #17·#18 행 추가.
+- `plugin.json`·`marketplace.json` 0.7.0 → 0.8.0.
+
+### Evidence
+
+- 공식문서(웹 검증 2026-06-28): Gradle JaCoCo 플러그인은 `jacocoTestReport`를 자동 생성하나 **XML 출력 기본 OFF**
+  (`reports { xml.required = true }` 필요) — [Gradle JaCoCo Plugin](https://docs.gradle.org/current/userguide/jacoco_plugin.html).
+  PITest `pitest` 태스크는 `info.solidsoft.pitest` 플러그인 필요, Jupiter는 `junit5PluginVersion`(pitest-junit5-plugin) —
+  [gradle-pitest-plugin](https://gradle-pitest-plugin.solidsoft.info/), [pitest-junit5-plugin](https://github.com/pitest/pitest-junit5-plugin).
+  Maven JaCoCo는 `prepare-agent`+`report`(verify) 골 — [JaCoCo Maven Plug-in](https://www.eclemma.org/jacoco/trunk/doc/maven.html).
+  Gradle `--offline`은 **미캐시 모듈 시 빌드 실패** — [Gradle Dependency Caching](https://docs.gradle.org/current/userguide/dependency_caching.html).
+  Maven `dependency:go-offline`은 의존성+플러그인 일괄 다운로드 — [dependency:go-offline](https://maven.apache.org/plugins/maven-dependency-plugin/go-offline-mojo.html).
+
+---
+
+## [0.7.0] - 2026-06-27
+
+### Added
+
+- **시나리오 승인 게이트 + 적합성 검증 + `test_docs/`(SSOT)**: 신규 레퍼런스
+  [`references/scenario-docs.md`](references/scenario-docs.md). 시나리오를 **사용자 승인 후** 테스트로 생성하고,
+  모든 과정이 끝나면 **시나리오 충족 여부를 검증**해 대상 프로젝트의 `test_docs/`에 living documentation으로 정리한다.
+  - **승인 게이트(4.5단계)**: 시나리오 설계 직후·테스트 생성 전에 `test_docs/scenarios/<id>.md`(`approval: pending`)로
+    저장하고 **대화형=`AskUserQuestion`**(전체 승인/일부 제외·수정/재설계), **CI=자동 승인+기록**. 승인분만 생성으로 진행,
+    제외분은 `excluded`로 보존(추적성).
+  - **적합성 검증(10단계, 마지막)**: 신규 스킬 `verify-scenarios` + 신규 에이전트 `scenario-conformance-verifier`.
+    `scenarioRef`(메서드명 `sc001_…` + javadoc)로 시나리오↔테스트를 매핑하고 satisfied/unsatisfied/missing 판정.
+    `// then` 단언이 시나리오 then을 빠짐없이 반영해야 satisfied. `unmet` 존재 시 `status: partial` + 잔여 전량 보고.
+  - **산출물**: `test_docs/INDEX.md`(시나리오↔테스트코드↔결과 매핑 표) + `test_docs/scenarios/<id>.md`(시나리오별 파일).
+    사람이 읽는 영속 산출물이라 대상 프로젝트에 커밋 가능(`_workspace/` 중간 JSON과 분리).
+
+### Changed
+
+- `full-pipeline`: 4.5단계(승인 게이트+`test_docs/` 저장)와 10단계(`verify-scenarios` 적합성 검증)를 추가.
+  5단계 입력을 `scenarioResult.scenarios` → **`approvedScenarios`**(승인분)로 변경. 출력 스키마에 `scenarioApproval`·
+  `verifyScenarios`·`scenarioDocs` 추가. 보고서에 시나리오 적합성 섹션 추가. 실패표에 #15·#16 행 추가.
+- `generate-scenarios`: 출력이 바로 생성으로 가지 않고 4.5단계 승인 게이트를 거친다는 다운스트림 주석 추가(스킬 자체는 read-only).
+- `orchestration-detail.md`: `_workspace/`에 `04b_approval.json`·`10_conformance.json` 추가, `test_docs/` 영속 산출물
+  규칙 명시, 부분 재실행 매트릭스에 시나리오/적합성 행 추가.
+- `references/fallback-policy.md`: #15(시나리오 승인 게이트 — 대화형 AskUserQuestion/CI 자동 승인), #16(적합성 미충족 →
+  partial) 추가.
+- `README.md`: 파이프라인 4.5·8·9·10단계 반영, Skills 11→12·Agents 9→10, 시나리오 승인·적합성·`test_docs/` 절 추가.
+- `plugin.json`·`marketplace.json` 0.6.0 → 0.7.0.
+
+### Evidence
+
+- 설계 근거(웹 검증 2026-06-27): BDD/Living Documentation는 테스트 스위트에서 생성되어 항상 최신인 실행 가능 명세이며
+  요구사항을 안정적 ID로 테스트에 묶어 추적성을 제공 — Serenity BDD Living Documentation, Cucumber "How does BDD
+  affect traceability", JUnit 5 `@DisplayName`(리포팅 추적성). 본 하네스의 기존 추적성(시나리오 BDD given/when/then +
+  메서드명 `scenarioRef` + javadoc `criteriaRef`)을 사람이 읽는 `test_docs/`로 외부화한 것.
+
+---
+
+## [0.6.0] - 2026-06-27
+
+### Added
+
+- **환경 세팅 선(先)처리 — Phase E 체크리스트(SSOT)**: 신규 레퍼런스
+  [`references/environment-setup.md`](references/environment-setup.md). 하네스가 fallback을 파이프라인
+  도중에 "마주치기" 전에, 시작 시점에 **TODO 리스트로 환경을 전부 선세팅**한다.
+  - 항목: E1 Python 3.10+ · E2 MCP SDK · E3 MCP 서버 등록 · E4 JDK 17+ · E5 Maven 3.6.3+ ·
+    E6 JavaParser CLI jar · E7 JDT LS+Java21 · E8 빌드도구 · E9 Spring 프로파일 ·
+    **E10 테스트 실행 JDK↔Mockito 호환**(JDK 24/25 inline mock-maker 위험 선점검).
+  - **세팅 방식**: 자동 가능 항목(E2 `pip install`, E6 `mvn package`)은
+    **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / 비대화형·CI=자동 세팅** 후 재검증.
+    assist/비결정적 항목은 대화형=안내 질문, CI=하드 중단(remediation).
+
+### Changed
+
+- `configure-harness`: 기존 Preflight를 **Phase E 환경 세팅 체크리스트(TodoWrite 기반)**로 확장 —
+  단순 점검·하드중단에서 **함께 세팅(대화형)/자동 세팅(CI)**으로 전환.
+- `full-pipeline`: 0단계 이전에 **Phase E 환경 세팅** 단계를 명시(선행 게이트).
+- `references/fallback-policy.md`: 공통규칙 2·비대화형 감지 갱신(결정적 환경 항목은 CI에서 **자동 세팅**),
+  표 #1·#2·#3·#4·#5·#6을 Phase E 선세팅으로 재정의 + E10 등 추가 환경 항목 주석.
+- `mcp/javaparser-cli/README.md`: jar를 **"권장(Phase E·E6 best-effort 빌드)"**로 정정 — 기본 배포는
+  jar 부재 시 정규식 fallback으로 degrade(`REPO_AST_REQUIRE_JAVAPARSER=1`은 opt-in 하드실패).
+- `plugin.json`·`marketplace.json` 0.5.0 → 0.6.0.
+
+### Evidence
+
+- 세팅 명령·요구사항 사실 확인: `mcp/requirements.txt`(`mcp[cli]>=1.2.0`),
+  `mcp/javaparser-cli/README.md`(`mvn -q -DskipTests package` → `astcli-1.0.0-shaded.jar`, JDK 17+),
+  `.lsp.json`(jdtls, Java 21+). Eclipse JDT LS 구동 Java 21+ 요구(2025-03 SDK 4.35);
+  Mockito/ByteBuddy Java 25(class-file 69) 미지원(≤5.13) → Mockito 5.16+/ByteBuddy 1.17+ 또는
+  `-Dnet.bytebuddy.experimental=true` 필요.
+
+---
+
+## [0.5.0] - 2026-06-26
+
+### Added
+
+- **커스텀 컴포넌트 인식(메타 애노테이션 전이 해석)**: `repo-ast-mcp`가 분석 파일군의
+  `@interface` 선언을 스캔해 메타 애노테이션을 **전이적으로** 해석한다(`_build_meta_index`).
+  - 커스텀 스테레오타입(`@UseCase` ← `@Component`, 거리 2 `@ReadModel → @UseCase → @Component`
+    포함)이 `pojo`가 아니라 controller/service/repository/component로 분류되고
+    `list_spring_components` 자동탐지에 포함된다(specialization 우선순위 적용).
+  - **합성 매핑 애노테이션**(`@GetJson` ← `@RequestMapping`)을 식별해 해당 컨트롤러 엔드포인트에
+    `riskPoints` 경고("composed mapping … confirm URL path/HTTP method")를 남긴다.
+- 신규 레퍼런스 [`references/custom-components.md`](references/custom-components.md)(SSOT) +
+  실 샘플 `result_report/sample-custom-components/`(커스텀 스테레오타입·합성 매핑·`ConstraintValidator`)
+  + 드라이런 `result_report/verification/dryrun_custom_components.py` (개발 저장소 상위 경로 — 배포물 미포함).
+
+### Fixed
+
+- **정규식 폴백 메서드 추출 버그**: `@PathVariable("id")`/`@RequestParam(value=…)`처럼 인자가 있는
+  파라미터 애노테이션이 메서드 파라미터 목록을 조기 절단해 컨트롤러 엔드포인트가 통째로 누락되던
+  문제 수정(`_METHOD_RE`가 한 단계 중첩 괄호 허용). JavaParser jar 미빌드 기본 경로에서 발생.
+
+### Changed
+
+- `ast-structure-analyzer`·`source-code-analyzer`·`test-code-generator`에 커스텀 스테레오타입/합성
+  매핑/커스텀 인프라(validator·converter·interceptor) 처리 지시문 추가.
+- `plugin.json`·`marketplace.json` 0.4.0 → 0.5.0.
+
+### Evidence
+
+- `dryrun_custom_components.py --expect=fixed`: `@UseCase`/`@ReadModel` → component+자동탐지,
+  합성 매핑 flagged, validator는 pojo 타깃 유지 — 전부 MATCH. 기존 boot2/boot4 샘플 회귀:
+  표준 스테레오타입 분류 유지, 내장 `@GetMapping`은 합성 매핑으로 오탐하지 않음.
+
+---
+
 ## [0.4.0] - 2026-06-26
 
 ### Added

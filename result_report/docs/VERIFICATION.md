@@ -55,6 +55,51 @@
 
 → **Boot 2.x는 분석 dry-run을 넘어 실제 컴파일·실행까지 전 구간 검증 완료.** 버전 프로파일 감지 → javax/@MockBean/Jupiter 생성 → 실 Boot 2.7 런타임 통과.
 
+## 4. 커스텀 컴포넌트 end-to-end 드라이런 + 실제 빌드 (2026-06-26, v0.5.0)
+
+샘플: `sample-custom-components/` (**Spring Boot 3.2.0**, jakarta, Java 17). 커스텀 스테레오타입
+(`@UseCase` ← `@Component`), 거리-2 전이(`@ReadModel → @UseCase → @Component`), 합성 매핑
+(`@GetJson` ← `@RequestMapping`), 커스텀 `ConstraintValidator`를 한 샘플에 포함.
+도구: `verification/dryrun_custom_components.py` + 실제 `mvn test`.
+
+**4-1. 분류 드라이런 — 수정 전(baseline) → 후(fixed)** (`repo-ast-mcp` 정규식 폴백 경로, jar 없이 기본 경로):
+
+| 관측 항목 | baseline(수정 전) | fixed(수정 후) |
+|---|---|---|
+| `@UseCase` kind | `pojo` ❌ | **component** ✓ |
+| `@UseCase` 자동탐지(`list_spring_components`) | 누락 ❌ | **포함** ✓ |
+| `@ReadModel`(거리 2) kind | `pojo` ❌ | **component** ✓ (전이 해석) |
+| 합성 매핑 플래그 | 없음 ❌ | **riskPoint 발생** ✓ |
+| 컨트롤러 엔드포인트 | "no detected endpoints" ❌ | **`quote` 감지** ✓ |
+| 커스텀 validator | pojo 타깃 | pojo 타깃(유지) ✓ |
+
+→ `--expect=baseline`/`--expect=fixed` 모두 **MATCH**. 회귀: boot2/boot4 표준 스테레오타입 분류 유지,
+내장 `@GetMapping`은 합성 매핑으로 **오탐하지 않음**.
+
+**4-2. 근본 원인 2종 (드라이런으로 발견·근거 기반 수정)**:
+- **메타 애노테이션 미해석**: `_classify_kind`가 직접 단순명만 대조 → 커스텀 스테레오타입이 `pojo`로
+  떨어짐. 공식문서(Classpath Scanning: *"@Component 메타 애노테이션이 붙은 애노테이션은 스테레오타입"*,
+  MergedAnnotations: 전이적)대로 `@interface` 전이 해석(`_build_meta_index`)을 추가.
+- **정규식 메서드 추출 버그**: `@PathVariable("id")`의 내부 `)`가 파라미터 목록을 절단해 엔드포인트
+  누락 → `_METHOD_RE`가 한 단계 중첩 괄호를 허용하도록 수정. (jar 미빌드 기본 경로 한정)
+
+**4-3. 생성물의 실제 컴파일·실행** (Maven, Boot 3.2.0, **Java 17**):
+
+수정된 분류·관용구대로 BDD(scenarioRef 메서드명 + `// given/when/then`) 테스트 4종 생성 후 `mvn test`:
+- `CreateOrderUseCaseTest` (커스텀 스테레오타입, 순수 단위): **4/4**
+- `OrderSummaryReadModelTest` (거리-2 전이, 순수 단위): **2/2**
+- `PositiveAmountValidatorTest` (커스텀 validator, `@ParameterizedTest`): **7/7**
+- `OrderApiControllerTest` (합성 매핑, `@WebMvcTest`+`@MockBean`, **경로 `/orders/{id}/quote`는 `@GetJson`
+  alias에서 확정**): **1/1**
+- 결과: `Tests run: 14, Failures: 0, Errors: 0` → **BUILD SUCCESS**
+
+> Mockito 인라인 mock-maker(ByteBuddy)는 매우 최신 JDK(예: Java 25)를 미지원하므로 `@WebMvcTest`
+> 슬라이스는 지원 런타임이 필요하다 → Boot 3.2 타깃인 **JDK 17**로 빌드(환경 제약, 생성물 결함 아님).
+
+**4-4. 하네스 파서로 결과 수렴**: `build-test._parse_junit_file`(surefire) → **passed=14, failed=0, status=ok** ✓.
+
+→ **커스텀 컴포넌트(커스텀 스테레오타입·전이·합성 매핑·validator)는 분류 수정 + 실제 Boot 3.2 빌드까지 전 구간 검증 완료.**
+
 ## 참고: 완전 빌드/실행 범위
 
 `./gradlew test`(테스트 실제 실행 + JaCoCo/PITest 리포트 생성)는 Gradle wrapper와 네트워크 의존성 다운로드가 필요해 본 검증 환경에서는 분석 단계까지만 dry-run했다. 커버리지/뮤테이션 **파서**는 합성 리포트로 별도 검증 완료(README/CHANGELOG 참조). 실제 프로젝트에서는 `pip install -r mcp/requirements.txt` + (선택) JavaParser jar 빌드 후 `/spring-test-harness:full-pipeline`로 전체 실행한다.

@@ -1,7 +1,7 @@
 {
   "name": "spring-test-harness",
-  "version": "0.4.0",
-  "description": "Spring 기반 테스트코드 생성 하네스 (Spring Boot 2.0–4.x 버전 인식). 버전 프로파일 감지 → 인터랙티브 설정 → AST/소스/스펙 분석 → 시나리오 → 테스트 생성(javax/jakarta·JUnit4/5·@MockBean/@MockitoBean 자동 분기) → 실행 → 보정 → near-100% 커버리지 게이트(JaCoCo) → 뮤테이션 강화(PITest) 파이프라인을 9개 에이전트와 Python 기반 공유 MCP 3종(JavaParser AST 포함)으로 오케스트레이션한다.",
+  "version": "0.8.0",
+  "description": "Spring 기반 테스트코드 생성 하네스 (Spring Boot 2.0–4.x 버전 인식). 버전 프로파일 감지 → 인터랙티브 설정 → 빌드 능력 프로비저닝(JaCoCo XML·PITest)·캐시 프라이밍 → AST/소스/스펙 분석 → 시나리오 → 사용자 승인 게이트(test_docs/ 저장) → 테스트 생성(javax/jakarta·JUnit4/5·@MockBean/@MockitoBean 자동 분기) → 실행 → 보정 → near-100% 커버리지 게이트(JaCoCo) → 뮤테이션 강화(PITest) → 시나리오 적합성 검증 파이프라인을 10개 에이전트와 Python 기반 공유 MCP 3종(JavaParser AST 포함)으로 오케스트레이션한다.",
   "author": { "name": "spring-test-harness maintainers" },
   "license": "Apache-2.0",
   "keywords": ["spring", "junit", "test-generation", "mockmvc", "harness"],
