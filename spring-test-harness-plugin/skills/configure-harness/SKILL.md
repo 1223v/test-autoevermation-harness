@@ -421,57 +421,13 @@ description: 주문 도메인 특화 테스트 생성 및 커버리지 검증을
 
 ## 출력 (HarnessConfig)
 
+`harnessConfig`의 전체 필드는 위 「5단계: HarnessConfig 생성」의 스키마와 동일하므로(중복 방지), 여기서는 출력 봉투(envelope)만 보인다.
+
 ```json
 {
   "status": "ok",
   "summary": "인터뷰 완료. HarnessConfig 생성됨.",
-  "harnessConfig": {
-    "projectRoot": "/path/to/spring-project",
-    "specDocPaths": ["docs/api-spec.md"],
-    "targets": ["com.example.order"],
-    "targetModules": [],
-    "buildTool": "미지정",
-    "junitPolicy": "jupiter-style",
-    "testScope": "mixed",
-    "javaVersion": "17",
-    "springVersion": "4.1.0",
-    "springProfile": {
-      "bootVersion": "4.1.0",
-      "bootMajor": 4,
-      "namespace": "jakarta",
-      "junitEngine": "jupiter",
-      "mockAnnotation": "MockitoBean",
-      "mockImport": "org.springframework.test.context.bean.override.mockito.MockitoBean",
-      "javaBaseline": 17,
-      "gradleTestMode": "useJUnitPlatform",
-      "degraded": false
-    },
-    "stylePolicy": "google-java",
-    "lspAvailable": false,
-    "maxRepairRetries": 2,
-    "domainKeywords": [],
-    "coverage": {
-      "line": 0.95,
-      "branch": 0.90,
-      "method": 0.95,
-      "class": 1.00,
-      "excludes": [
-        "**/*Application*",
-        "**/config/**",
-        "**/dto/**",
-        "**/generated/**"
-      ]
-    },
-    "mutation": {
-      "mutators": "DEFAULTS",
-      "targetClasses": [],
-      "targetTests": [],
-      "mutationThreshold": 0.80,
-      "threads": 2
-    },
-    "coverageMaxIterations": 3,
-    "mutationMaxIterations": 3
-  },
+  "harnessConfig": { "…": "「5단계: HarnessConfig 생성」 스키마와 동일 — 인터뷰 결과로 채워진 concrete 값" },
   "domainSkillCreated": null,
   "warnings": [],
   "errors": [],

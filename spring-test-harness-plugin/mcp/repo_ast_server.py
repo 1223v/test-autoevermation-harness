@@ -27,6 +27,7 @@ without the Java jar so the server is usable immediately.
 
 from __future__ import annotations
 
+import functools
 import glob
 import json
 import os
@@ -189,8 +190,13 @@ def _locate_jar() -> Optional[str]:
     return None
 
 
+@functools.lru_cache(maxsize=1)
 def _jdk_available() -> bool:
-    """Return True when a ``java`` runtime can be invoked."""
+    """Return True when a ``java`` runtime can be invoked.
+
+    Memoized: JDK availability (and ``REPO_AST_JAVA_BIN``) is fixed for a process,
+    so the probe runs at most once even when the failure path re-checks it.
+    """
     java = os.environ.get("REPO_AST_JAVA_BIN", "java")
     try:
         proc = subprocess.run(  # noqa: S603 - fixed args, no shell
@@ -884,8 +890,13 @@ def _normalize_java_cli_output(
         annos = [_short(str(a).lstrip("@")) for a in cls.get("annotations", [])]
         cls["annotations"] = annos
         name = cls.get("name", "")
+        # Package is per-compilation-unit: prefer the class's own package (emitted
+        # when the CLI parsed a multi-file directory) and fall back to the top-level
+        # package for single-file payloads. Popped so the internal key never leaks
+        # into the output — identical result for the single-file harness path.
+        pkg = cls.pop("package", "") or package
         if not cls.get("fqcn"):
-            cls["fqcn"] = f"{package}.{name}" if package else name
+            cls["fqcn"] = f"{pkg}.{name}" if pkg else name
         # Always (re)classify with the cross-file custom-stereotype map so a
         # class annotated with a meta-annotated custom stereotype (e.g. @UseCase)
         # is not left as a bare pojo. The CLI never emits @interface declarations,

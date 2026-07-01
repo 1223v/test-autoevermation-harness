@@ -15,11 +15,14 @@
 
 ### Changed
 - MCP 서버 3종 구조화(외부 동작·도구 시그니처·출력 스키마 보존): 리포트 탐색기 3종(`_find_reports`)·XML 파싱 오류 처리(`_safe_parse_xml`)·프로파일 충돌 감지(`_profile_conflict`) 중복 통합, 과대 함수 분리(`detect_build_capabilities`→`_gradle_capabilities`/`_maven_capabilities`, `run_targeted_tests`→`_build_test_command`/`_classify_run_status`, `extract_acceptance_criteria`→`_strip_prohibition`).
+- `repo_ast_server._jdk_available()` 메모이즈(`functools.lru_cache`) — JDK 가용성은 프로세스 내 불변이므로 실패 경로의 중복 `java -version` probe를 1회로 축소(동작 동일).
+- `configure-harness/SKILL.md` 중복 축소: 출력 봉투의 `harnessConfig` 전체 필드(~46줄) 재기재를 제거하고 「5단계」 스키마를 SSOT로 가리키도록 정리(봉투 키는 유지 — 스킬 단독 가독성 보존).
 - `.mcp.json`에 `SPEC_DOC_WORKSPACE=${CLAUDE_PROJECT_DIR}` 추가 — 문서화돼 있었으나 미설정이라 무효였던 spec-doc 워크스페이스 경로 봉쇄 가드를 활성화(`repo-ast`의 `REPO_AST_ALLOW_ROOT`와 정합).
 - 오해 소지 docstring 수정(`_run_subprocess`의 "network-off env merge"), `REPORT.md` 참조를 실제 위치 `result_report/docs/REPORT.md`로 정정.
 
 ### Fixed
 - 오케스트레이션 문서의 사실 오류·중복 조건 정리: 존재하지 않는 task `integration-test`(→ `integrationTest`/`verify`), build-test가 내보내지 않는 `-pl/-am` 예시, Phase-E 게이트 4종 불일치를 SSOT(`references/environment-setup.md`)로 통일, analyze-ast 단계 번호·mutation `maxIterations`·`maxRepairRetries` 표현·Awaitility 모순 정정.
+- JavaParser CLI(`AstCli.java`) 디렉터리 모드 패키지 버그: 디렉터리를 넘기면 첫 파일의 `package`만 읽어 다른 패키지 클래스의 FQCN이 틀리던 문제를, `package`를 컴파일 단위(파일)별로 해석해 각 클래스에 부여하도록 수정(JavaParser `CompilationUnit`은 파일 단위 API). Python `_normalize_java_cli_output`는 클래스별 `package`를 우선 사용(단일 파일 하네스 경로는 동작 동일 — jar 재빌드 필요, shaded jar은 빌드 산출물이라 미포함).
 
 ---
 

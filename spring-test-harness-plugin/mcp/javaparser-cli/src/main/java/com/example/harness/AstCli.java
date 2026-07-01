@@ -35,7 +35,7 @@ import java.util.stream.Stream;
  *
  * <pre>
  * { "package": str, "imports": [str],
- *   "classes": [ { "name": str, "annotations": [str], "extendsImplements": str,
+ *   "classes": [ { "name": str, "package": str, "annotations": [str], "extendsImplements": str,
  *                  "methods": [ {name, signature, returnType, parameters:[str],
  *                                annotations:[str], public:bool} ],
  *                  "fields":  [ {name, type, annotations:[str]} ] } ],
@@ -104,14 +104,19 @@ public final class AstCli {
                 unresolved.add("PARSE_FAILED: " + file.getFileName());
                 continue;
             }
+            // package/imports are per-compilation-unit (JavaParser API): resolve them
+            // for THIS file so classes from a multi-file / multi-package directory each
+            // carry their own package. The top-level package/imports stay the first CU
+            // for backward compatibility (single-file callers see identical output).
+            String cuPackage = cu.getPackageDeclaration().map(p -> p.getNameAsString()).orElse("");
             if (firstFile) {
-                packageName = cu.getPackageDeclaration().map(p -> p.getNameAsString()).orElse("");
+                packageName = cuPackage;
                 cu.getImports().forEach(i -> imports.add(JsonValue.str(i.getNameAsString())));
                 firstFile = false;
             }
             for (TypeDeclaration<?> type : cu.getTypes()) {
                 if (type instanceof ClassOrInterfaceDeclaration) {
-                    classes.add(describeClass((ClassOrInterfaceDeclaration) type, unresolved));
+                    classes.add(describeClass((ClassOrInterfaceDeclaration) type, cuPackage, unresolved));
                 }
             }
         }
@@ -128,9 +133,11 @@ public final class AstCli {
         return obj;
     }
 
-    private static JsonObject describeClass(ClassOrInterfaceDeclaration cls, Set<String> unresolved) {
+    private static JsonObject describeClass(
+            ClassOrInterfaceDeclaration cls, String cuPackage, Set<String> unresolved) {
         JsonObject obj = new JsonObject();
         obj.put("name", JsonValue.str(cls.getNameAsString()));
+        obj.put("package", JsonValue.str(cuPackage == null ? "" : cuPackage));
         obj.put("annotations", annotationsOf(cls.getAnnotations()));
 
         List<String> ei = new ArrayList<>();
