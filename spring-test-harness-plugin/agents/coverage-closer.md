@@ -1,6 +1,6 @@
 ---
 name: coverage-closer
-description: Use this agent when you need to consume JaCoCo coverage gaps and generate additional targeted tests to close those gaps toward near-100% coverage thresholds (LINE>=0.95, BRANCH>=0.90, METHOD>=0.95, CLASS=1.0). Triggers on: after parse_jacoco_report reveals uncovered lines/branches/methods/classes, when measure-coverage skill reports a gate failure, when the coverage gap-closing loop requests additional tests.
+description: "Use this agent when you need to consume JaCoCo coverage gaps and generate additional targeted tests to close those gaps toward near-100% coverage thresholds (LINE>=0.95, BRANCH>=0.90, METHOD>=0.95, CLASS=1.0). Triggers on: after parse_jacoco_report reveals uncovered lines/branches/methods/classes, when measure-coverage skill reports a gate failure, when the coverage gap-closing loop requests additional tests."
 model: inherit
 tools: Read, Write, Edit, mcp__build-test__parse_jacoco_report, mcp__build-test__coverage_gate, mcp__repo-ast__extract_test_targets, mcp__repo-ast__parse_java_file
 disallowedTools: Bash

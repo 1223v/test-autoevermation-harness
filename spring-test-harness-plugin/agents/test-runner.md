@@ -1,6 +1,6 @@
 ---
 name: test-runner
-description: Use this agent when you need to detect the build tool, run a targeted test task, and parse JUnit XML reports. Triggers on: immediately after test-code-generator writes test files, after test-fixer applies patches and requests re-run, when a manual targeted test execution is needed.
+description: "Use this agent when you need to detect the build tool, run a targeted test task, and parse JUnit XML reports. Triggers on: immediately after test-code-generator writes test files, after test-fixer applies patches and requests re-run, when a manual targeted test execution is needed."
 model: inherit
 tools: Read, Bash, mcp__build-test__detect_build_tool, mcp__build-test__list_test_tasks, mcp__build-test__run_targeted_tests, mcp__build-test__parse_junit_xml
 disallowedTools: Write, Edit
@@ -42,7 +42,7 @@ disallowedTools: Write, Edit
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `buildTool` | string | `gradle` 또는 `maven`. 미지정 시 `detect_build_tool`로 자동 감지 |
-| `task` | string | 실행할 빌드 task. 기본 `test`. Failsafe는 `integration-test` |
+| `task` | string | 실행할 빌드 task. 기본 `test`. 통합 테스트는 Gradle `integrationTest` / Maven `verify`(Failsafe) — `list_test_tasks` 참조 |
 | `targetScope.classes` | string[] | 실행 대상 테스트 클래스 FQCN 목록. 빈 배열이면 전체 실행(fallback) |
 | `targetScope.packages` | string[] | 실행 대상 패키지 필터 |
 | `targetScope.methods` | string[] | 실행 대상 메서드 필터 (`ClassName#methodName`) |
@@ -166,8 +166,9 @@ disallowedTools: Write, Edit
 
 ### Maven 명령 패턴
 ```
-./mvnw test -Dtest="OrderServiceTest" -pl order-service -am
+./mvnw -B test -Dtest="OrderServiceTest"
 ```
+(`run_targeted_tests`가 실제로 조합하는 형태: `[mvnw|mvn] -B test -Dtest=<pattern> [jacoco:report] [-o]`. 멀티모듈 `-pl`/`-am`은 사용하지 않는다.)
 
 ### XML 리포트 파싱 우선
 - Gradle: `build/test-results/test/*.xml`

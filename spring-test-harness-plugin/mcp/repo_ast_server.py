@@ -4,7 +4,7 @@
 A FastMCP (official MCP Python SDK) server that performs *structure-only* Java
 AST/symbol analysis for the Spring test-harness plugin.
 
-Design contract (see RESEARCH_NOTES.md sections 1-2 and REPORT.md):
+Design contract (see RESEARCH_NOTES.md sections 1-2 and result_report/docs/REPORT.md):
 
 * High-level API: ``from mcp.server.fastmcp import FastMCP`` with ``@mcp.tool()``,
   ``@mcp.resource()`` and ``@mcp.prompt()`` decorators; stdio transport.
@@ -32,7 +32,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -221,13 +220,12 @@ def _run_java_cli(jar: str, target: Path) -> Optional[dict[str, Any]]:
     """
     java = os.environ.get("REPO_AST_JAVA_BIN", "java")
     try:
-        proc = subprocess.run(  # noqa: S603 - fixed args, no shell, env-controlled
+        proc = subprocess.run(  # noqa: S603 - fixed args, no shell
             [java, "-jar", jar, str(target)],
             capture_output=True,
             text=True,
             timeout=120,
             check=False,
-            env={**os.environ, "REPO_AST_NETWORK": "off"},
         )
     except Exception:  # noqa: BLE001
         return None
@@ -923,7 +921,8 @@ def build_server() -> Any:
     """
     if FastMCP is None:  # pragma: no cover
         raise RuntimeError(
-            "The 'mcp' package is not installed. Install with: pip install 'mcp[cli]'"
+            "The 'mcp' package is not installed for this interpreter. Install with: "
+            "python3 -m pip install -r mcp/requirements.txt"
         )
 
     mcp = FastMCP(SERVER_NAME)

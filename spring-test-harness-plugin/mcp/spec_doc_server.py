@@ -4,7 +4,7 @@ Indexes specification documents and extracts acceptance criteria for testing.
 
 Requirements:
 - Python 3.10+
-- mcp package (pip install mcp)
+- mcp package (python3 -m pip install -r mcp/requirements.txt)
 - stdlib only for parsing/IO (no heavy deps)
 
 Environment variables:
@@ -18,11 +18,22 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import uuid
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except ImportError as exc:  # clearer startup diagnostic than a raw traceback
+    import sys
+
+    sys.stderr.write(
+        "spring-test-harness spec-doc: the 'mcp' package is not importable by this "
+        f"interpreter ({sys.executable}).\n"
+        "Install it into the SAME python3 that Claude Code launches:\n"
+        "  python3 -m pip install -r mcp/requirements.txt\n"
+        f"(original error: {exc})\n"
+    )
+    raise
 
 # ---------------------------------------------------------------------------
 # Server setup
@@ -69,8 +80,8 @@ _REDACT_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     # Generic passwords/tokens in key=value or key: value patterns
     ("PASSWORD", re.compile(
         r'(?i)(password|passwd|pwd|secret|token|api[_\-]?key|auth[_\-]?token|bearer)'
-        r'\s*[=:]\s*[\'"]?[A-Za-z0-9+/!@#$%^&*()\-_=+|;:,.<>?`~]{8,}[\'"]?'
-    ), r"\1=[REDACTED_SECRET]"),
+        r'(\s*[=:]\s*)[\'"]?[A-Za-z0-9+/!@#$%^&*()\-_=+|;:,.<>?`~]{8,}[\'"]?'
+    ), r"\1\2[REDACTED_SECRET]"),
     # JDBC / connection strings
     ("JDBC", re.compile(
         r'(?i)jdbc:[a-z]+://[^\s\'"<>]+'
@@ -284,7 +295,7 @@ def _extract_gherkin_blocks(text: str, source: str) -> list[dict[str, Any]]:
             if re.match(r"(given|주어진)", lower_line):
                 current = "given"
                 given_parts.append(re.sub(r"(?i)^(given|주어진)\s*", "", line_stripped).strip())
-            elif re.match(r"(when|했을때|when\s)", lower_line):
+            elif re.match(r"(when|했을때)", lower_line):
                 current = "when"
                 when_parts.append(re.sub(r"(?i)^(when|했을때)\s*", "", line_stripped).strip())
             elif re.match(r"(then|그러면)", lower_line):
@@ -317,7 +328,7 @@ def _extract_rule_sentences(text: str, source: str) -> list[dict[str, Any]]:
     # Match sentences containing obligation keywords
     rule_pattern = re.compile(
         r"[^.。\n]*(?:must|shall|should not|must not|is required to|are required to"
-        r"|해야|해야\s*한다|하여야|금지|해서는\s*안|하지\s*말아야|하면\s*안)[^.。\n]*[.。]?",
+        r"|해야|하여야|금지|해서는\s*안|하지\s*말아야|하면\s*안)[^.。\n]*[.。]?",
         re.IGNORECASE,
     )
     for i, match in enumerate(rule_pattern.finditer(text)):
@@ -340,6 +351,11 @@ def _extract_rule_sentences(text: str, source: str) -> list[dict[str, Any]]:
             "sourceDoc": source,
         })
     return criteria
+
+
+def _strip_prohibition(crit: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of a criterion without the internal isProhibition flag."""
+    return {k: v for k, v in crit.items() if k != "isProhibition"}
 
 
 # ---------------------------------------------------------------------------
@@ -391,13 +407,17 @@ def index_docs(paths: list[str]) -> dict:
             return
         assert content is not None
         redacted = redact_text(content)
-        chunks = _chunk_text(redacted, str(fpath))
+        # Store a resolved absolute path as the source key so extract_acceptance_criteria
+        # (which resolves its `paths`) matches regardless of the path form used at index
+        # time (directory vs file, relative vs absolute). _is_path_allowed also resolves.
+        src_key = str(fpath.resolve())
+        chunks = _chunk_text(redacted, src_key)
         all_chunks.extend(chunks)
         # Collect requirement headings for matrix
         headings = _extract_requirement_headings(redacted)
         if headings:
-            _REQUIREMENT_MATRIX[str(fpath)] = headings
-        indexed_files.append(str(fpath))
+            _REQUIREMENT_MATRIX[src_key] = headings
+        indexed_files.append(src_key)
 
     for raw_path in paths:
         p = Path(raw_path)
@@ -576,18 +596,13 @@ def extract_acceptance_criteria(paths: list[str] | None = None) -> dict:
     if not all_criteria and not source_to_text:
         warnings.append("No matching sources found in index for the provided paths.")
 
-    # Separate positive criteria from prohibitions
+    # Separate positive criteria from prohibitions (drop the internal isProhibition flag).
     for crit in all_criteria:
-        if crit.get("isProhibition"):
-            prohibitions.append({k: v for k, v in crit.items() if k != "isProhibition"})
-        else:
-            requirements.append({k: v for k, v in crit.items() if k != "isProhibition"})
+        target = prohibitions if crit.get("isProhibition") else requirements
+        target.append(_strip_prohibition(crit))
 
     # acceptance_criteria is union of all (positive + negative)
-    acceptance_criteria = [
-        {k: v for k, v in c.items() if k != "isProhibition"}
-        for c in all_criteria
-    ]
+    acceptance_criteria = [_strip_prohibition(c) for c in all_criteria]
 
     summary = (
         f"Extracted {len(acceptance_criteria)} acceptance criteria "

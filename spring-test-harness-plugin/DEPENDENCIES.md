@@ -13,7 +13,7 @@
 | 훅 | `PreToolUse`/`PostToolUse` (네트워크 가드, 시크릿 redaction) | 네이티브 |
 | Python | 3.10+, `mcp[cli]` (MCP 서버 런타임) | 표준 |
 | Java(권장) | JDK 17+ / Maven 3.6.3+ (JavaParser jar 빌드 — 정밀 AST). 미가용 시 **정규식 fallback으로 degrade**(`degraded:true`+경고). `REPO_AST_REQUIRE_JAVAPARSER=1`로 하드실패 강제는 opt-in. Phase E·E6에서 best-effort 빌드 | 권장 |
-| JDT LS(선택) | `jdtls` + Java 21+ 런타임 (semantic 분석 보강). 미가용 시 AST-only로 degrade. Phase E·E7(선택) | 선택 |
+| JDT LS(선택) | `jdtls` + Java 21+ 런타임 (semantic 분석 보강). `plugin.json` `lspServers`로 `.lsp.json` 등록(미설치 시 graceful — AST-only degrade). Phase E·E7(선택) | 선택 |
 | 대상 빌드 도구 | Gradle 8.14+/9.x 또는 Maven 3.6.3+ (대상 Spring 프로젝트용) | 대상 프로젝트 |
 
 ## 의존하지 않는 것 (명시적 비의존)
@@ -44,7 +44,7 @@
 ```bash
 # 1) 플러그인을 Claude Code에 등록 (marketplace 또는 로컬 경로)
 # 2) MCP 서버 런타임
-pip install -r mcp/requirements.txt        # mcp[cli], Python 3.10+
+python3 -m pip install -r mcp/requirements.txt        # mcp[cli], Python 3.10+
 # 3) (선택) 정확한 Java AST
 cd mcp/javaparser-cli && mvn -q -DskipTests package
 ```

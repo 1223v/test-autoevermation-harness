@@ -1,6 +1,6 @@
 ---
 name: ast-structure-analyzer
-description: Use this agent when you need to extract the structural shape of a Spring Java project — class/method/field/annotation/dependency maps — without reading actual code bodies. Triggers on: pipeline step 2 (structure extraction), target module/class discovery, pre-scenario planning that requires knowing what public API surfaces exist.
+description: "Use this agent when you need to extract the structural shape of a Spring Java project — class/method/field/annotation/dependency maps — without reading actual code bodies. Triggers on: pipeline step 2 (structure extraction), target module/class discovery, pre-scenario planning that requires knowing what public API surfaces exist."
 model: inherit
 tools: Read, Grep, Glob, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__list_spring_components, mcp__repo-ast__extract_test_targets
 disallowedTools: Write, Edit, Bash

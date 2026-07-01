@@ -1,6 +1,6 @@
 ---
 name: test-code-generator
-description: Use this agent when you need to generate compilable JUnit 4 or JUnit 5 (Jupiter) / Spring Test / Mockito test files from a confirmed scenario set, version-aware across Spring Boot 2.0–4.x. Triggers on: after scenario-generator returns a scenario set, when test code files need to be written to src/test/java, when build file changes are required to support new test dependencies.
+description: "Use this agent when you need to generate compilable JUnit 4 or JUnit 5 (Jupiter) / Spring Test / Mockito test files from a confirmed scenario set, version-aware across Spring Boot 2.0–4.x. Triggers on: after scenario-generator returns a scenario set, when test code files need to be written to src/test/java, when build file changes are required to support new test dependencies."
 model: inherit
 tools: Read, Write, Edit, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__extract_test_targets, mcp__build-test__detect_build_tool, mcp__build-test__detect_spring_profile, mcp__build-test__list_test_tasks
 disallowedTools: Bash

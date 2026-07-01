@@ -1,11 +1,10 @@
 {
-  "//": "선택적 semantic navigation/diagnostics. JDT LS는 Java 21+ runtime 필요. AST(JavaParser)와 역할 분리.",
+  "//": "선택적 semantic navigation/diagnostics. JDT LS는 Java 21+ runtime 필요(미설치 시 graceful: /plugin 에러 탭 표시만, AST-only degrade). plugin.json의 lspServers로 등록됨.",
   "lspServers": {
     "jdt-ls": {
       "command": "jdtls",
       "args": ["-data", "${CLAUDE_PROJECT_DIR}/.jdt-workspace"],
-      "filetypes": ["java"],
-      "rootMarkers": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle"]
+      "extensionToLanguage": { ".java": "java" }
     }
   }
 }

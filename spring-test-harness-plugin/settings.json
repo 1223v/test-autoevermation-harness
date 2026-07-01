@@ -6,8 +6,7 @@
       "Grep",
       "Glob",
       "Bash(./gradlew test --tests *)",
-      "Bash(mvn -B test -Dtest=*)",
-      "Bash(./scripts/detect-build-tool.sh)"
+      "Bash(mvn -B test -Dtest=*)"
     ],
     "deny": [
       "Read(./**/.env)",

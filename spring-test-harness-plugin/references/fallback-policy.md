@@ -25,7 +25,7 @@
 
 | # | Fallback 지점 | 정책 | 신호/구현 위치 |
 |---|---|---|---|
-| 1 | **MCP Python SDK(`mcp[cli]`) 미설치** | **Phase E·E2에서 선세팅.** 대화형: AskUserQuestion "함께 세팅할까요?" → 예: `pip install -r mcp/requirements.txt` 후 재검증 / 아니오: 중단. **CI: 자동 설치** 후 재검증, 실패 시 중단 | `configure-harness` Phase E; [environment-setup.md](./environment-setup.md) E2 |
+| 1 | **MCP Python SDK(`mcp[cli]`) 미설치** | **Phase E·E2에서 선세팅.** 대화형: AskUserQuestion "함께 세팅할까요?" → 예: `python3 -m pip install -r mcp/requirements.txt` 후 재검증 / 아니오: 중단. **CI: 자동 설치** 후 재검증, 실패 시 중단 | `configure-harness` Phase E; [environment-setup.md](./environment-setup.md) E2 |
 | 2 | **JavaParser jar / JDK 미가용** | **권장(정밀 AST) — 미가용 시 정규식 fallback으로 degrade(경고).** Phase E·E6에서 best-effort 빌드: 대화형=AskUserQuestion "jar 빌드할까요?" → 예: `(cd mcp/javaparser-cli && mvn -q -DskipTests package)` / 아니오·실패: **degrade 진행**(중단 아님). CI=자동 빌드 시도, 실패 시 degrade. 또는 `REPO_AST_JAVAPARSER_JAR` 지정. 정규식 없이 하드실패를 원하면 `REPO_AST_REQUIRE_JAVAPARSER=1` opt-in | `repo-ast`(플래그 설정 시만 `status:failed`+`JAVAPARSER_REQUIRED`, 기본은 `degraded:true`); `configure-harness` Phase E·E6; `ast-structure-analyzer` |
 | 3 | **JDT LS(LSP) 미가용** | **선택(optional) — AST-only degrade 허용.** 가용하면 정의이동·참조탐색에 활용하고, 미가용이면 AST-only로 **degrade하여 진행**한다(`status: partial` + `warnings: JDT_LS_UNAVAILABLE`). 대화형: 설치/런타임 안내는 선택, 미연결이어도 중단하지 않음. CI: degrade 진행(중단 아님). 정밀도 향상 remediation: `.lsp.json` 연결 + Java 21+ runtime | `configure-harness` Phase E·E7(선택); `source-code-analyzer`, `analyze-source` |
 | 4 | **Boot 버전 미감지** | **0.5단계(E9)에서 확정.** 대화형: AskUserQuestion으로 Boot major/프로파일 질문, 충족 안 되면 중단. CI: 중단(`HarnessRequest.springVersion` 명시) | `build-test` `detect_spring_profile` `degraded:true`+`INTERVIEW_REQUIRED`; `configure-harness` 0.5단계 |

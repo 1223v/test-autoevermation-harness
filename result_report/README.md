@@ -12,39 +12,27 @@
 ```
 result_report/
 ├── README.md              ← (이 파일) 아카이브 인덱스
-├── docs/                  ← 설계 보고서 · 원칙 감사 · 검증 기록
-│   ├── REPORT.md              전체 설계 보고서(아키텍처·에이전트 스키마·권한 모델·JUnit 충돌 분석)
-│   ├── PRINCIPLES_AUDIT.md    revfactory/harness 설계 원칙 준수 감사 (#1~#16)
-│   └── VERIFICATION.md        라이브 검증 증거(MCP stdio 핸드셰이크·도구 호출 결과)
-├── verification/          ← 검증 재현 스크립트 (MCP 클라이언트)
-│   ├── verify_stdio.py        3개 MCP 서버 stdio 핸드셰이크(initialize + tools/list) 점검
-│   ├── dryrun_sample.py       (Boot 4.x) extract_test_targets/detect_build_tool 도구 실호출
-│   ├── dryrun_boot2.py        (Boot 2.x) detect_spring_profile 포함 버전 인식 파이프라인 + 프로파일 단언
-│   └── dryrun_custom_components.py  (커스텀 컴포넌트) 메타 애노테이션 분류 baseline/fixed 단언
-├── sample-spring-app/     ← 드라이런용 Spring Boot 4.1.0 샘플 (jakarta/@MockitoBean)
-├── sample-spring-boot2/   ← 드라이런용 Spring Boot 2.7.18 샘플 (javax/@MockBean, gradle+pom, 실제 mvn test 통과)
-└── sample-custom-components/ ← 커스텀 컴포넌트 샘플 (Boot 3.2.0, 커스텀 스테레오타입·전이·합성 매핑·validator, 실제 mvn test 14/14)
+└── docs/                  ← 설계 보고서 · 원칙 감사 · 검증 기록
+    ├── REPORT.md              전체 설계 보고서(아키텍처·에이전트 스키마·권한 모델·JUnit 충돌 분석)
+    ├── PRINCIPLES_AUDIT.md    revfactory/harness 설계 원칙 준수 감사 (#1~#16)
+    └── VERIFICATION.md        라이브 검증 증거(MCP stdio 핸드셰이크·도구 호출·회귀 스냅샷 결과)
 ```
+
+> **검증 스캐폴딩 제거(2026-07-01).** 개발 중 하네스를 검증하는 데 쓰던 재현 스크립트(`verification/*.py`)와
+> 샘플 Spring 프로젝트(`sample-spring-app/`, `sample-spring-boot2/`, `sample-custom-components/`)는
+> 하네스 런타임이 호출하지 않는 **개발 전용 자산**이라 최종 회귀 검증 후 제거했다.
+> 검증 결과 자체는 [`docs/VERIFICATION.md`](docs/VERIFICATION.md)에 증거로 보존된다.
 
 ---
 
-## 검증 스크립트 재현 방법
+## 검증 재현 방법
 
-스크립트는 경로를 자동 해석한다 — 플러그인은 `../../spring-test-harness-plugin`, 샘플 앱은 `../sample-spring-app`.
-실행에는 MCP Python SDK(`mcp[cli]`)가 필요하다.
+검증에 쓰인 MCP stdio 핸드셰이크·버전 프로파일 감지·커스텀 컴포넌트 분류의 절차와 결과는
+[`docs/VERIFICATION.md`](docs/VERIFICATION.md)(§1~§5)에 상세히 기록되어 있다. 재현이 필요하면
+그 절차대로 샘플 프로젝트와 드라이런 스크립트를 재작성하고, 일회용 venv에 MCP SDK를 설치해 실행한다.
 
 ```bash
-# 1) 일회용 venv 생성 + MCP SDK 설치
 python3 -m venv /tmp/mcp-venv
 /tmp/mcp-venv/bin/pip install -r ../spring-test-harness-plugin/mcp/requirements.txt
-
-# 2) (선택) JavaParser AST 백엔드 빌드 — 없으면 정규식 fallback
-( cd ../spring-test-harness-plugin/mcp/javaparser-cli && mvn -q -DskipTests package )
-
-# 3) 검증 실행 (result_report/ 기준)
-/tmp/mcp-venv/bin/python verification/verify_stdio.py
-/tmp/mcp-venv/bin/python verification/dryrun_sample.py
+# (선택) JavaParser AST 백엔드: ( cd ../spring-test-harness-plugin/mcp/javaparser-cli && mvn -q -DskipTests package )
 ```
-
-> 개발 당시 사용한 `.mcp-venv/`·빌드 산출물은 캐시 정리 시 제거되었으므로 위 1~2단계로 재생성한다.
-> 검증 결과 요약은 [`docs/VERIFICATION.md`](docs/VERIFICATION.md)에 기록되어 있다.

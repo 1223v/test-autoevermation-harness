@@ -1,6 +1,6 @@
 ---
 name: source-code-analyzer
-description: Use this agent when you need behavioral analysis of Spring source code — call chains, exception flows, DI patterns, transaction boundaries, and external I/O seam identification (DB, HTTP, clock, randomness). Triggers on: immediately after ast-structure-analyzer completes, when mocking seam mapping is needed before scenario generation.
+description: "Use this agent when you need behavioral analysis of Spring source code — call chains, exception flows, DI patterns, transaction boundaries, and external I/O seam identification (DB, HTTP, clock, randomness). Triggers on: immediately after ast-structure-analyzer completes, when mocking seam mapping is needed before scenario generation."
 model: inherit
 tools: Read, Grep, Glob, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__list_spring_components, mcp__repo-ast__extract_test_targets
 disallowedTools: Write, Edit, Bash

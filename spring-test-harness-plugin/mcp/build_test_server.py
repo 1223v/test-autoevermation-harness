@@ -7,7 +7,7 @@ the Spring test-harness plugin.
 Design source of truth:
   - RESEARCH_NOTES.md  (§1 FastMCP API, §3 JaCoCo 0.8.12, §4 PITest, §6 near-100% policy;
                         build-test-mcp design + TestRunResult schema)
-  - scripts/detect-build-tool.sh, scripts/collect-test-reports.py (heuristics reused)
+  - Build-tool detection and JUnit/JaCoCo/PITest report parsing are implemented inline.
 
 Standard library only (subprocess, xml.etree, json, os, shlex). Python 3.10+.
 
@@ -28,7 +28,19 @@ import shlex
 import subprocess
 import xml.etree.ElementTree as ET
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except ImportError as exc:  # clearer startup diagnostic than a raw traceback
+    import sys
+
+    sys.stderr.write(
+        "spring-test-harness build-test: the 'mcp' package is not importable by this "
+        f"interpreter ({sys.executable}).\n"
+        "Install it into the SAME python3 that Claude Code launches:\n"
+        "  python3 -m pip install -r mcp/requirements.txt\n"
+        f"(original error: {exc})\n"
+    )
+    raise
 
 mcp = FastMCP("build-test")
 
@@ -46,7 +58,7 @@ DEFAULT_MUTATION = 0.80
 # Subprocess wall-clock cap (seconds) so a hung build can't block the server.
 _RUN_TIMEOUT = 1800
 
-# Failure-classification heuristics (reused from collect-test-reports.py).
+# Failure-classification heuristics.
 _COMPILE_KEYWORDS = (
     "compilationerror",
     "compilation error",
@@ -85,8 +97,7 @@ def _network_allowed() -> bool:
 def _detect(root: str) -> dict:
     """Core build-tool detection. Returns {buildTool, wrapper} or BUILD_TOOL_UNDETECTED.
 
-    Mirrors scripts/detect-build-tool.sh: prefer wrapper, then standard build files,
-    Gradle before Maven.
+    Detection order: prefer the wrapper, then standard build files, Gradle before Maven.
     """
     if not os.path.isdir(root):
         return {"status": "failed", "error": "BUILD_TOOL_UNDETECTED",
@@ -124,31 +135,64 @@ def _classify_failure(failure_type: str, message: str) -> str:
     return "TEST_RUNTIME_FAILED"
 
 
+# Report locations (each entry = path components under root; "*" = one submodule level).
+_JUNIT_REL = (
+    ("build", "test-results", "test", "*.xml"),
+    ("target", "surefire-reports", "*.xml"),
+    ("target", "failsafe-reports", "*.xml"),
+    ("*", "build", "test-results", "test", "*.xml"),
+    ("*", "target", "surefire-reports", "*.xml"),
+    ("*", "target", "failsafe-reports", "*.xml"),
+)
+_JACOCO_REL = (
+    ("build", "reports", "jacoco", "test", "jacocoTestReport.xml"),
+    ("target", "site", "jacoco", "jacoco.xml"),
+    ("*", "build", "reports", "jacoco", "test", "jacocoTestReport.xml"),
+    ("*", "target", "site", "jacoco", "jacoco.xml"),
+)
+_PITEST_REL = (
+    ("build", "reports", "pitest", "mutations.xml"),
+    ("target", "pit-reports", "mutations.xml"),
+    ("*", "build", "reports", "pitest", "mutations.xml"),
+    ("*", "target", "pit-reports", "mutations.xml"),
+)
+
+
+def _find_reports(root: str, candidates: tuple, recursive_name: str | None = None) -> list[str]:
+    """Collect report paths matching any candidate (in order); "*" candidates are globbed,
+    plain candidates matched by isfile. If none match and recursive_name is given, fall back
+    to a recursive ``**/<recursive_name>`` search. Returns all matches (possibly empty)."""
+    found: list[str] = []
+    for rel in candidates:
+        pat = os.path.join(root, *rel)
+        if "*" in pat:
+            found.extend(glob.glob(pat))
+        elif os.path.isfile(pat):
+            found.append(pat)
+    if not found and recursive_name:
+        found.extend(glob.glob(os.path.join(root, "**", recursive_name), recursive=True))
+    return found
+
+
 def _find_junit_xml(root: str) -> list[str]:
     """Locate JUnit XML reports for Gradle and Maven (incl. one level of submodules)."""
-    patterns = [
-        os.path.join(root, "build", "test-results", "test", "*.xml"),
-        os.path.join(root, "target", "surefire-reports", "*.xml"),
-        os.path.join(root, "target", "failsafe-reports", "*.xml"),
-        os.path.join(root, "*", "build", "test-results", "test", "*.xml"),
-        os.path.join(root, "*", "target", "surefire-reports", "*.xml"),
-        os.path.join(root, "*", "target", "failsafe-reports", "*.xml"),
-    ]
-    found: list[str] = []
-    for pattern in patterns:
-        found.extend(glob.glob(pattern))
-    return found
+    return _find_reports(root, _JUNIT_REL)
+
+
+def _safe_parse_xml(path: str) -> tuple:
+    """Parse an XML file; return (root_element, None) or (None, 'XML parse error: ...')."""
+    try:
+        return ET.parse(path).getroot(), None
+    except ET.ParseError as exc:
+        return None, f"XML parse error: {exc}"
 
 
 def _parse_junit_file(path: str) -> tuple[int, list[dict]]:
     """Parse one JUnit XML file -> (passed_count, failures[])."""
-    try:
-        tree = ET.parse(path)
-    except ET.ParseError as exc:
-        return 0, [{"test": path, "type": "TEST_RUNTIME_FAILED",
-                    "message": f"XML parse error: {exc}"}]
+    root_el, err = _safe_parse_xml(path)
+    if err:
+        return 0, [{"test": path, "type": "TEST_RUNTIME_FAILED", "message": err}]
 
-    root_el = tree.getroot()
     if root_el.tag == "testsuites":
         suites = list(root_el.findall("testsuite"))
     elif root_el.tag == "testsuite":
@@ -184,22 +228,8 @@ def _parse_junit_file(path: str) -> tuple[int, list[dict]]:
 
 def _find_jacoco_xml(root: str) -> str | None:
     """Locate jacoco.xml for Gradle or Maven (incl. one level of submodules)."""
-    candidates = [
-        os.path.join(root, "build", "reports", "jacoco", "test", "jacocoTestReport.xml"),
-        os.path.join(root, "target", "site", "jacoco", "jacoco.xml"),
-        os.path.join(root, "*", "build", "reports", "jacoco", "test", "jacocoTestReport.xml"),
-        os.path.join(root, "*", "target", "site", "jacoco", "jacoco.xml"),
-    ]
-    for pat in candidates:
-        if os.path.sep in pat and "*" in pat:
-            matches = glob.glob(pat)
-            if matches:
-                return matches[0]
-        elif os.path.isfile(pat):
-            return pat
-    # Last-resort broad search.
-    broad = glob.glob(os.path.join(root, "**", "jacoco*.xml"), recursive=True)
-    return broad[0] if broad else None
+    found = _find_reports(root, _JACOCO_REL, "jacoco*.xml")
+    return found[0] if found else None
 
 
 def _counter_ratio(missed: int, covered: int) -> float:
@@ -209,13 +239,10 @@ def _counter_ratio(missed: int, covered: int) -> float:
 
 def _parse_jacoco(jacoco_path: str) -> dict:
     """Parse a JaCoCo XML report -> per-counter coverage + per-class + uncovered[]."""
-    try:
-        tree = ET.parse(jacoco_path)
-    except ET.ParseError as exc:
+    root_el, err = _safe_parse_xml(jacoco_path)  # <report>
+    if err:
         return {"status": "failed", "error": "JACOCO_PARSE_FAILED",
-                "message": f"XML parse error: {exc}", "reportPath": jacoco_path}
-
-    root_el = tree.getroot()  # <report>
+                "message": err, "reportPath": jacoco_path}
 
     def counters_of(element) -> dict:
         """Map counter type -> {missed, covered, ratio} for direct <counter> children."""
@@ -287,32 +314,16 @@ def _parse_jacoco(jacoco_path: str) -> dict:
 
 def _find_pitest_xml(root: str) -> str | None:
     """Locate PITest mutations.xml for Gradle or Maven (incl. one submodule level)."""
-    candidates = [
-        os.path.join(root, "build", "reports", "pitest", "mutations.xml"),
-        os.path.join(root, "target", "pit-reports", "mutations.xml"),
-        os.path.join(root, "*", "build", "reports", "pitest", "mutations.xml"),
-        os.path.join(root, "*", "target", "pit-reports", "mutations.xml"),
-    ]
-    for pat in candidates:
-        if "*" in pat:
-            matches = glob.glob(pat)
-            if matches:
-                return matches[0]
-        elif os.path.isfile(pat):
-            return pat
-    broad = glob.glob(os.path.join(root, "**", "mutations.xml"), recursive=True)
-    return broad[0] if broad else None
+    found = _find_reports(root, _PITEST_REL, "mutations.xml")
+    return found[0] if found else None
 
 
 def _parse_pitest(pitest_path: str) -> dict:
     """Parse a PITest mutations.xml -> mutationScore + survivedMutants[]."""
-    try:
-        tree = ET.parse(pitest_path)
-    except ET.ParseError as exc:
+    root_el, err = _safe_parse_xml(pitest_path)  # <mutations>
+    if err:
         return {"status": "failed", "error": "PITEST_PARSE_FAILED",
-                "message": f"XML parse error: {exc}", "reportPath": pitest_path}
-
-    root_el = tree.getroot()  # <mutations>
+                "message": err, "reportPath": pitest_path}
     total = 0
     killed = 0
     survived_mutants: list[dict] = []
@@ -469,8 +480,28 @@ def _profile_from_version(bv: str | None) -> dict:
     }
 
 
+def _profile_conflict(field: str, build_value: str, source_value: str, evidence: str,
+                      source_label: str, conflicts: list, notes: list) -> None:
+    """Record a build-file-vs-source profile conflict (never auto-applied) into
+    conflicts[]/notes[] when the source-derived value disagrees with the build file."""
+    if source_value == build_value:
+        return
+    conflicts.append({
+        "field": field,
+        "buildFileValue": build_value,
+        "sourceValue": source_value,
+        "evidence": evidence,
+    })
+    notes.append(f"{field} conflict (NOT auto-applied): build-file={build_value} "
+                 f"vs {source_label}={source_value}; confirm before use")
+
+
 def _run_subprocess(cmd: list[str], cwd: str) -> dict:
-    """Run a subprocess with network-off env merge; return execution metadata."""
+    """Run a subprocess and return execution metadata.
+
+    Offline mode is enforced by the build CLI flags (gradle --offline / maven -o)
+    added in run_targeted_tests, not here; this only inherits the current environment.
+    """
     env = dict(os.environ)
     try:
         proc = subprocess.run(
@@ -552,15 +583,9 @@ def detect_spring_profile(root: str = ".") -> dict:
                     + main_ns["import jakarta.servlet"])
     if javax_hits or jakarta_hits:
         src_ns = "javax" if javax_hits >= jakarta_hits else "jakarta"
-        if src_ns != prof["namespace"]:
-            conflicts.append({
-                "field": "namespace",
-                "buildFileValue": prof["namespace"],
-                "sourceValue": src_ns,
-                "evidence": f"javax={javax_hits}, jakarta={jakarta_hits} (src/main imports)",
-            })
-            notes.append(f"namespace conflict (NOT auto-applied): build-file={prof['namespace']} "
-                         f"vs source={src_ns}; confirm before use")
+        _profile_conflict("namespace", prof["namespace"], src_ns,
+                          f"javax={javax_hits}, jakarta={jakarta_hits} (src/main imports)",
+                          "source", conflicts, notes)
 
     # JUnit engine conflict from existing tests; note vintage availability.
     test_eng = _scan_imports(root, "src/test/java",
@@ -572,15 +597,9 @@ def detect_spring_profile(root: str = ".") -> dict:
     junit4_tests = test_eng["import org.junit.Test"]
     if jupiter_tests or junit4_tests:
         src_engine = "jupiter" if jupiter_tests >= junit4_tests else "junit4"
-        if src_engine != prof["junitEngine"]:
-            conflicts.append({
-                "field": "junitEngine",
-                "buildFileValue": prof["junitEngine"],
-                "sourceValue": src_engine,
-                "evidence": f"jupiter={jupiter_tests}, junit4={junit4_tests} (src/test imports)",
-            })
-            notes.append(f"junitEngine conflict (NOT auto-applied): build-file={prof['junitEngine']} "
-                         f"vs tests={src_engine}; confirm before use")
+        _profile_conflict("junitEngine", prof["junitEngine"], src_engine,
+                          f"jupiter={jupiter_tests}, junit4={junit4_tests} (src/test imports)",
+                          "tests", conflicts, notes)
     if "junit-vintage" in build_text:
         notes.append("junit-vintage-engine present: JUnit4 tests run alongside Jupiter")
 
@@ -648,6 +667,46 @@ def list_test_tasks(root: str = ".") -> dict:
     return {"status": "ok", "buildTool": tool, "wrapper": det["wrapper"], "tasks": tasks}
 
 
+def _build_test_command(build_tool: str, root: str, test_pattern: str,
+                        with_coverage: bool, offline: bool) -> list[str]:
+    """Construct the narrowest gradle/maven test command (wrapper-aware)."""
+    if build_tool == "gradle":
+        wrapper = os.path.join(root, "gradlew")
+        launcher = wrapper if os.path.isfile(wrapper) else "gradle"
+        cmd = [launcher, "test", "--tests", test_pattern]
+        if with_coverage:
+            cmd.append("jacocoTestReport")
+        if offline:
+            cmd.append("--offline")
+    else:  # maven
+        wrapper = os.path.join(root, "mvnw")
+        launcher = wrapper if os.path.isfile(wrapper) else "mvn"
+        cmd = [launcher, "-B", "test", f"-Dtest={test_pattern}"]
+        if with_coverage:
+            cmd.append("jacoco:report")
+        if offline:
+            cmd.append("-o")
+    return cmd
+
+
+def _classify_run_status(timed_out: bool, xml_paths: list, exit_code: int,
+                         failures: list) -> str:
+    """Map a test run outcome to ok/partial/failed.
+
+    A non-zero build is never "ok" even when the parsed reports show no individual
+    test failure (compile error, coverage-verification failure, etc.).
+    """
+    if timed_out:
+        return "failed"
+    if not xml_paths and exit_code != 0:
+        return "failed"
+    if failures:
+        return "partial"
+    if exit_code != 0:
+        return "failed"
+    return "ok"
+
+
 @mcp.tool()
 def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
                        with_coverage: bool = True, online: bool = False) -> dict:
@@ -677,23 +736,7 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
 
     offline = (not _network_allowed()) and (not online)
     pattern_q = shlex.quote(test_pattern)
-
-    if build_tool == "gradle":
-        wrapper = os.path.join(root, "gradlew")
-        launcher = wrapper if os.path.isfile(wrapper) else "gradle"
-        cmd = [launcher, "test", "--tests", test_pattern]
-        if with_coverage:
-            cmd.append("jacocoTestReport")
-        if offline:
-            cmd.append("--offline")
-    else:  # maven
-        wrapper = os.path.join(root, "mvnw")
-        launcher = wrapper if os.path.isfile(wrapper) else "mvn"
-        cmd = [launcher, "-B", "test", f"-Dtest={test_pattern}"]
-        if with_coverage:
-            cmd.append("jacoco:report")
-        if offline:
-            cmd.append("-o")
+    cmd = _build_test_command(build_tool, root, test_pattern, with_coverage, offline)
 
     # Human-readable command string with shlex quoting for transparency/logging.
     display_cmd = " ".join(shlex.quote(part) for part in cmd)
@@ -720,19 +763,8 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
 
     report_dirs = sorted({os.path.dirname(p) for p in xml_paths})
 
-    if exec_meta["timedOut"]:
-        status = "failed"
-    elif not xml_paths and exec_meta["exitCode"] != 0:
-        status = "failed"
-    elif all_failures:
-        status = "partial"
-    elif exec_meta["exitCode"] != 0:
-        # Build failed (compile error, coverage-verification failure, etc.) even
-        # though the parsed reports show no individual test failure — never call
-        # a non-zero build "ok".
-        status = "failed"
-    else:
-        status = "ok"
+    status = _classify_run_status(exec_meta["timedOut"], xml_paths,
+                                  exec_meta["exitCode"], all_failures)
 
     return {
         "status": status,
@@ -932,6 +964,116 @@ def _gradle_build_text(root: str) -> tuple[str, str]:
     return "", ""
 
 
+def _gradle_capabilities(root: str, jupiter: bool) -> tuple:
+    """Return (capabilities, missing[], proposedChanges[]) for a Gradle target."""
+    text, fname = _gradle_build_text(root)
+    kts = fname.endswith(".kts")
+    fref = fname or "build.gradle[.kts]"
+    caps = {
+        "jacoco": bool(_GRADLE_JACOCO_PLUGIN_RE.search(text)),
+        "jacocoXml": bool(_GRADLE_JACOCO_XML_RE.search(text)),
+        "pitest": bool(_GRADLE_PITEST_PLUGIN_RE.search(text)),
+        "pitestJunit5": (not jupiter) or bool(_GRADLE_PITEST_JUNIT5_RE.search(text)),
+    }
+    missing: list[str] = []
+    proposed: list[dict] = []
+    if not caps["jacoco"]:
+        missing.append("JACOCO_PLUGIN_MISSING")
+        proposed.append({
+            "file": fref,
+            "anchor": "plugins { }",
+            "snippet": ('id("jacoco")' if kts else "id 'jacoco'"),
+            "reason": "Gradle JaCoCo 플러그인 미적용 → jacocoTestReport 태스크 없음",
+            "source": "https://docs.gradle.org/current/userguide/jacoco_plugin.html",
+        })
+    if not caps["jacocoXml"]:
+        missing.append("JACOCO_XML_DISABLED")
+        proposed.append({
+            "file": fref,
+            "anchor": "tasks.named('jacocoTestReport') / tasks.jacocoTestReport",
+            "snippet": (
+                'tasks.jacocoTestReport { reports { xml.required.set(true) } }'
+                if kts else
+                "tasks.named('jacocoTestReport') { reports { xml.required = true } }"
+            ),
+            "reason": "JaCoCo XML 기본 OFF → parse_jacoco_report가 XML 미발견(HTML만 생성)",
+            "source": "https://docs.gradle.org/current/userguide/jacoco_plugin.html",
+        })
+    if not caps["pitest"]:
+        missing.append("PITEST_PLUGIN_MISSING")
+        proposed.append({
+            "file": fref,
+            "anchor": "plugins { }",
+            "snippet": (
+                'id("info.solidsoft.pitest") version "1.19.0"'
+                if kts else
+                "id 'info.solidsoft.pitest' version '1.19.0'"
+            ),
+            "reason": "PITest 플러그인 미적용 → pitest 태스크 없음(Task 'pitest' not found)",
+            "source": "https://gradle-pitest-plugin.solidsoft.info/",
+        })
+    if not caps["pitestJunit5"]:
+        missing.append("PITEST_JUNIT5_MISSING")
+        proposed.append({
+            "file": fref,
+            "anchor": "pitest { }",
+            "snippet": (
+                'pitest { junit5PluginVersion.set("1.0.0") }'
+                if kts else
+                "pitest { junit5PluginVersion = '1.0.0' }"
+            ),
+            "reason": "JUnit5(Jupiter) 테스트는 pitest-junit5-plugin 필요",
+            "source": "https://github.com/pitest/pitest-junit5-plugin",
+        })
+    return caps, missing, proposed
+
+
+def _maven_capabilities(root: str, jupiter: bool) -> tuple:
+    """Return (capabilities, missing[], proposedChanges[]) for a Maven target."""
+    pom = _read_text(os.path.join(root, "pom.xml"))
+    caps = {
+        "jacoco": bool(_MAVEN_JACOCO_RE.search(pom)),
+        "jacocoXml": bool(_MAVEN_JACOCO_RE.search(pom) and _MAVEN_JACOCO_REPORT_GOAL_RE.search(pom)),
+        "pitest": bool(_MAVEN_PITEST_RE.search(pom)),
+        "pitestJunit5": (not jupiter) or bool(_MAVEN_PITEST_JUNIT5_RE.search(pom)),
+    }
+    missing: list[str] = []
+    proposed: list[dict] = []
+    if not caps["jacoco"] or not caps["jacocoXml"]:
+        missing.append("JACOCO_PLUGIN_MISSING" if not caps["jacoco"] else "JACOCO_REPORT_GOAL_MISSING")
+        proposed.append({
+            "file": "pom.xml",
+            "anchor": "<build><plugins>",
+            "snippet": (
+                "<plugin><groupId>org.jacoco</groupId>"
+                "<artifactId>jacoco-maven-plugin</artifactId><version>0.8.12</version>"
+                "<executions>"
+                "<execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>"
+                "<execution><id>report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>"
+                "</executions></plugin>"
+            ),
+            "reason": "jacoco-maven-plugin prepare-agent+report 미바인딩 → jacoco.xml 미생성",
+            "source": "https://www.eclemma.org/jacoco/trunk/doc/maven.html",
+        })
+    if not caps["pitest"]:
+        missing.append("PITEST_PLUGIN_MISSING")
+        proposed.append({
+            "file": "pom.xml",
+            "anchor": "<build><plugins>",
+            "snippet": (
+                "<plugin><groupId>org.pitest</groupId>"
+                "<artifactId>pitest-maven</artifactId><version>1.19.0</version>"
+                + ("<dependencies><dependency><groupId>org.pitest</groupId>"
+                   "<artifactId>pitest-junit5-plugin</artifactId><version>1.0.0</version>"
+                   "</dependency></dependencies>" if jupiter else "")
+                + "</plugin>"
+            ),
+            "reason": "pitest-maven 미적용 → mutationCoverage 골 없음" + (" (Jupiter는 pitest-junit5-plugin 포함)" if jupiter else ""),
+            "source": "https://gradle-pitest-plugin.solidsoft.info/",
+        })
+    return caps, missing, proposed
+
+
 @mcp.tool()
 def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter") -> dict:
     """Detect whether the TARGET build is provisioned for JaCoCo-XML + PITest (signal only).
@@ -953,105 +1095,10 @@ def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter") ->
     tool = det["buildTool"]
     jupiter = (junit_engine or "jupiter").strip().lower() != "junit4"
 
-    caps: dict[str, bool] = {}
-    missing: list[str] = []
-    proposed: list[dict] = []
-
     if tool == "gradle":
-        text, fname = _gradle_build_text(root)
-        kts = fname.endswith(".kts")
-        caps["jacoco"] = bool(_GRADLE_JACOCO_PLUGIN_RE.search(text))
-        caps["jacocoXml"] = bool(_GRADLE_JACOCO_XML_RE.search(text))
-        caps["pitest"] = bool(_GRADLE_PITEST_PLUGIN_RE.search(text))
-        caps["pitestJunit5"] = (not jupiter) or bool(_GRADLE_PITEST_JUNIT5_RE.search(text))
-
-        if not caps["jacoco"]:
-            missing.append("JACOCO_PLUGIN_MISSING")
-            proposed.append({
-                "file": fname or "build.gradle[.kts]",
-                "anchor": "plugins { }",
-                "snippet": ('id("jacoco")' if kts else "id 'jacoco'"),
-                "reason": "Gradle JaCoCo 플러그인 미적용 → jacocoTestReport 태스크 없음",
-                "source": "https://docs.gradle.org/current/userguide/jacoco_plugin.html",
-            })
-        if not caps["jacocoXml"]:
-            missing.append("JACOCO_XML_DISABLED")
-            proposed.append({
-                "file": fname or "build.gradle[.kts]",
-                "anchor": "tasks.named('jacocoTestReport') / tasks.jacocoTestReport",
-                "snippet": (
-                    'tasks.jacocoTestReport { reports { xml.required.set(true) } }'
-                    if kts else
-                    "tasks.named('jacocoTestReport') { reports { xml.required = true } }"
-                ),
-                "reason": "JaCoCo XML 기본 OFF → parse_jacoco_report가 XML 미발견(HTML만 생성)",
-                "source": "https://docs.gradle.org/current/userguide/jacoco_plugin.html",
-            })
-        if not caps["pitest"]:
-            missing.append("PITEST_PLUGIN_MISSING")
-            proposed.append({
-                "file": fname or "build.gradle[.kts]",
-                "anchor": "plugins { }",
-                "snippet": (
-                    'id("info.solidsoft.pitest") version "1.19.0"'
-                    if kts else
-                    "id 'info.solidsoft.pitest' version '1.19.0'"
-                ),
-                "reason": "PITest 플러그인 미적용 → pitest 태스크 없음(Task 'pitest' not found)",
-                "source": "https://gradle-pitest-plugin.solidsoft.info/",
-            })
-        if not caps["pitestJunit5"]:
-            missing.append("PITEST_JUNIT5_MISSING")
-            proposed.append({
-                "file": fname or "build.gradle[.kts]",
-                "anchor": "pitest { }",
-                "snippet": (
-                    'pitest { junit5PluginVersion.set("1.0.0") }'
-                    if kts else
-                    "pitest { junit5PluginVersion = '1.0.0' }"
-                ),
-                "reason": "JUnit5(Jupiter) 테스트는 pitest-junit5-plugin 필요",
-                "source": "https://github.com/pitest/pitest-junit5-plugin",
-            })
+        caps, missing, proposed = _gradle_capabilities(root, jupiter)
     else:  # maven
-        pom = _read_text(os.path.join(root, "pom.xml"))
-        caps["jacoco"] = bool(_MAVEN_JACOCO_RE.search(pom))
-        caps["jacocoXml"] = bool(_MAVEN_JACOCO_RE.search(pom) and _MAVEN_JACOCO_REPORT_GOAL_RE.search(pom))
-        caps["pitest"] = bool(_MAVEN_PITEST_RE.search(pom))
-        caps["pitestJunit5"] = (not jupiter) or bool(_MAVEN_PITEST_JUNIT5_RE.search(pom))
-
-        if not caps["jacoco"] or not caps["jacocoXml"]:
-            missing.append("JACOCO_PLUGIN_MISSING" if not caps["jacoco"] else "JACOCO_REPORT_GOAL_MISSING")
-            proposed.append({
-                "file": "pom.xml",
-                "anchor": "<build><plugins>",
-                "snippet": (
-                    "<plugin><groupId>org.jacoco</groupId>"
-                    "<artifactId>jacoco-maven-plugin</artifactId><version>0.8.12</version>"
-                    "<executions>"
-                    "<execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>"
-                    "<execution><id>report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>"
-                    "</executions></plugin>"
-                ),
-                "reason": "jacoco-maven-plugin prepare-agent+report 미바인딩 → jacoco.xml 미생성",
-                "source": "https://www.eclemma.org/jacoco/trunk/doc/maven.html",
-            })
-        if not caps["pitest"]:
-            missing.append("PITEST_PLUGIN_MISSING")
-            proposed.append({
-                "file": "pom.xml",
-                "anchor": "<build><plugins>",
-                "snippet": (
-                    "<plugin><groupId>org.pitest</groupId>"
-                    "<artifactId>pitest-maven</artifactId><version>1.19.0</version>"
-                    + ("<dependencies><dependency><groupId>org.pitest</groupId>"
-                       "<artifactId>pitest-junit5-plugin</artifactId><version>1.0.0</version>"
-                       "</dependency></dependencies>" if jupiter else "")
-                    + "</plugin>"
-                ),
-                "reason": "pitest-maven 미적용 → mutationCoverage 골 없음" + (" (Jupiter는 pitest-junit5-plugin 포함)" if jupiter else ""),
-                "source": "https://gradle-pitest-plugin.solidsoft.info/",
-            })
+        caps, missing, proposed = _maven_capabilities(root, jupiter)
 
     all_ok = not missing
     remediation = ("" if all_ok else

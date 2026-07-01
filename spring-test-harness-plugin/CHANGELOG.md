@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+### Removed
+- 미사용·중복 스크립트 삭제: `scripts/detect-build-tool.sh`·`scripts/run-tests.sh`·`scripts/collect-test-reports.py`(로직이 build-test MCP 서버에 내장되어 대체됨)와, 어디서도 호출되지 않던 고아 스크립트 `scripts/postprocess-report.py`.
+- `.mcp.json`에서 어떤 코드도 읽지 않던 죽은 env 제거: `REPO_AST_NETWORK`, `SPEC_DOC_NETWORK`.
+- 죽은 코드/임포트 제거: `repo_ast_server`의 미사용 `import sys`, `spec_doc_server`의 미사용 `import uuid`, 도달 불가능한 정규식 분기(`when\s`·`해야\s*한다`).
+- 개발용 검증 스캐폴딩 제거(검증 후): `result_report/verification/*.py`와 `result_report/sample-*` 샘플 프로젝트.
+
+### Changed
+- MCP 서버 3종 구조화(외부 동작·도구 시그니처·출력 스키마 보존): 리포트 탐색기 3종(`_find_reports`)·XML 파싱 오류 처리(`_safe_parse_xml`)·프로파일 충돌 감지(`_profile_conflict`) 중복 통합, 과대 함수 분리(`detect_build_capabilities`→`_gradle_capabilities`/`_maven_capabilities`, `run_targeted_tests`→`_build_test_command`/`_classify_run_status`, `extract_acceptance_criteria`→`_strip_prohibition`).
+- `.mcp.json`에 `SPEC_DOC_WORKSPACE=${CLAUDE_PROJECT_DIR}` 추가 — 문서화돼 있었으나 미설정이라 무효였던 spec-doc 워크스페이스 경로 봉쇄 가드를 활성화(`repo-ast`의 `REPO_AST_ALLOW_ROOT`와 정합).
+- 오해 소지 docstring 수정(`_run_subprocess`의 "network-off env merge"), `REPORT.md` 참조를 실제 위치 `result_report/docs/REPORT.md`로 정정.
+
+### Fixed
+- 오케스트레이션 문서의 사실 오류·중복 조건 정리: 존재하지 않는 task `integration-test`(→ `integrationTest`/`verify`), build-test가 내보내지 않는 `-pl/-am` 예시, Phase-E 게이트 4종 불일치를 SSOT(`references/environment-setup.md`)로 통일, analyze-ast 단계 번호·mutation `maxIterations`·`maxRepairRetries` 표현·Awaitility 모순 정정.
+
 ---
 
 ## [0.8.0] - 2026-06-28

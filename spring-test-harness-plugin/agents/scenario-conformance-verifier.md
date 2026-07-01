@@ -1,6 +1,6 @@
 ---
 name: scenario-conformance-verifier
-description: Use this agent at the very end of the pipeline (after run/coverage/mutation) to verify that the generated and passing tests actually satisfy each approved BDD scenario (given/when/then), and to write the scenario↔test↔result living documentation under the target project's test_docs/. Triggers on: full-pipeline final conformance stage, or /spring-test-harness:verify-scenarios.
+description: "Use this agent at the very end of the pipeline (after run/coverage/mutation) to verify that the generated and passing tests actually satisfy each approved BDD scenario (given/when/then), and to write the scenario↔test↔result living documentation under the target project's test_docs/. Triggers on: full-pipeline final conformance stage, or /spring-test-harness:verify-scenarios."
 model: inherit
 tools: Read, Write, Edit, Grep, Glob, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__build-test__parse_junit_xml
 disallowedTools: Bash

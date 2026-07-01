@@ -1,6 +1,6 @@
 ---
 name: mutation-analyst
-description: Use this agent when you need to consume PITest survived mutants and strengthen test assertions to kill those survivors, targeting a mutation score >= 0.80. Triggers on: after parse_pitest_report reveals survivedMutants[], when mutation-test skill reports score below threshold, when the mutation loop requests assertion hardening.
+description: "Use this agent when you need to consume PITest survived mutants and strengthen test assertions to kill those survivors, targeting a mutation score >= 0.80. Triggers on: after parse_pitest_report reveals survivedMutants[], when mutation-test skill reports score below threshold, when the mutation loop requests assertion hardening."
 model: inherit
 tools: Read, Write, Edit, mcp__build-test__parse_pitest_report, mcp__repo-ast__parse_java_file
 disallowedTools: Bash

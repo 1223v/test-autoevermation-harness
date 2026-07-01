@@ -4,8 +4,7 @@
       "command": "python3",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/repo_ast_server.py"],
       "env": {
-        "REPO_AST_ALLOW_ROOT": "${CLAUDE_PROJECT_DIR}",
-        "REPO_AST_NETWORK": "off"
+        "REPO_AST_ALLOW_ROOT": "${CLAUDE_PROJECT_DIR}"
       }
     },
     "spec-doc": {
@@ -14,7 +13,7 @@
       "env": {
         "SPEC_DOC_ALLOWLIST": "docs,specs,requirements",
         "SPEC_DOC_REDACT": "on",
-        "SPEC_DOC_NETWORK": "off"
+        "SPEC_DOC_WORKSPACE": "${CLAUDE_PROJECT_DIR}"
       }
     },
     "build-test": {

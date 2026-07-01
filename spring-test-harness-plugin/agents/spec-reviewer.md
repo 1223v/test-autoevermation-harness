@@ -1,6 +1,6 @@
 ---
 name: spec-reviewer
-description: Use this agent when you need to ingest and normalize specification documents into structured acceptance criteria for test generation. Triggers on: pipeline step 1 (document indexing, parallel with ast-structure-analyzer), when spec documents need to be parsed into Given/When/Then format, when requirement traceability is needed before scenario design.
+description: "Use this agent when you need to ingest and normalize specification documents into structured acceptance criteria for test generation. Triggers on: pipeline step 1 (document indexing, parallel with ast-structure-analyzer), when spec documents need to be parsed into Given/When/Then format, when requirement traceability is needed before scenario design."
 model: inherit
 tools: Read, Grep, Glob, mcp__spec-doc__index_docs, mcp__spec-doc__search_requirements, mcp__spec-doc__extract_acceptance_criteria
 disallowedTools: Write, Edit, Bash

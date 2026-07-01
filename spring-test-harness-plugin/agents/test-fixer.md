@@ -1,6 +1,6 @@
 ---
 name: test-fixer
-description: Use this agent when test-runner reports one or more test failures and targeted repair is needed. Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when minimum-diff patches are needed to fix failing tests without full regeneration.
+description: "Use this agent when test-runner reports one or more test failures and targeted repair is needed. Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when minimum-diff patches are needed to fix failing tests without full regeneration."
 model: inherit
 isolation: worktree
 tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-test__run_targeted_tests, mcp__build-test__parse_junit_xml, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__extract_test_targets, mcp__spec-doc__search_requirements, mcp__spec-doc__extract_acceptance_criteria

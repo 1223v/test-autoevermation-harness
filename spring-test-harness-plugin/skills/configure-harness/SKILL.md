@@ -63,12 +63,12 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 | TODO | 항목 | 감지 | 미충족 시 세팅 |
 |---|---|---|---|
 | E1 | Python 3.10+ | `python3 -c "import sys;assert sys.version_info>=(3,10)"` | 설치 경로 안내(assist) |
-| E2 | MCP SDK `mcp[cli]>=1.2.0` | `python3 -c "import mcp"` | `pip install -r mcp/requirements.txt` (auto) |
+| E2 | MCP SDK `mcp[cli]>=1.2.0` | `python3 -c "import mcp"` | `python3 -m pip install -r mcp/requirements.txt` (auto) |
 | E3 | MCP 서버 3종 등록 | `.mcp.json` + 서버 모듈 로드 | import 실패는 E2로 귀결 |
 | E4 | JDK 17+ | `java -version`≥17 | 설치/`JAVA_HOME` 안내(assist) |
 | E5 | Maven 3.6.3+ | `mvn -version` | jar 이미 있으면 생략 |
 | E6 | JavaParser CLI jar | `REPO_AST_JAVAPARSER_JAR` 또는 `mcp/javaparser-cli/target/*-shaded.jar` | `(cd mcp/javaparser-cli && mvn -q -DskipTests package)` (auto) |
-| E7 | JDT LS + Java 21+ (선택) | `jdtls` PATH + `.lsp.json` + Java 21+ | 미가용이면 AST-only degrade(중단 안 함, optional) |
+| E7 | JDT LS + Java 21+ (선택) | `jdtls` PATH + `.lsp.json` + Java 21+ | 미가용이면 AST-only degrade(중단 안 함, optional). **감지 결과를 `HarnessConfig.lspAvailable`에 반영**(가용=`true`, 미가용=`false`) |
 | E10 | 테스트 실행 JDK ↔ Mockito 호환 | 실행 JDK major vs Mockito/ByteBuddy 지원 범위 | 17/21 LTS 권장 또는 Mockito 5.16+/experimental 플래그 |
 
 > E8(빌드도구)·E9(Spring 프로파일)는 데이터 감지라 아래 **0.5단계**에서 함께 확정한다.
@@ -78,7 +78,9 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 - **비대화형/CI — 항상 자동 세팅**: 결정적 항목(E2·E6)은 질문 없이 `pip install`/`mvn package`를 **자동 실행** 후 재검증. 자동 세팅이 실패하거나 시스템 항목(E1·E4·E5·E7)이 없으면 `status:"failed"` + remediation으로 중단(`HarnessRequest`로 사전 충족 가능).
 - **검증 후 체크**: 세팅 액션 뒤 반드시 재감지해서 통과를 확인한 뒤에만 `completed`로 표시한다.
 
-E1–E6 + E10이 전부 `completed`여야 0단계로 진행한다(E7 JDT LS는 **선택** — 미가용 시 AST-only degrade, 차단하지 않음). (예시: E2 `AskUserQuestion(options=["예 — pip install -r mcp/requirements.txt 실행","아니오 — 중단"])`, E6 `options=["예 — javaparser jar 빌드","아니오 — 중단"]`.)
+필수 항목 **E1·E2·E3(런타임) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 `completed`여야 0단계로 진행한다. **E4·E5·E6(JavaParser jar용 JDK/Maven/빌드)와 E7(JDT LS)은 선택** — 미가용 시 각각 정규식·AST-only degrade로 진행(차단하지 않음). 정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」. (예시: E2 `AskUserQuestion(options=["예 — python3 -m pip install -r mcp/requirements.txt 실행","아니오 — 중단"])`, E6 `options=["예 — javaparser jar 빌드","아니오 — 정규식 degrade로 진행"]`.)
+
+> **`lspAvailable`은 E7 감지 결과로 설정한다** — `jdtls`(PATH) + `.lsp.json`(plugin.json `lspServers`로 등록됨) + Java 21+ 런타임이 모두 가용이면 `true`, 아니면 `false`. 아래 `HarnessConfig` 출력 예시는 미가용 기본값(`false`)이다. `lspAvailable:true`일 때만 `analyze-source`/`full-pipeline`의 LSP 보강(정의이동·참조탐색) 경로가 활성화된다.
 
 ### 0단계: 모드 판별
 

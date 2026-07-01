@@ -100,6 +100,20 @@
 
 → **커스텀 컴포넌트(커스텀 스테레오타입·전이·합성 매핑·validator)는 분류 수정 + 실제 Boot 3.2 빌드까지 전 구간 검증 완료.**
 
+## 5. 하네스 하드닝(구조화·정리) 후 회귀 검증 (2026-07-01)
+
+MCP 서버 3종 구조화(중복 제거·과대 함수 분리·죽은 코드/조건 제거)와 미사용 스크립트·죽은 env 제거 후, **외부 동작이 보존됐는지** 회귀 검증. 원칙: 도구 시그니처·출력 스키마 불변.
+
+**5-1. 동작 보존 스냅샷(behavior snapshot).** 리팩터링 대상 39개 함수(리포트 탐색기·JUnit/JaCoCo/PITest 파서·`coverage_gate`·`detect_build_capabilities`·`detect_spring_profile`(충돌 포함)·`run_targeted_tests` 명령 조립·spec-doc·repo-ast)를 결정적 픽스처로 호출해 JSON 스냅샷을 리팩터링 **전/후**로 채취 → **바이트 단위 동일**(diff 공백). 도구 시그니처 무변경.
+
+**5-2. stdio 도구 인벤토리(불변 확인).** `verify_stdio.py` → repo-ast **4** · spec-doc **3** · build-test **10** 도구 목록이 리팩터링 전과 동일.
+
+**5-3. 실 샘플 dry-run 재실행.** `dryrun_boot2.py` **ALL PASS**(프로파일 7/7), `dryrun_sample.py` exit 0, `dryrun_custom_components.py --expect=fixed` **MATCH**. `python3 -m py_compile`(서버 3종+스크립트) 클린.
+
+→ **구조화·정리가 외부 동작을 바꾸지 않음을 스냅샷 동일성 + 인벤토리 불변 + dry-run 통과로 확인.**
+
+> **검증 스캐폴딩 제거(2026-07-01).** 위 회귀 검증을 마지막으로, 개발용 검증 스크립트(`verification/*.py`)와 샘플 프로젝트(`sample-spring-app/`, `sample-spring-boot2/`, `sample-custom-components/`)는 하네스 런타임이 호출하지 않는 개발 전용 자산이므로 저장소에서 제거했다. 위 §1~§5의 결과가 최종 검증 증거로 보존된다. 재현이 필요하면 이 문서의 절차대로 샘플과 스크립트를 재작성해 실행한다.
+
 ## 참고: 완전 빌드/실행 범위
 
 `./gradlew test`(테스트 실제 실행 + JaCoCo/PITest 리포트 생성)는 Gradle wrapper와 네트워크 의존성 다운로드가 필요해 본 검증 환경에서는 분석 단계까지만 dry-run했다. 커버리지/뮤테이션 **파서**는 합성 리포트로 별도 검증 완료(README/CHANGELOG 참조). 실제 프로젝트에서는 `pip install -r mcp/requirements.txt` + (선택) JavaParser jar 빌드 후 `/spring-test-harness:full-pipeline`로 전체 실행한다.

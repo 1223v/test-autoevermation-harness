@@ -16,8 +16,8 @@
 ```mermaid
 flowchart TD
     A(["HarnessRequest 입력"]) --> B["전처리: 입력 정규화"]
-    B --> C["Phase E — 환경 세팅 (선행 필수, TodoWrite)<br/>E1~E7 + E10"]
-    C --> D{"환경 통과?<br/>E1–E7 + E10 completed"}
+    B --> C["Phase E — 환경 세팅 (선행 필수, TodoWrite)<br/>E1~E7 + E10 점검"]
+    C --> D{"환경 통과?<br/>필수 E1·E2·E3+E10 completed<br/>(E8·E9는 0.5단계 · E4~E7 선택/degrade)"}
     D -- "아니오" --> X1(["status: failed — 파이프라인 미시작<br/>+ remediation 안내"])
     D -- "예" --> E["0단계 — configure-harness<br/>0.5 프로파일 감지 → 인터뷰 → HarnessConfig"]
 
@@ -77,7 +77,8 @@ flowchart TD
     AskB -- "갖춤" --> Verify
     CIstop -- "예" --> Verify
 
-    Verify --> Gate{"E1–E7 + E10 전부 completed?<br/>(E8 빌드도구·E9 프로파일은 0.5단계)"}
+    Gate{"필수 E1·E2·E3 + E10 completed?<br/>(E8·E9는 0.5단계 · E4~E7 선택/degrade)"}
+    Verify --> Gate
     Gate -- "아니오" --> FailE
     Gate -- "예" --> Ok(["0단계 configure-harness로 진행"])
 ```

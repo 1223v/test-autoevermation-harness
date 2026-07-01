@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "keywords": ["spring", "junit", "test-generation", "mockmvc", "harness"],
   "skills": "./skills",
-  "agents": "./agents",
   "hooks": "./hooks/hooks.json",
-  "mcpServers": "./.mcp.json"
+  "mcpServers": "./.mcp.json",
+  "lspServers": "./.lsp.json"
 }

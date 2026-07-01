@@ -1,6 +1,6 @@
 ---
 name: scenario-generator
-description: Use this agent when you need to design a minimal, prioritized test scenario set from converged AST, source analysis, and spec review results. Triggers on: after ast-structure-analyzer, source-code-analyzer, and spec-reviewer have all returned results, when scenario planning is needed before test code generation.
+description: "Use this agent when you need to design a minimal, prioritized test scenario set from converged AST, source analysis, and spec review results. Triggers on: after ast-structure-analyzer, source-code-analyzer, and spec-reviewer have all returned results, when scenario planning is needed before test code generation."
 model: inherit
 tools: Read, mcp__spec-doc__search_requirements, mcp__spec-doc__extract_acceptance_criteria, mcp__repo-ast__extract_test_targets, mcp__repo-ast__list_spring_components
 disallowedTools: Write, Edit, Bash

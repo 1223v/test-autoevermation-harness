@@ -25,7 +25,7 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
     "mutationThreshold": 0.80,
     "threads": 2
   },
-  "maxIterations": 2
+  "maxIterations": 3
 }
 ```
 > `mutation` 깊이/대상/임계값은 `configure-harness` 인터뷰(§7 항목 c)에서 사용자가 조정. `mutators`는 DEFAULTS 또는 STRONGER.

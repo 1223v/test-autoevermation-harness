@@ -12,7 +12,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
 ## 자동 호출 조건
 
 - 사용자가 "AST 분석", "구조 추출", "클래스 의존 그래프", "Spring 컴포넌트 목록"과 같은 키워드를 사용할 때
-- `full-pipeline` 스킬의 1단계에서 `ingest-specs`와 병렬로 호출될 때
+- `full-pipeline` 스킬의 2단계에서 `ingest-specs`(1단계)와 병렬로 호출될 때
 
 ## 수동 호출 예시
 
