@@ -8,9 +8,11 @@
 ## [Unreleased]
 
 ### Added
+- **동작 원리·사용법 종합 가이드 `docs/GUIDE.md`**: 아키텍처(스킬 13·에이전트 11·MCP 3종·훅)·파이프라인 단계별 상세·설치·대화형/CI 사용법·설정(`HarnessRequest`/`HarnessConfig`/환경변수)·산출물 해석·보안 모델·트러블슈팅·문서 지도를 한 문서로 정리. Claude Code 플러그인/마켓플레이스·MCP SDK 서술은 공식문서로 재검증(2026-07-02). 루트·플러그인 README에서 링크.
 - **3.5단계 리팩토링 권고 게이트**: 코드 분석(3단계)과 시나리오 생성(4단계) 사이에서 테스트 부적합 코드를 판정한다 — ① 순환복잡도 초과(NIST SP 500-235 기준, 기본 CC>10), ② 테스트 저해 설계(강결합·정적/숨은 의존·생성자 부작용·미주입 clock/random — Spring 공식 생성자 주입 권고, Mockito javadoc §39/§48, Google Testing 가이드 근거), ③ 비효율(N+1·루프 내 쿼리 — Hibernate userguide Fetching 장 근거). 플래그된 대상은 공식문서 인용을 담은 권고 문서(`test_docs/refactoring/RA-*.md` + INDEX)를 **항상** 작성하고, 대화형은 `AskUserQuestion`(전체 포함/일부 제외/전체 제외)으로 테스트 생성 대상 포함 여부를 결정한다(제외분은 4단계 입력에서 필터링, 권고 문서는 보존). 비대화형·CI는 전 대상 포함+경고. 신규 산출물: `agents/refactor-advisor.md`(read-only), `skills/refactor-advisory/SKILL.md`, `references/refactor-advisory.md`(SSOT), fallback-policy **#19**, `_workspace/03b·03c`, `HarnessConfig.refactorAdvisory{enabled,thresholds}`(인터뷰 비침습 — `HarnessRequest`로만 오버라이드).
 
 ### Removed
+- **개발용 검증 아카이브 `result_report/` 전체 제거**(저장소 루트 — `docs/REPORT.md`·`VERIFICATION.md`·`PRINCIPLES_AUDIT.md`·README, 스스로 "런타임에는 필요 없음" 명시분): 이를 가리키던 문서 포인터(루트/플러그인 README, `mcp/repo_ast_server.py` docstring)도 함께 정리. 핀 고정 버전·API 근거는 `RESEARCH_NOTES.md`가 계속 담당하며 런타임 동작 변화 없음.
 - 미사용·중복 스크립트 삭제: `scripts/detect-build-tool.sh`·`scripts/run-tests.sh`·`scripts/collect-test-reports.py`(로직이 build-test MCP 서버에 내장되어 대체됨)와, 어디서도 호출되지 않던 고아 스크립트 `scripts/postprocess-report.py`.
 - `.mcp.json`에서 어떤 코드도 읽지 않던 죽은 env 제거: `REPO_AST_NETWORK`, `SPEC_DOC_NETWORK`.
 - 죽은 코드/임포트 제거: `repo_ast_server`의 미사용 `import sys`, `spec_doc_server`의 미사용 `import uuid`, 도달 불가능한 정규식 분기(`when\s`·`해야\s*한다`).

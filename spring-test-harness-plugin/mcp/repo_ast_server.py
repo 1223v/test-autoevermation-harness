@@ -4,7 +4,7 @@
 A FastMCP (official MCP Python SDK) server that performs *structure-only* Java
 AST/symbol analysis for the Spring test-harness plugin.
 
-Design contract (see RESEARCH_NOTES.md sections 1-2 and result_report/docs/REPORT.md):
+Design contract (see RESEARCH_NOTES.md sections 1-2):
 
 * High-level API: ``from mcp.server.fastmcp import FastMCP`` with ``@mcp.tool()``,
   ``@mcp.resource()`` and ``@mcp.prompt()`` decorators; stdio transport.

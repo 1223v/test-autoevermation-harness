@@ -3,6 +3,9 @@
 Claude Code CLI 기반 Spring 테스트코드 자동 생성 플러그인.
 스펙 문서·AST 분석·시나리오 설계·코드 생성·실행·보정을 하나의 파이프라인으로 연결한다.
 
+> **상세 가이드**: 동작 원리·설치·사용법·설정·트러블슈팅을 한 곳에 정리한 종합 가이드는
+> [docs/GUIDE.md](./docs/GUIDE.md) 참조.
+
 > **버전 인식(Spring Boot 2.0 – 4.x):** 대상 프로젝트의 Boot 버전 프로파일을 감지(`detect_spring_profile`)하여
 > 네임스페이스(`javax`/`jakarta`), JUnit 엔진(JUnit4/Jupiter), Mock 애노테이션(`@MockBean`/`@MockitoBean`)을
 > **자동 분기**해 컴파일 가능한 테스트를 생성한다. 매트릭스: [RESEARCH_NOTES §8](./RESEARCH_NOTES.md),
@@ -277,7 +280,6 @@ JUnit 버전 정책 상세(`jupiter-style` vs `strict-5x`)는 [CHANGELOG.md](./C
 
 `repo-ast-mcp`가 `@interface` 메타 애노테이션을 **전이적으로** 해석한다. 합성 매핑 애노테이션은
 URL path/HTTP method가 `@AliasFor`에 숨으므로 `riskPoints`로 표시되어 생성기가 경로를 확인한다.
-이 분류 동작의 검증 증거는 `result_report/docs/VERIFICATION.md` §4에 기록되어 있다(개발 저장소 상위 경로 — 설치된 플러그인 배포물에는 미포함).
 
 ---
 
@@ -301,6 +303,5 @@ URL path/HTTP method가 `@AliasFor`에 숨으므로 `riskPoints`로 표시되어
 
 ---
 
-자세한 설계 근거·아키텍처·에이전트별 스키마는 설계 보고서(`result_report/docs/REPORT.md`)에 정리되어 있으며,
-이 보고서와 원칙 감사(`PRINCIPLES_AUDIT.md`)·검증 기록(`VERIFICATION.md`)은 플러그인 배포물과 분리하여
-프로젝트의 `result_report/`에 보관한다. 핀 고정된 버전·API는 [RESEARCH_NOTES.md](./RESEARCH_NOTES.md)를 참조한다.
+동작 원리·아키텍처·사용법 종합 가이드는 [docs/GUIDE.md](./docs/GUIDE.md),
+핀 고정된 버전·API는 [RESEARCH_NOTES.md](./RESEARCH_NOTES.md)를 참조한다.
