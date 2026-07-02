@@ -96,3 +96,30 @@
 3. 뮤테이션 테스트 깊이/대상(mutators 세트, targetClasses, mutationThreshold)
 4. 커버리지 임계값 + 제외 규칙(allowlist)
 - 제약: AskUserQuestion은 **interactive CLI에서만** 의미. 비대화형/CI(`claude -p`)에서는 HarnessRequest JSON + 기본값으로 대체(=인터뷰 스킵).
+- 3.5단계 리팩토링 권고 게이트(#19)의 포함/제외 질문은 인터뷰 4종과 별개의 **파이프라인 중간 게이트**이며 `HarnessConfig.refactorAdvisory`는 인터뷰 항목이 아니다(비침습 기본값).
+
+## 9. 리팩토링 권고 게이트(3.5단계) 기준 근거 — 공식/1차 문서 (2026-07-02 검증)
+
+탐지 기준·임계값·게이트 의미론의 정본은 [references/refactor-advisory.md](./references/refactor-advisory.md). 여기에는 출처만 핀 고정한다.
+
+- **순환복잡도 임계 10 (11–15 medium / >15 high)**: NIST SP 500-235 *Structured Testing: A Testing Methodology
+  Using the Cyclomatic Complexity Metric* — <https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication500-235.pdf>.
+  McCabe 원 한도 10은 "유의미한 근거가 축적된 출발점"; 15까지 상향은 숙련 인력·정형 설계·추가 테스트 노력 전제.
+  structured testing에서 복잡도 = 검증에 필요한 기본 경로(basis path) 테스트 수.
+- **생성자 주입·DI 테스트 용이성**: Spring Framework 공식 레퍼런스 (Core > Dependency Injection) —
+  <https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-collaborators.html>.
+  "The Spring team generally advocates constructor injection"; DI로 "your classes become easier to test …
+  stub or mock implementations"; "a large number of constructor arguments is a bad code smell … too many
+  responsibilities and should be refactored"(→ `constructorArgs` 임계 근거).
+- **static/final mock 제약**: Mockito 공식 javadoc — <https://javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/Mockito.html>.
+  §39 final 타입 mock: inline mock maker는 **5.0.0부터 기본**(이전 버전은 mockito-inline 별도 필요 → Boot 2.x
+  프로파일에서 static/final mock 제약). §48 static mock: 현재 스레드 한정 + try-with-resources 스코프 필수.
+- **테스트 저해 설계 4대 flaw**: Google Testing Blog — *Guide to Writing Testable Code* —
+  <https://testing.googleblog.com/2008/11/guide-to-writing-testable-code.html>.
+  Constructor does Real Work / Digging into Collaborators(train wreck) / Brittle Global State & Singletons
+  ("Global state is the enemy of testing") / Class Does Too Much.
+- **N+1·fetch 전략**: Hibernate ORM 공식 User Guide, Fetching 장 —
+  <https://docs.hibernate.org/orm/5.2/userguide/html_single/chapters/fetching/Fetching.html>
+  (현행판: <https://docs.jboss.org/hibernate/orm/6.6/userguide/html_single/Hibernate_User_Guide.html#fetching>).
+  "the strategy generally termed N+1"; "you should prefer LAZY associations"; 해법 JOIN FETCH·entity graph·
+  `@BatchSize`("a DTO projection or a JOIN FETCH is a much better alternative").

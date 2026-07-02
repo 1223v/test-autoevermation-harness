@@ -41,8 +41,8 @@ disallowedTools: Write, Edit, Bash
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `astResult` | object | `ast-structure-analyzer` 출력 전체 |
-| `sourceResult` | object | `source-code-analyzer` 출력 전체 |
+| `astResult` | object | `ast-structure-analyzer` 출력 전체. full-pipeline 경유 시 3.5 권고 게이트에서 제외 대상이 이미 필터링됨([refactor-advisory.md](../references/refactor-advisory.md) §4) |
+| `sourceResult` | object | `source-code-analyzer` 출력 전체(동일하게 3.5 필터 적용본) |
 | `specResult` | object | `spec-reviewer` 출력 전체 |
 | `options.maxScenarios` | integer | 최대 시나리오 수. 기본 50 |
 | `options.testTypePreference` | string[] | 테스트 유형 우선순위. 기본 `["unit","slice","integration"]` |

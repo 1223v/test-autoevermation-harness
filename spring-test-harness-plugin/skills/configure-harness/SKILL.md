@@ -354,11 +354,17 @@ AskUserQuestion(
     "threads": 2
   },
   "coverageMaxIterations": 3,
-  "mutationMaxIterations": 3
+  "mutationMaxIterations": 3,
+  "refactorAdvisory": {
+    "enabled": true,
+    "thresholds": { "cyclomatic": 10, "constructorArgs": 7 }
+  }
 }
 ```
 
 > **입력 키 매핑(필수)**: 이 `HarnessConfig`는 루프 스킬 입력 스키마와 **동일한 이름**을 쓴다 — `coverage{line,branch,method,class,excludes}`는 `measure-coverage`로, `mutation{...}`는 `mutation-test`로 그대로 전달된다(full-pipeline 0단계 산출과 일치). 반복 한도는 `full-pipeline`이 `coverageMaxIterations → measure-coverage.maxIterations`, `mutationMaxIterations → mutation-test.maxIterations`로 매핑한다(둘 다 고정 상한이 아니라 진전 추적 단위, fallback-policy.md #12).
+>
+> **`refactorAdvisory`(선택)**: 3.5단계 리팩토링 권고 게이트 제어. **인터뷰 항목은 아니다**(비침습 기본값 — 질문 추가 없음). `HarnessRequest`로만 오버라이드하며, 기본값·임계값 의미론의 정본은 [refactor-advisory.md](../../references/refactor-advisory.md) §5.
 
 #### 기본값 병합 우선순위
 

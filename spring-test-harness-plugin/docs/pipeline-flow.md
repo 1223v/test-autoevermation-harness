@@ -3,6 +3,7 @@
 이 문서는 `spring-test-harness` 플러그인이 **어떤 흐름으로 구동되는지**를 Mermaid 다이어그램으로 정리한 것이다.
 정본(텍스트): [skills/full-pipeline/SKILL.md](../skills/full-pipeline/SKILL.md) ·
 [references/environment-setup.md](../references/environment-setup.md) ·
+[references/refactor-advisory.md](../references/refactor-advisory.md) ·
 [references/scenario-docs.md](../references/scenario-docs.md) ·
 [references/fallback-policy.md](../references/fallback-policy.md).
 
@@ -27,7 +28,9 @@ flowchart TD
     E6 --> F2["2단계 — analyze-ast<br/>(ast-structure-analyzer)"]
     F1 --> G["3단계 — analyze-source<br/>(source-code-analyzer)"]
     F2 --> G
-    G --> H["4단계 — generate-scenarios<br/>(scenario-generator) → ScenarioSet (BDD)"]
+    G --> G35{"3.5 — 리팩토링 권고 게이트<br/>(refactor-advisor) 플래그 시 RA-*.md 작성<br/>대화형=포함/제외 질문 · CI=전 대상 포함+경고"}
+    G35 -- "포함 대상만 (필터본)" --> H["4단계 — generate-scenarios<br/>(scenario-generator) → ScenarioSet (BDD)"]
+    G35 -- "전 대상 제외" --> X35(["status: partial — '생성 대상 없음(전량 리팩토링 권고)'"])
 
     H --> I["4.5 — 시나리오 저장<br/>test_docs/scenarios/&lt;id&gt;.md (approval: pending) + INDEX.md"]
     I --> J{"승인 게이트<br/>대화형=AskUserQuestion / CI=자동 승인"}
@@ -51,6 +54,7 @@ flowchart TD
 ```
 
 > 1·2단계는 **병렬**(서브에이전트 팬아웃)이라 `E`에서 두 갈래로 갈라져 `G`(3단계)에서 합류한다.
+> 3.5단계는 플래그 0건이거나 `refactorAdvisory.enabled: false`면 게이트 없이 3→4로 직결된다(상세: §3).
 > 7·8·9단계는 **게이트 충족까지 반복**하며, 직전과 동일한 실패/gap/survivor가 3회 연속(무진전)이면 `partial`로 중단한다(fallback-policy.md #12).
 
 ---
@@ -88,7 +92,38 @@ E7 Eclipse JDT LS Java 21+ 런타임, E10 Mockito/ByteBuddy JDK 24/25 호환).
 
 ---
 
-## 3. 4.5단계 — 시나리오 승인 게이트 + `test_docs/`
+## 3. 3.5단계 — 리팩토링 권고 게이트 + `test_docs/refactoring/`
+
+```mermaid
+flowchart TD
+    In(["sourceResult (3단계 산출)"]) --> Enabled{"refactorAdvisory.enabled?"}
+    Enabled -- "false" --> Skip(["4단계로 직결 (skipped 명시)"])
+    Enabled -- "true" --> Judge["refactor-advisor 판정<br/>complexity / testability / efficiency<br/>(공식문서 근거·임계값: refactor-advisory.md §2)"]
+    Judge --> Zero{"advisories 0건?"}
+    Zero -- "예" --> Skip2(["게이트 생략 — 4단계로 직결"])
+    Zero -- "아니오" --> Save["test_docs/refactoring/RA-&lt;id&gt;.md 저장 (decision: pending)<br/>+ refactoring/INDEX.md + 메인 INDEX '리팩토링 권고' 절"]
+    Save --> Mode{"실행 모드"}
+
+    Mode -- "대화형" --> Ask["AskUserQuestion<br/>전체 포함(권장) / 일부 제외 / 전체 제외"]
+    Ask -- "전체 포함" --> Include["전 대상 decision: included"]
+    Ask -- "일부 제외" --> Exclude["후속 입력으로 RA-id 수신<br/>제외분 decision: excluded (파일 보존)"]
+    Ask -- "전체 제외" --> AllOut["전 대상 decision: excluded"]
+    Exclude --> Include
+
+    Mode -- "CI/비대화형" --> AutoInclude["전 대상 포함 + warnings 기록<br/>(권고 .md는 그대로 작성)"]
+
+    Include --> Filter
+    AutoInclude --> Filter["제외 FQCN 필터링한 astResult/sourceResult를 4단계로<br/>_workspace/03c_advisory_gate.json 저장"]
+    AllOut --> Empty(["status: partial — '생성 대상 없음(전량 리팩토링 권고)'"])
+    Filter --> Next(["4단계 generate-scenarios"])
+```
+
+근거: [refactor-advisory.md](../references/refactor-advisory.md) §4, [fallback-policy.md](../references/fallback-policy.md) #19.
+권고 `.md`는 포함/제외와 무관하게 **항상 작성**된다 — 게이트는 "테스트 생성 대상 포함 여부"만 결정한다.
+
+---
+
+## 4. 4.5단계 — 시나리오 승인 게이트 + `test_docs/`
 
 ```mermaid
 flowchart TD
@@ -114,7 +149,7 @@ flowchart TD
 
 ---
 
-## 4. 10단계 — 시나리오 적합성 검증 (마지막)
+## 5. 10단계 — 시나리오 적합성 검증 (마지막)
 
 ```mermaid
 flowchart TD
@@ -143,7 +178,7 @@ flowchart TD
 
 ---
 
-## 5. Fallback 의사결정 공통 패턴 (대화형 vs CI)
+## 6. Fallback 의사결정 공통 패턴 (대화형 vs CI)
 
 모든 fallback 지점은 같은 패턴으로 분기한다(SSOT: [fallback-policy.md](../references/fallback-policy.md)).
 
@@ -163,7 +198,7 @@ flowchart LR
 
 ---
 
-## 6. 단계 ↔ 스킬 ↔ 에이전트 ↔ MCP 매핑
+## 7. 단계 ↔ 스킬 ↔ 에이전트 ↔ MCP 매핑
 
 | 단계 | 스킬 | 에이전트 | 주 MCP | 산출물 |
 |---|---|---|---|---|
@@ -173,6 +208,7 @@ flowchart LR
 | 1 | ingest-specs | spec-reviewer | spec-doc | `_workspace/01_*.json` |
 | 2 | analyze-ast | ast-structure-analyzer | repo-ast | `_workspace/02_*.json` |
 | 3 | analyze-source | source-code-analyzer | repo-ast, (lsp) | `_workspace/03_*.json` |
+| 3.5 | refactor-advisory + full-pipeline(게이트) | refactor-advisor | repo-ast, (lsp) | `test_docs/refactoring/*.md`, `03b_refactor_advisory.json`, `03c_advisory_gate.json` |
 | 4 | generate-scenarios | scenario-generator | spec-doc, repo-ast | `_workspace/04_scenario_set.json` |
 | 4.5 | full-pipeline(승인) | — | — | `test_docs/scenarios/*.md`, `INDEX.md`, `04b_approval.json` |
 | 5 | generate-tests | test-code-generator | repo-ast, build-test | `src/test/java/*`, `05_*.json` |
@@ -184,15 +220,16 @@ flowchart LR
 
 ---
 
-## 7. 산출물 위치
+## 8. 산출물 위치
 
 ```mermaid
 flowchart TD
     Root["대상 프로젝트 루트 (projectRoot)"]
     Root --> Src["src/test/java/** — 생성된 테스트 코드"]
     Root --> Docs["test_docs/ — 시나리오 living documentation (영속, 커밋 가능)"]
-    Docs --> Index["INDEX.md — 시나리오↔테스트코드↔결과 매핑표"]
+    Docs --> Index["INDEX.md — 시나리오↔테스트코드↔결과 매핑표 + 리팩토링 권고 요약"]
     Docs --> Scn["scenarios/&lt;SC-ID&gt;.md — 시나리오별 (BDD + 매핑 + 검증결과)"]
+    Docs --> Ra["refactoring/RA-&lt;ID&gt;.md + INDEX.md — 리팩토링 권고 (근거·수정법·결정)"]
     Root --> Ws["_workspace/ — 중간 JSON (감사용, ignore 대상)"]
     Ws --> Wsj["00~10_*.json · timing.json · pipeline_result.json"]
 ```

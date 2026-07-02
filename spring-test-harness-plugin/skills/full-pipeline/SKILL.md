@@ -7,7 +7,9 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 ## 목적
 
-`HarnessRequest` JSON을 입력받아, 먼저 `configure-harness`로 인터랙티브 설정(`HarnessConfig`)을 받은 뒤, 스킬들(configure-harness, ingest-specs, analyze-ast, analyze-source, generate-scenarios, generate-tests, run-tests, repair-tests, measure-coverage, mutation-test, verify-scenarios)을 정해진 순서와 병렬 전략에 따라 오케스트레이션한다. 각 단계의 결과를 수렴해 다음 단계로 전달하고, **near-100% 커버리지 게이트와 뮤테이션 강화 루프**를 수렴시킨 후 **마지막에 시나리오 적합성 검증**까지 마치고 최종 Markdown 보고서와 상태 JSON을 반환한다.
+`HarnessRequest` JSON을 입력받아, 먼저 `configure-harness`로 인터랙티브 설정(`HarnessConfig`)을 받은 뒤, 스킬들(configure-harness, ingest-specs, analyze-ast, analyze-source, refactor-advisory, generate-scenarios, generate-tests, run-tests, repair-tests, measure-coverage, mutation-test, verify-scenarios)을 정해진 순서와 병렬 전략에 따라 오케스트레이션한다. 각 단계의 결과를 수렴해 다음 단계로 전달하고, **near-100% 커버리지 게이트와 뮤테이션 강화 루프**를 수렴시킨 후 **마지막에 시나리오 적합성 검증**까지 마치고 최종 Markdown 보고서와 상태 JSON을 반환한다.
+
+**리팩토링 권고 게이트(3.5단계).** 소스 분석(3단계) 직후, 시나리오 설계(4단계) **전에** 테스트 부적합 코드(순환복잡도 초과·비효율·테스트 저해 설계)를 공식문서 근거로 판정한다. 플래그된 대상은 권고 `.md`(`test_docs/refactoring/RA-*.md`)를 **항상** 작성하고, 대화형은 `AskUserQuestion`으로 "생성 대상 포함/제외"를 묻는다(제외분은 4단계 입력에서 필터링, 권고 문서는 보존). 비대화형·CI는 전 대상 포함+경고. 정본: [references/refactor-advisory.md](../../references/refactor-advisory.md), fallback-policy.md #19.
 
 **시나리오 승인 + 산출물(`test_docs/`).** 시나리오 설계(4단계) 직후, 테스트 생성(5단계) **전에 사용자 승인 게이트**를 둔다 — 시나리오를 대상 프로젝트의 `test_docs/scenarios/<id>.md`로 저장하고, 대화형은 `AskUserQuestion`으로 승인/제외·수정/재설계를 묻는다(승인분만 생성으로 진행). 비대화형·CI는 자동 승인 후 기록. 모든 단계가 끝나면 **마지막 단계(10단계)에서 시나리오 적합성을 검증**해(통과한 테스트가 시나리오 given/when/then을 실제로 만족하는지) `test_docs/`를 **시나리오 ↔ 테스트코드 ↔ 결과**로 정리한다. 정본: [references/scenario-docs.md](../../references/scenario-docs.md).
 
@@ -81,6 +83,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 | `lspAvailable` | `boolean` | 아니오 | `false` | JDT LS 연결 여부 |
 | `maxRepairRetries` | `integer` | 아니오 | `2` | repair-tests 최대 재시도 횟수 |
 | `domainKeywords` | `string[]` | 아니오 | `[]` | 스펙 검색 힌트 |
+| `refactorAdvisory` | `object` | 아니오 | `{ "enabled": true }` | 3.5단계 제어. `enabled`·`thresholds{cyclomatic,constructorArgs}` — 정본: [refactor-advisory.md](../../references/refactor-advisory.md) §5 |
 
 ### 미지정 필드 처리 원칙 (fallback-policy.md #13 — 자동 기본값 금지)
 
@@ -116,6 +119,7 @@ stylePolicy       = 입력값 또는 "google-java"
 lspAvailable      = 입력값 또는 configure-harness E7 감지값(jdtls + `.lsp.json` + Java 21+ 가용=true, 아니면 false)
 maxRepairRetries  = 입력값 또는 2
 domainKeywords    = 입력값 또는 []
+refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 시 refactor-advisory.md §2 기본값)
 ```
 
 `junitPolicy: "strict-5x"` 감지 시 `warnings`에 "BOM 기본값(Jupiter 6.0.x)과의 버전 충돌 주의 — 명시적 version pin 필요" 추가.
@@ -141,7 +145,7 @@ domainKeywords    = 입력값 또는 []
 /spring-test-harness:configure-harness
 ```
 
-산출 `HarnessConfig`는 `specDocPaths`(추가 병합), `targetScope`, `coverage{line,branch,method,class,excludes}`, `mutation{targetClasses,targetTests,mutators,mutationThreshold}`를 포함하며, 이후 모든 단계의 입력에 병합된다. 사용자가 재사용 가능한 도메인 특화 단계를 원하면 configure-harness가 `skills/<custom>/SKILL.md`를 그 자리에서 스캐폴드하고 `/spring-test-harness:<custom>`로 호출 가능하게 한다.
+산출 `HarnessConfig`는 `specDocPaths`(추가 병합), `targetScope`, `coverage{line,branch,method,class,excludes}`, `mutation{targetClasses,targetTests,mutators,mutationThreshold}`, `refactorAdvisory{enabled,thresholds}`(3.5단계 제어, 인터뷰 항목 아님)를 포함하며, 이후 모든 단계의 입력에 병합된다. 사용자가 재사용 가능한 도메인 특화 단계를 원하면 configure-harness가 `skills/<custom>/SKILL.md`를 그 자리에서 스캐폴드하고 `/spring-test-harness:<custom>`로 호출 가능하게 한다.
 
 ---
 
@@ -232,7 +236,55 @@ Task(
 
 ---
 
+### 3.5단계: 리팩토링 권고 게이트 (선(先) 권고 기록, 후(後) 대상 확정)
+
+`sourceResult`를 받은 직후, 4단계(시나리오 설계) **전에** 테스트 부적합 코드를 판정하고 사용자 결정을 받는다. 정본: [references/refactor-advisory.md](../../references/refactor-advisory.md). `refactorAdvisory.enabled: false`면 이 단계 전체를 건너뛴다(3→4 직결, 보고서에 `skipped` 명시).
+
+1. **판정** — `refactor-advisor` 호출:
+
+```
+Task(
+  subagent_type="refactor-advisor",
+  model="inherit",
+  prompt="""
+입력:
+{
+  "astResult": <astResult>,
+  "sourceResult": <sourceResult>,
+  "targetSymbols": <astResult.testTargets[].fqcn>,
+  "projectRoot": <projectRoot>,
+  "lspAvailable": <lspAvailable>,
+  "thresholds": <refactorAdvisory.thresholds>
+}
+
+지시:
+- references/refactor-advisory.md §2의 3범주(complexity/testability/efficiency) 기준·임계값·근거 출처로만 판정하라(임의 수치 금지).
+- 대상 심볼과 직접 협력 객체(1홉)의 소스만 Read/Grep하라. repo-ast는 메타 확인용(메서드 바디 미반환).
+- sourceResult.testSeams·collaborators를 재사용해 이중 파싱을 피하라.
+- 임계 미달·근거 부족 발견은 플래그하지 마라(허위 양성 억제).
+- 소스 원문을 결과에 넣지 마라. 경로·라인·지표만.
+- RefactorAdvisoryResult JSON으로 반환하라.
+"""
+)
+```
+
+결과를 `advisoryResult`로 저장(`_workspace/03b_refactor_advisory.json`). **`advisories`가 0건이면 게이트를 생략**하고 4단계로 직행한다(기존 3→4 흐름과 동일).
+
+2. **선(先) 기록**: 각 advisory를 `<projectRoot>/test_docs/refactoring/RA-<id>.md`(frontmatter `decision: pending`)로 Write하고, `refactoring/INDEX.md`와 메인 `test_docs/INDEX.md`의 "## 리팩토링 권고" 요약 절을 갱신한다. 템플릿: refactor-advisory.md §3. 권고 `.md`는 **포함/제외 결정과 무관하게 항상 작성**한다(침묵 누락 금지).
+3. **결정 게이트** (fallback-policy.md #19):
+   - **대화형**: 권고 요약(대상·범주·severity 표)을 제시하고 `AskUserQuestion`으로 묻는다 — `전체 포함(권장)` / `일부 제외` / `전체 제외` (4.5 게이트의 3옵션 패턴 미러 — AskUserQuestion 옵션 수 제한으로 대상별 나열 금지).
+     - `일부 제외`: 후속 자유 입력으로 제외할 `RA-id`를 받는다.
+   - **비대화형·CI**: **전 대상 포함 + `warnings` 기록**(권고 `.md`는 그대로 작성).
+4. **반영**: 포함분 `decision: included`, 제외분 `decision: excluded`(+`decidedAt`, 사유)로 frontmatter 갱신(파일 삭제 금지 — 추적성 보존). 결과를 `_workspace/03c_advisory_gate.json`에 저장한다.
+5. **필터**: 제외 대상 FQCN을 `astResult.testTargets`·`sourceResult`(collaborators/testSeams 등 대상 종속 항목)에서 제거한 **필터본을 이후 단계 입력으로** 쓴다. **전 대상 제외로 포함이 0건이면** 4.5의 "승인 0건"에 준해 `status: "partial"` + "생성 대상 없음(전량 리팩토링 권고)" 보고 후 중단한다.
+
+포함된 대상의 시나리오·테스트가 생성되면(4~5단계 이후) 해당 `RA-*.md`의 "추적성" 절에 SC-id·테스트 메서드를 기록한다.
+
+---
+
 ### 4단계: 순차 — generate-scenarios
+
+> `astResult`·`sourceResult`는 **3.5단계 게이트에서 제외 대상이 필터링된 버전**을 전달한다(플래그 0건·skip이면 원본 그대로).
 
 ```
 Task(
@@ -481,6 +533,7 @@ Task(
     "ingestSpecs": { "status": "ok", "criteriaCount": 5 },
     "analyzeAst": { "status": "ok", "targetCount": 3 },
     "analyzeSource": { "status": "ok", "seamCount": 4 },
+    "refactorAdvisory": { "status": "ok", "flagged": 2, "included": 1, "excluded": 1, "mode": "interactive" },
     "generateScenarios": { "status": "ok", "scenarioCount": 8 },
     "scenarioApproval": { "status": "ok", "approved": 7, "excluded": 1, "mode": "interactive" },
     "generateTests": { "status": "ok", "fileCount": 3 },
@@ -497,6 +550,10 @@ Task(
   "scenarioDocs": [
     "test_docs/INDEX.md",
     "test_docs/scenarios/SC-001.md"
+  ],
+  "advisoryDocs": [
+    "test_docs/refactoring/INDEX.md",
+    "test_docs/refactoring/RA-001.md"
   ],
   "reportPaths": [
     "build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"
@@ -524,6 +581,7 @@ Markdown 보고서는 아래 구조로 출력한다.
 | ingest-specs | ok | 5개 criteria 추출 |
 | analyze-ast | ok | 3개 컴포넌트 |
 | analyze-source | ok | 4개 testSeam |
+| 리팩토링 권고 | ok | 플래그 2 / 포함 1 / 제외 1 (대화형) → test_docs/refactoring/ 저장 |
 | generate-scenarios | ok | 8개 시나리오 |
 | 시나리오 승인 | ok | 승인 7 / 제외 1 (대화형) → test_docs/ 저장 |
 | generate-tests | ok | 3개 파일 생성 |
@@ -536,6 +594,10 @@ Markdown 보고서는 아래 구조로 출력한다.
 ## 시나리오 적합성 (test_docs/)
 - 산출물: `test_docs/INDEX.md` (시나리오↔테스트코드↔결과 매핑)
 - 승인 7건 모두 satisfied (given/when/then 충족)
+
+## 리팩토링 권고 (test_docs/refactoring/)
+- 플래그 2건 (complexity 1 / testability 1) — 포함 1 / 제외 1
+- 산출물: `test_docs/refactoring/INDEX.md`, `RA-001.md`, `RA-002.md`
 
 ## 경고
 없음
@@ -554,6 +616,9 @@ Markdown 보고서는 아래 구조로 출력한다.
 | 1단계만 `failed` | specResult 없이 진행, `status: "partial"` |
 | 2단계만 `failed` | `status: "failed"` 반환 (AST 없이 이후 단계 불가) |
 | 3단계 `failed` | `status: "failed"` 반환 |
+| 3.5단계 권고 게이트 (#19) | 대화형=`AskUserQuestion`(전체 포함/일부 제외/전체 제외). 권고 `.md`는 항상 작성. CI=전 대상 포함+경고 후 진행 |
+| 3.5단계 전체 제외 | 포함 대상이 0건이면 `status: "partial"` + "생성 대상 없음(전량 리팩토링 권고)" 보고 후 중단 |
+| 3.5단계 에이전트 `failed` | 판정 불가 시 **경고 후 전 대상 포함으로 진행**(`warnings`에 REFACTOR_ADVISORY_FAILED — 권고는 보조 게이트, 파이프라인 차단 안 함) |
 | 4단계 `partial` | 가능한 시나리오로 진행 |
 | 4.5단계 승인 게이트 (#15) | 대화형=`AskUserQuestion`(전체 승인/일부 제외·수정/재설계). 승인분만 5단계로. CI=자동 승인+기록 후 진행 |
 | 4.5단계 전체 제외 | 승인된 시나리오가 0건이면 `status: "partial"` + "승인된 시나리오 없음" 보고 후 중단 |

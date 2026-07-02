@@ -7,6 +7,9 @@
 
 ## [Unreleased]
 
+### Added
+- **3.5단계 리팩토링 권고 게이트**: 코드 분석(3단계)과 시나리오 생성(4단계) 사이에서 테스트 부적합 코드를 판정한다 — ① 순환복잡도 초과(NIST SP 500-235 기준, 기본 CC>10), ② 테스트 저해 설계(강결합·정적/숨은 의존·생성자 부작용·미주입 clock/random — Spring 공식 생성자 주입 권고, Mockito javadoc §39/§48, Google Testing 가이드 근거), ③ 비효율(N+1·루프 내 쿼리 — Hibernate userguide Fetching 장 근거). 플래그된 대상은 공식문서 인용을 담은 권고 문서(`test_docs/refactoring/RA-*.md` + INDEX)를 **항상** 작성하고, 대화형은 `AskUserQuestion`(전체 포함/일부 제외/전체 제외)으로 테스트 생성 대상 포함 여부를 결정한다(제외분은 4단계 입력에서 필터링, 권고 문서는 보존). 비대화형·CI는 전 대상 포함+경고. 신규 산출물: `agents/refactor-advisor.md`(read-only), `skills/refactor-advisory/SKILL.md`, `references/refactor-advisory.md`(SSOT), fallback-policy **#19**, `_workspace/03b·03c`, `HarnessConfig.refactorAdvisory{enabled,thresholds}`(인터뷰 비침습 — `HarnessRequest`로만 오버라이드).
+
 ### Removed
 - 미사용·중복 스크립트 삭제: `scripts/detect-build-tool.sh`·`scripts/run-tests.sh`·`scripts/collect-test-reports.py`(로직이 build-test MCP 서버에 내장되어 대체됨)와, 어디서도 호출되지 않던 고아 스크립트 `scripts/postprocess-report.py`.
 - `.mcp.json`에서 어떤 코드도 읽지 않던 죽은 env 제거: `REPO_AST_NETWORK`, `SPEC_DOC_NETWORK`.
@@ -23,6 +26,9 @@
 ### Fixed
 - 오케스트레이션 문서의 사실 오류·중복 조건 정리: 존재하지 않는 task `integration-test`(→ `integrationTest`/`verify`), build-test가 내보내지 않는 `-pl/-am` 예시, Phase-E 게이트 4종 불일치를 SSOT(`references/environment-setup.md`)로 통일, analyze-ast 단계 번호·mutation `maxIterations`·`maxRepairRetries` 표현·Awaitility 모순 정정.
 - JavaParser CLI(`AstCli.java`) 디렉터리 모드 패키지 버그: 디렉터리를 넘기면 첫 파일의 `package`만 읽어 다른 패키지 클래스의 FQCN이 틀리던 문제를, `package`를 컴파일 단위(파일)별로 해석해 각 클래스에 부여하도록 수정(JavaParser `CompilationUnit`은 파일 단위 API). Python `_normalize_java_cli_output`는 클래스별 `package`를 우선 사용(단일 파일 하네스 경로는 동작 동일 — jar 재빌드 필요, shaded jar은 빌드 산출물이라 미포함).
+
+### Evidence
+- **3.5단계 스모크 테스트(2026-07-02, 로컬)**: 알려진 결함을 심은 스크래치 샘플 8클래스(CC=14 메서드·루프 내 `findById` N+1·생성자 `new`/`connect()` 실질 작업·싱글턴 `getInstance()`·미주입 `LocalDateTime.now()`/`new Random()`·클린 클래스 1)를 repo-ast `_analyze`(JavaParser jar 경로, `degraded:false`)로 추출한 뒤 refactor-advisory.md §2 기준으로 판정 — 13/13 체크 통과: 3범주(complexity/testability/efficiency) 기대 신호 전부 검출, §2.4 규칙대로 RA-001 `severity: high`, 클린 클래스 오탐 0건(`cleanTargets`), 출력은 `RefactorAdvisoryResult` 스키마 정합(파일:라인 evidence, 소스 원문 미포함). 샘플·산출 JSON은 배포물 비포함(스크래치 디렉터리).
 
 ---
 

@@ -34,6 +34,8 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
 
 세 결과 모두 `null`이면 `status: "failed"`를 즉시 반환하고 선행 단계 실행을 안내한다. 일부만 있으면 `status: "partial"`로 진행한다.
 
+> `full-pipeline`에서 호출될 때 `astResult`·`sourceResult`는 **3.5단계 리팩토링 권고 게이트에서 제외 대상이 이미 필터링된 버전**이다(정본: [refactor-advisory.md](../../references/refactor-advisory.md) §4). 이 스킬은 필터링을 재수행하지 않는다.
+
 ---
 
 ## 단계별 절차

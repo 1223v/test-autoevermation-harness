@@ -46,6 +46,7 @@ ln -s "$(pwd)/spring-test-harness-plugin" ~/.claude/plugins/spring-test-harness-
 1. 스펙 문서 인덱싱 (`ingest-specs`)
 2. AST 구조 추출 (`analyze-ast`) — 스텝 1과 병렬
 3. 소스 동작·seam 분석 (`analyze-source`)
+3.5. **리팩토링 권고 게이트 (`refactor-advisory`)** — 복잡도·비효율·테스트 저해 코드를 공식문서 근거로 판정, `test_docs/refactoring/RA-*.md` 권고 작성 후 대화형은 `AskUserQuestion`으로 생성 대상 포함/제외 결정(플래그 0건이면 자동 통과)
 4. 시나리오 설계 (`generate-scenarios`)
 4.5. **시나리오 승인 게이트 + `test_docs/` 저장** — 대화형은 `AskUserQuestion`으로 승인, 승인분만 진행
 5. 테스트 코드 생성 (`generate-tests`)
@@ -55,17 +56,18 @@ ln -s "$(pwd)/spring-test-harness-plugin" ~/.claude/plugins/spring-test-harness-
 9. 뮤테이션 강화 (`mutation-test`)
 10. **시나리오 적합성 검증 (`verify-scenarios`)** — 통과한 테스트가 시나리오를 실제로 만족하는지 검증 후 `test_docs/` 정리
 
-결과는 Markdown 보고서 + JSON 산출물 + 대상 프로젝트의 `test_docs/`(시나리오↔테스트코드↔결과 living documentation)로 저장된다.
+결과는 Markdown 보고서 + JSON 산출물 + 대상 프로젝트의 `test_docs/`(시나리오↔테스트코드↔결과 living documentation + `refactoring/` 리팩토링 권고)로 저장된다.
 
 > **흐름도**: 전체 구동 흐름(Phase E·승인 게이트·적합성 검증·fallback 분기)을 Mermaid로 시각화한 문서는
 > [docs/pipeline-flow.md](./docs/pipeline-flow.md) 참조.
 
 ---
 
-## Skills (12종)
+## Skills (13종)
 
 > v0.2 추가: `configure-harness`, `measure-coverage`, `mutation-test` (아래 "v0.2 신규" 절 참조)
 > v0.7 추가: `verify-scenarios` (시나리오 적합성 검증)
+> v0.9 추가: `refactor-advisory` (리팩토링 권고 게이트)
 
 
 | Skill | 호출 방법 | 역할 |
@@ -75,6 +77,7 @@ ln -s "$(pwd)/spring-test-harness-plugin" ~/.claude/plugins/spring-test-harness-
 | `ingest-specs` | `/spring-test-harness:ingest-specs` | 스펙 문서 인덱싱·acceptance criteria 정규화 |
 | `analyze-ast` | `/spring-test-harness:analyze-ast` | JavaParser 기반 AST 구조 추출 |
 | `analyze-source` | `/spring-test-harness:analyze-source` | 동작·외부 I/O·mocking seam 분석 |
+| `refactor-advisory` | `/spring-test-harness:refactor-advisory` | 복잡도·비효율·테스트 저해 코드 판정(3.5 게이트의 read-only 판정부) |
 | `generate-scenarios` | `/spring-test-harness:generate-scenarios` | unit/slice/integration 시나리오 설계 |
 | `generate-tests` | `/spring-test-harness:generate-tests` | JUnit Jupiter + Spring Test 코드 생성 |
 | `run-tests` | `/spring-test-harness:run-tests` | 빌드 도구 감지 후 최소 범위 테스트 실행 |
@@ -85,16 +88,18 @@ ln -s "$(pwd)/spring-test-harness-plugin" ~/.claude/plugins/spring-test-harness-
 
 ---
 
-## Agents (10종)
+## Agents (11종)
 
 > v0.2 추가: `coverage-closer`, `mutation-analyst`
 > v0.7 추가: `scenario-conformance-verifier`
+> v0.9 추가: `refactor-advisor`
 
 
 | Agent | 역할 | 권한 |
 |---|---|---|
 | `ast-structure-analyzer` | AST/심볼 구조 추출 (read-only) | Read, Grep, Glob, MCP(repo-ast) |
 | `source-code-analyzer` | 동작·seam 분석 (read-only) | Read, Grep, Glob, MCP(repo-ast, lsp) |
+| `refactor-advisor` | 복잡도·비효율·테스트 저해 판정 (read-only) | Read, Grep, Glob, MCP(repo-ast, lsp) |
 | `spec-reviewer` | 스펙 문서 인덱싱·criteria 정규화 (read-only) | Read, Grep, Glob, MCP(spec-doc) |
 | `scenario-generator` | 시나리오 설계 (read-only) | Read, MCP(spec-doc, repo-ast) |
 | `test-code-generator` | 테스트 파일 생성 (write) | Read, Write, Edit, MCP(repo-ast, build-test) |
