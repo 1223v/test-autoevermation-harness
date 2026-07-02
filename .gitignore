@@ -10,8 +10,8 @@ __pycache__/
 *.pyc
 
 # Java / build artifacts
-spring-test-harness-plugin/mcp/javaparser-cli/target/
-spring-test-harness-plugin/mcp/javaparser-cli/dependency-reduced-pom.xml
+test-autoevermation-harness-plugin/mcp/javaparser-cli/target/
+test-autoevermation-harness-plugin/mcp/javaparser-cli/dependency-reduced-pom.xml
 **/build/
 **/.gradle/
 **/.jdt-workspace/
