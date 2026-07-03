@@ -20,8 +20,31 @@ Claude Code CLI 기반 Spring 테스트코드 자동 생성 플러그인.
 
 ## 설치
 
-Claude Code 공식 plugin 구조로 배포된다. 플러그인 루트를 `.claude/plugins/` 아래에 복사하거나
-심볼릭 링크를 생성한 뒤 Claude Code를 재시작하면 자동 인식된다.
+### 0) 사전 요구사항
+
+시작 전에 아래만 준비하면 된다. **`mcp` 패키지는 직접 설치할 필요 없다** — 플러그인 설치 후
+첫 세션에서 `mcp/bootstrap.py`가 플러그인 전용 venv(`${CLAUDE_PLUGIN_DATA}/venv`)에 자동
+설치한다(v0.12.0+).
+
+| 요구사항 | 확인 | 설치 |
+|---|---|---|
+| **Python 3.10+** (필수 — MCP 서버 3종 런타임) | `python3 --version` | macOS: `brew install python` / Ubuntu·Debian: `sudo apt install python3 python3-venv python3-pip` / Windows: [python.org](https://www.python.org/downloads/) 또는 `winget install Python.Python.3.12` |
+| JDK 17+ · Maven 3.6.3+ (선택 — 정밀 JavaParser AST) | `java -version` | 미설치여도 정규식 fallback으로 degrade(차단 없음). 상세: [DEPENDENCIES.md](./DEPENDENCIES.md) |
+
+### 1) 마켓플레이스 설치 (권장)
+
+Claude Code 세션에서:
+
+```text
+/plugin marketplace add 1223v/test-autoevermation-harness
+/plugin install test-autoevermation-harness-plugin@test-autoevermation-harness
+/reload-plugins
+```
+
+### 2) 로컬 설치 (대안)
+
+플러그인 루트를 `.claude/plugins/` 아래에 복사하거나 심볼릭 링크를 생성한 뒤 Claude Code를
+재시작하면 자동 인식된다.
 
 ```bash
 # 예시: 저장소 루트에서 설치
@@ -34,7 +57,13 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 > 빌드/런타임 산출물이므로 복사하지 않아도 되고, JavaParser jar를 쓰려면 설치 후 `mcp/javaparser-cli`에서
 > `mvn -q -DskipTests package`로 다시 빌드한다(Group D 정책: 미빌드 시 정규식 fallback degrade).
 
-설치 후 Claude Code 세션에서 `/test-autoevermation-harness-plugin:full-pipeline` 명령이 인식되면 정상이다.
+### 3) 설치 확인
+
+- 세션에서 `/test-autoevermation-harness-plugin:full-pipeline` 명령이 자동완성에 뜨면 정상.
+- `/plugin` Errors 탭에 MCP 서버 3종(repo-ast·spec-doc·build-test) 에러가 보이면:
+  `python3 --version`이 3.10 이상인지 확인 후 `/reload-plugins`(첫 세션에서 의존성 자동 설치, 수 초 소요).
+  그래도 실패하는 환경(오프라인 등)의 수동 폴백: `python3 -m pip install -r mcp/requirements.txt`
+- `jdtls` 관련 항목은 선택 기능(Java LSP)이라 무시해도 된다(AST-only degrade).
 
 ### 상태줄 진행률 표시 (선택)
 

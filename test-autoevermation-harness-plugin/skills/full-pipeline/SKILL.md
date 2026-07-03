@@ -131,7 +131,7 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 전처리 직후, 0단계 진입 **전에** [references/environment-setup.md](../../references/environment-setup.md) 체크리스트를 **TodoWrite로 만들어 전부 통과**시킨다. 이 단계는 `configure-harness`의 Preflight(Phase E)와 동일 절차이며, `configure-harness`를 호출하면 그 안에서 수행된다(중복 실행 금지 — 이미 통과한 `_workspace/00_config-harness.json`이 있으면 재사용).
 
 - **대상 항목**: E1 Python 3.10+ · E2 MCP SDK · E3 MCP 서버 등록 · E4 JDK 17+ · E5 Maven · E6 JavaParser jar · E7 JDT LS+Java21(**선택**) · E10 테스트 실행 JDK 호환. (E8 빌드도구·E9 Spring 프로파일은 0단계 configure-harness 0.5단계에서, **E11 빌드 능력(JaCoCo XML·PITest)·E12 의존성 캐시 프라이밍은 0.6단계**에서 확정 — 6단계 run-tests 이전 필수. 정본: [references/build-provisioning.md](../../references/build-provisioning.md).)
-- **세팅 방식**: 자동 가능 항목(E2·E6)은 **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / CI=자동 실행**(`python3 -m pip install -r mcp/requirements.txt`, `cd mcp/javaparser-cli && mvn -q -DskipTests package`). assist 항목(E1·E4·E5·E10)은 대화형=설치/런타임 안내 질문, CI=미충족 시 하드 중단. E7(JDT LS)은 **선택** — 미가용이면 AST-only degrade로 진행(중단 안 함).
+- **세팅 방식**: 자동 가능 항목(E2·E6)은 **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / CI=자동 실행**(E2는 v0.12.0+ `python3 <pluginRoot>/mcp/bootstrap.py --ensure-only`로 질문 없이 자동 — 실패 시에만 pip 폴백 질문, E6은 `cd mcp/javaparser-cli && mvn -q -DskipTests package`). assist 항목(E1·E4·E5·E10)은 대화형=설치/런타임 안내 질문, CI=미충족 시 하드 중단. E7(JDT LS)은 **선택** — 미가용이면 AST-only degrade로 진행(중단 안 함).
 - **검증 후 체크**: 각 세팅 뒤 재감지로 통과 확인 후 `completed` 표시.
 - **게이트** (정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」): 필수 항목 **E1·E2·E3(런타임) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 통과하지 못하면 0단계로 진행하지 않고 `status:"failed"` + remediation으로 중단한다. **E4·E5·E6(JavaParser jar용 JDK/Maven/빌드)와 E7(JDT LS)은 선택** — 미가용 시 각각 정규식·AST-only degrade로 진행(차단하지 않음).
 

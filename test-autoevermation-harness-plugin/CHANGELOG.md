@@ -11,6 +11,14 @@ _(비어 있음)_
 
 ---
 
+## [0.12.1] - 2026-07-03
+
+### Changed
+- **README 설치 섹션 재구성**: ① 사전 요구사항 표(필수 Python 3.10+ OS별 설치 명령 — brew/apt/winget, 선택 JDK·Maven), ② 마켓플레이스 설치 절차(`/plugin marketplace add` → `/plugin install` → `/reload-plugins`)를 권장 경로로 신설, ③ 설치 확인 절차(MCP 에러 시 진단 순서·수동 폴백·jdtls 안내). `mcp` 패키지는 v0.12.0 자동 부트스트랩이 담당함을 명시.
+- **초기 설치 경로에 bootstrap 반영**: Phase E 정본(environment-setup.md)의 E1(OS별 설치 명령 추가)·E2(감지/세팅을 bootstrap 기준으로 — `${CLAUDE_PLUGIN_DATA}/venv`, 시스템 python 비오염, 실패 시에만 pip 폴백)와 `configure-harness`·`full-pipeline` 스킬의 E2 세팅 명령을 동기화.
+
+---
+
 ## [0.12.0] - 2026-07-03
 
 ### Added
