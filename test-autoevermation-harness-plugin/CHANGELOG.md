@@ -7,7 +7,14 @@
 
 ## [Unreleased]
 
+_(비어 있음)_
+
+---
+
+## [0.11.0] - 2026-07-03
+
 ### Added
+- **상태줄 진행률 표시 `setup-statusline` 스킬 + `scripts/test-autoevermation-statusline.py` 래퍼**: Claude Code statusLine에 `[Test-AutoEverMation#<version>] <pct>% | stage <n>: <name>` 줄을 추가한다(유휴 시 버전만, 완료 시 `100% | done (ok|partial|failed)`). 래퍼는 기존 statusLine 커맨드를 `~/.claude/test-autoevermation-statusline.json`의 delegate로 보존·계속 실행하고(statusLine stdout 다중 줄 렌더링은 공식 문서 재검증, 2026-07-03), 진행률은 대상 프로젝트 `_workspace/` 단계 산출물 존재 여부로 계산한다(orchestration-detail §2 미러 `ORDER` 테이블, 분모 14 — 조건부 7단계 제외, "존재하는 최고 산출물" 기준이라 3.5 스킵·1∥2 병렬 순서 역전에 안전). delegate 실패↔TAM 계산 실패 상호 격리·항상 exit 0. 스킬은 설치(백업·멱등·이중 래핑 방지)/경로 갱신/제거(원복)를 담당. 플러그인은 메인 statusLine을 설정할 수 없으므로(공식: 플러그인 settings.json은 `agent`/`subagentStatusLine`만 적용) 사용자 승인형 스킬 방식 채택.
 - **동작 원리·사용법 종합 가이드 `docs/GUIDE.md`**: 아키텍처(스킬 13·에이전트 11·MCP 3종·훅)·파이프라인 단계별 상세·설치·대화형/CI 사용법·설정(`HarnessRequest`/`HarnessConfig`/환경변수)·산출물 해석·보안 모델·트러블슈팅·문서 지도를 한 문서로 정리. Claude Code 플러그인/마켓플레이스·MCP SDK 서술은 공식문서로 재검증(2026-07-02). 루트·플러그인 README에서 링크.
 - **3.5단계 리팩토링 권고 게이트**: 코드 분석(3단계)과 시나리오 생성(4단계) 사이에서 테스트 부적합 코드를 판정한다 — ① 순환복잡도 초과(NIST SP 500-235 기준, 기본 CC>10), ② 테스트 저해 설계(강결합·정적/숨은 의존·생성자 부작용·미주입 clock/random — Spring 공식 생성자 주입 권고, Mockito javadoc §39/§48, Google Testing 가이드 근거), ③ 비효율(N+1·루프 내 쿼리 — Hibernate userguide Fetching 장 근거). 플래그된 대상은 공식문서 인용을 담은 권고 문서(`test_docs/refactoring/RA-*.md` + INDEX)를 **항상** 작성하고, 대화형은 `AskUserQuestion`(전체 포함/일부 제외/전체 제외)으로 테스트 생성 대상 포함 여부를 결정한다(제외분은 4단계 입력에서 필터링, 권고 문서는 보존). 비대화형·CI는 전 대상 포함+경고. 신규 산출물: `agents/refactor-advisor.md`(read-only), `skills/refactor-advisory/SKILL.md`, `references/refactor-advisory.md`(SSOT), fallback-policy **#19**, `_workspace/03b·03c`, `HarnessConfig.refactorAdvisory{enabled,thresholds}`(인터뷰 비침습 — `HarnessRequest`로만 오버라이드).
 

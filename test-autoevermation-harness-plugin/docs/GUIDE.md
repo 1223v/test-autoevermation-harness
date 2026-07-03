@@ -67,7 +67,7 @@ AST 구조 추출  ───┘                                                 
 ```
 test-autoevermation-harness-plugin/
 ├── .claude-plugin/plugin.json   ← 매니페스트: skills/·hooks/·.mcp.json·.lsp.json 등록
-├── skills/        (13종)        ← /test-autoevermation-harness-plugin:<name> 명령. 절차(무엇을 어떤 순서로)의 정의
+├── skills/        (14종)        ← /test-autoevermation-harness-plugin:<name> 명령. 절차(무엇을 어떤 순서로)의 정의
 ├── agents/        (11종)        ← Task(subagent_type=...)로 호출되는 서브에이전트. 실제 분석/생성 수행
 ├── mcp/           (서버 3종)    ← Python FastMCP stdio 서버. 결정적 작업(파싱·빌드실행·리포트 해석)
 │   └── javaparser-cli/          ← JavaParser 기반 정밀 AST CLI (Maven, 선택 빌드)
@@ -81,7 +81,7 @@ test-autoevermation-harness-plugin/
 최소화된 read-only/write 분리), **MCP 서버 = 결정적 도구**(같은 입력이면 같은 출력 — 빌드 실행,
 XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 
-### 2.2 Skills (13종)
+### 2.2 Skills (14종)
 
 | Skill | 파이프라인 단계 | 역할 |
 |---|---|---|
@@ -98,6 +98,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `measure-coverage` | 8 | JaCoCo near-100% 게이트 루프 |
 | `mutation-test` | 9 | PITest 뮤테이션 강화 루프 |
 | `verify-scenarios` | 10 | 시나리오 적합성 검증 + `test_docs/` 정리 |
+| `setup-statusline` | (부가) | Claude Code statusLine에 Test-AutoEverMation 진행률 줄(버전·%·현재 단계) 설치/제거 |
 
 모든 스킬은 단독 호출도 가능하다(`/test-autoevermation-harness-plugin:<skill>`). `full-pipeline`은 이들을 순서·병렬
 전략에 따라 조합한다.
@@ -346,6 +347,25 @@ CI 주의사항:
 같은 프로젝트에서 다시 부르면 `_workspace/`를 감지해 필요한 단계만 돈다: "이 패키지만 다시",
 "임계값 바꿔서 다시", "테스트 실패 고쳐" 등(§3.5 표). 도메인 특화 설정을 재사용하려면
 configure-harness 마지막의 **도메인 스킬 스캐폴딩**으로 `/test-autoevermation-harness-plugin:<custom>` 스킬을 만들어 둘 수 있다.
+
+### 5.5 상태줄 진행률 표시 (선택)
+
+`/test-autoevermation-harness-plugin:setup-statusline`을 실행하면 Claude Code 상태줄에 플러그인 버전과
+full-pipeline 진행률이 한 줄 추가된다(기존 상태줄 출력은 그대로 유지):
+
+```text
+[Test-AutoEverMation#0.11.0]                                    ← 파이프라인 없음(버전만)
+[Test-AutoEverMation#0.11.0] 43% | stage 4: generate-scenarios  ← 진행 중(_workspace/ 산출물 기반)
+[Test-AutoEverMation#0.11.0] 100% | done (ok)                   ← 완료(pipeline_result.json의 status)
+```
+
+동작 원리: 스킬이 `~/.claude/settings.json`의 `statusLine` 커맨드를 래퍼(`scripts/test-autoevermation-statusline.py`)로
+교체하고, 기존 커맨드는 `~/.claude/test-autoevermation-statusline.json`에 delegate로 보존해 래퍼가 계속 실행한다.
+진행률은 프로젝트 루트 `_workspace/`의 단계 산출물(§3.2) 존재 여부로 계산한다 — 읽기 전용, 파이프라인 비침습.
+제거는 같은 스킬에 "제거"라고 요청하면 원래 statusLine으로 복원된다.
+
+주의: 플러그인 업데이트 후나 다른 도구가 statusLine을 덮어쓴 경우 스킬을 재실행하면 복구된다.
+상세: [skills/setup-statusline/SKILL.md](../skills/setup-statusline/SKILL.md).
 
 ---
 

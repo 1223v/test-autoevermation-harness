@@ -36,6 +36,17 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 
 설치 후 Claude Code 세션에서 `/test-autoevermation-harness-plugin:full-pipeline` 명령이 인식되면 정상이다.
 
+### 상태줄 진행률 표시 (선택)
+
+`/test-autoevermation-harness-plugin:setup-statusline`을 실행하면 Claude Code 상태줄 하단에
+플러그인 버전·파이프라인 진행률·현재 단계가 표시된다(기존 상태줄 출력은 그대로 유지):
+
+```text
+[Test-AutoEverMation#0.11.0] 43% | stage 4: generate-scenarios
+```
+
+같은 스킬에 "제거"를 요청하면 원래 상태줄로 복원된다. 상세: [docs/GUIDE.md §5.5](./docs/GUIDE.md).
+
 ---
 
 ## 빠른 시작
