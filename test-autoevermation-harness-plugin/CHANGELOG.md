@@ -11,6 +11,17 @@ _(비어 있음)_
 
 ---
 
+## [0.13.0] - 2026-07-03
+
+### Added
+- **Python 자동 설치 `mcp/run-server.sh`** (macOS/Linux): 플러그인만 설치하면 Python이 아예 없는 PC에서도 동작한다. MCP 진입점을 POSIX `sh` 스크립트로 교체 — PATH에 Python 3.10+가 있으면 그대로 사용하고, 없으면 uv(공식 standalone installer, **무-sudo**, `~/.local`)로 관리형 Python 3.12를 1회 자동 설치 후 경로를 `${CLAUDE_PLUGIN_DATA}/python-path`에 고정하고 bootstrap.py(v0.12.0 의존성 자동 설치)로 exec한다. 근거: uv 공식 문서(`install.sh` 무-sudo `~/.local/bin` 설치, `uv python install`/`uv python find --managed-python`). 동시 기동(서버 3개+SessionStart 훅) 경쟁은 mkdir 락으로 직렬화(macOS에 `flock` 바이너리 없음). 옵트아웃: `HARNESS_AUTO_PYTHON=0`(수동 설치 안내로 강등). Windows 네이티브는 자동 설치 미지원(수동 설치/WSL 안내). 검증: Python 3.10+ 부재 재현 환경에서 uv 설치 경로 end-to-end(관리형 3.12.12 다운로드 1.25s → venv → initialize 핸드셰이크), 핀 재사용 무소음 재기동, 4-프로세스 동시 기동에서 설치 1회+전원 성공, 옵트아웃 시 명확한 remediation 후 exit 1.
+
+### Changed
+- `.mcp.json` 서버 3종 `command`를 `python3` → `sh run-server.sh` 경유로, SessionStart 훅도 동일 진입점(`--ensure-only`, timeout 600s)으로 변경 — E1(Python)+E2(MCP SDK)가 한 진입점에서 보장된다.
+- Phase E 정본(environment-setup.md) E1을 assist→auto로 승격하고, `configure-harness`·`full-pipeline` 스킬, README 사전 요구사항("macOS/Linux는 아무것도 미리 설치할 필요 없다"), GUIDE(§4.2·독립 실행·트러블슈팅), DEPENDENCIES.md를 동기화.
+
+---
+
 ## [0.12.1] - 2026-07-03
 
 ### Changed

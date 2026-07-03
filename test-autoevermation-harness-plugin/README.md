@@ -22,13 +22,17 @@ Claude Code CLI 기반 Spring 테스트코드 자동 생성 플러그인.
 
 ### 0) 사전 요구사항
 
-시작 전에 아래만 준비하면 된다. **`mcp` 패키지는 직접 설치할 필요 없다** — 플러그인 설치 후
-첫 세션에서 `mcp/bootstrap.py`가 플러그인 전용 venv(`${CLAUDE_PLUGIN_DATA}/venv`)에 자동
-설치한다(v0.12.0+).
+**macOS/Linux는 아무것도 미리 설치할 필요 없다** (v0.13.0+):
 
-| 요구사항 | 확인 | 설치 |
+- **Python**: PATH에 3.10+가 없으면 첫 세션에서 [uv](https://docs.astral.sh/uv/)로 관리형
+  Python을 자동 설치한다(공식 standalone installer, **sudo 불필요**, 사용자 홈 `~/.local` —
+  시스템 비오염). 비활성화: `HARNESS_AUTO_PYTHON=0`.
+- **`mcp` 패키지**: 첫 세션에서 `mcp/bootstrap.py`가 플러그인 전용 venv
+  (`${CLAUDE_PLUGIN_DATA}/venv`)에 자동 설치한다(v0.12.0+).
+
+| 요구사항 | 확인 | 비고 |
 |---|---|---|
-| **Python 3.10+** (필수 — MCP 서버 3종 런타임) | `python3 --version` | macOS: `brew install python` / Ubuntu·Debian: `sudo apt install python3 python3-venv python3-pip` / Windows: [python.org](https://www.python.org/downloads/) 또는 `winget install Python.Python.3.12` |
+| Python 3.10+ (자동 — macOS/Linux) | `python3 --version` | 없으면 uv로 자동 설치. **Windows 네이티브는 자동 설치 미지원** — [python.org](https://www.python.org/downloads/)/`winget install Python.Python.3.12`로 수동 설치하거나 WSL 사용 |
 | JDK 17+ · Maven 3.6.3+ (선택 — 정밀 JavaParser AST) | `java -version` | 미설치여도 정규식 fallback으로 degrade(차단 없음). 상세: [DEPENDENCIES.md](./DEPENDENCIES.md) |
 
 ### 1) 마켓플레이스 설치 (권장)
@@ -61,8 +65,10 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 
 - 세션에서 `/test-autoevermation-harness-plugin:full-pipeline` 명령이 자동완성에 뜨면 정상.
 - `/plugin` Errors 탭에 MCP 서버 3종(repo-ast·spec-doc·build-test) 에러가 보이면:
-  `python3 --version`이 3.10 이상인지 확인 후 `/reload-plugins`(첫 세션에서 의존성 자동 설치, 수 초 소요).
-  그래도 실패하는 환경(오프라인 등)의 수동 폴백: `python3 -m pip install -r mcp/requirements.txt`
+  첫 세션은 Python/의존성 자동 설치 중일 수 있으니 잠시 후 `/reload-plugins`.
+  계속 실패하면 MCP 로그(`mcp-logs-plugin-*`)의 `run-server`/`bootstrap` 진단을 확인한다.
+  오프라인 등 자동 설치 불가 환경의 수동 폴백: Python 3.10+ 설치 후
+  `python3 -m pip install -r mcp/requirements.txt`
 - `jdtls` 관련 항목은 선택 기능(Java LSP)이라 무시해도 된다(AST-only degrade).
 
 ### 상태줄 진행률 표시 (선택)

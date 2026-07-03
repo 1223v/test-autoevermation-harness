@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/mcp/bootstrap.py\" --ensure-only",
-            "timeout": 300
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/mcp/run-server.sh\" --ensure-only",
+            "timeout": 600
           }
         ]
       }

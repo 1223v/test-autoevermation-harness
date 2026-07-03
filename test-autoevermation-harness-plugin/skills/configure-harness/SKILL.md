@@ -62,7 +62,7 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 
 | TODO | 항목 | 감지 | 미충족 시 세팅 |
 |---|---|---|---|
-| E1 | Python 3.10+ | `python3 -c "import sys;assert sys.version_info>=(3,10)"` | 설치 경로 안내(assist) |
+| E1 | Python 3.10+ | `python3 -c "import sys;assert sys.version_info>=(3,10)"` 또는 python-path 핀 | `sh <pluginRoot>/mcp/run-server.sh --ensure-only` (auto, v0.13.0+ — uv로 무-sudo 자동 설치, macOS/Linux). 실패 시 설치 경로 안내 |
 | E2 | MCP SDK `mcp[cli]>=1.2.0` | `python3 -c "import mcp"` 또는 bootstrap venv marker | `python3 <pluginRoot>/mcp/bootstrap.py --ensure-only` (auto, v0.12.0+ — 플러그인 venv에 설치). 실패 시 pip 폴백 |
 | E3 | MCP 서버 3종 등록 | `.mcp.json` + 서버 모듈 로드 | import 실패는 E2로 귀결 |
 | E4 | JDK 17+ | `java -version`≥17 | 설치/`JAVA_HOME` 안내(assist) |
@@ -74,8 +74,8 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 > E8(빌드도구)·E9(Spring 프로파일)는 데이터 감지라 아래 **0.5단계**에서 함께 확정한다.
 
 **세팅 방식 (정책: environment-setup.md)**
-- **대화형 — 항목별로 함께 세팅**: 자동으로 고칠 수 있는 항목(E2·E6 등)은 항목마다 `AskUserQuestion("〈항목〉이 없습니다. 지금 함께 세팅할까요?")` → "예"면 그 자리에서 설치/빌드 실행 → **재감지 검증** → `completed`. "아니오"면 `status:"failed"` 중단. assist 항목(E1·E4·E5)은 설치/경로 안내 질문, 사용자가 못 갖추면 중단. E7(JDT LS)은 **선택** — 미가용이면 안내만 하고 AST-only degrade로 진행(중단 안 함).
-- **비대화형/CI — 항상 자동 세팅**: 결정적 항목(E2·E6)은 질문 없이 `bootstrap.py --ensure-only`/`mvn package`를 **자동 실행** 후 재검증. 자동 세팅이 실패하거나 시스템 항목(E1·E4·E5·E7)이 없으면 `status:"failed"` + remediation으로 중단(`HarnessRequest`로 사전 충족 가능).
+- **대화형 — 항목별로 함께 세팅**: 자동으로 고칠 수 있는 항목(E2·E6 등)은 항목마다 `AskUserQuestion("〈항목〉이 없습니다. 지금 함께 세팅할까요?")` → "예"면 그 자리에서 설치/빌드 실행 → **재감지 검증** → `completed`. "아니오"면 `status:"failed"` 중단. assist 항목(E4·E5, 그리고 자동 설치 실패/`HARNESS_AUTO_PYTHON=0`인 E1)은 설치/경로 안내 질문, 사용자가 못 갖추면 중단. E7(JDT LS)은 **선택** — 미가용이면 안내만 하고 AST-only degrade로 진행(중단 안 함).
+- **비대화형/CI — 항상 자동 세팅**: 결정적 항목(E1·E2·E6)은 질문 없이 `run-server.sh --ensure-only`(Python+SDK)/`mvn package`를 **자동 실행** 후 재검증. 자동 세팅이 실패하거나 시스템 항목(E4·E5·E7)이 없으면 `status:"failed"` + remediation으로 중단(`HarnessRequest`로 사전 충족 가능).
 - **검증 후 체크**: 세팅 액션 뒤 반드시 재감지해서 통과를 확인한 뒤에만 `completed`로 표시한다.
 
 필수 항목 **E1·E2·E3(런타임) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 `completed`여야 0단계로 진행한다. **E4·E5·E6(JavaParser jar용 JDK/Maven/빌드)와 E7(JDT LS)은 선택** — 미가용 시 각각 정규식·AST-only degrade로 진행(차단하지 않음). 정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」. (예시: E2는 v0.12.0+ 자동 bootstrap이 기본이므로 질문 불필요 — bootstrap 실패 시에만 `AskUserQuestion(options=["예 — python3 -m pip install -r mcp/requirements.txt 실행","아니오 — 중단"])`, E6 `options=["예 — javaparser jar 빌드","아니오 — 정규식 degrade로 진행"]`.)
