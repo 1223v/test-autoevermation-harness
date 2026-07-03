@@ -142,14 +142,14 @@ MCP 연결은 `.mcp.json`(Python으로 연결), 선택적 LSP(JDT LS)는 `plugin
 
 ### MCP 서버 설치
 
-> **자동 세팅 권장**: 아래는 수동 명령이지만, 하네스는 시작 시 **Phase E 환경 세팅**
-> ([references/environment-setup.md](references/environment-setup.md))에서 이 항목들을 **선제적으로 세팅**한다 —
-> 대화형=항목별 `AskUserQuestion` 후 함께 세팅 / 비대화형·CI=자동 세팅.
+> **v0.12.0부터 Python 의존성은 자동 설치된다**: 플러그인 설치 후 첫 세션에서
+> `mcp/bootstrap.py`가 `${CLAUDE_PLUGIN_DATA}/venv`(업데이트에도 유지되는 공식 플러그인
+> 데이터 디렉터리)에 `mcp[cli]`를 1회 설치하고, 이후 MCP 서버 3종은 그 venv로 실행된다.
+> 수동 `pip install` 불필요. (시스템 python3에 이미 `mcp`가 있으면 venv 없이 그대로 사용)
 
 ```bash
-# 1) Python 의존성 (Python 3.10+)  ── Phase E·E2
+# 1) Python 의존성 — 자동 (Python 3.10+만 있으면 됨). 수동 폴백이 필요할 때만:
 python3 -m pip install -r mcp/requirements.txt        # mcp[cli]>=1.2.0
-#    주의: Claude Code가 .mcp.json에서 실행하는 바로 그 python3에 설치해야 함 (which python3 로 확인)
 
 # 2) JavaParser AST 백엔드 빌드 (권장 — 정밀 AST)  ── Phase E·E6
 #    기본 배포는 REPO_AST_REQUIRE_JAVAPARSER 미설정 → jar 없으면 정규식 fallback으로 degrade(경고).

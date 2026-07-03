@@ -6,6 +6,7 @@
 # Python
 .mcp-venv/
 .venv/
+test-autoevermation-harness-plugin/mcp/.plugin-data/
 __pycache__/
 *.pyc
 

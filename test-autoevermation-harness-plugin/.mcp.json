@@ -2,14 +2,14 @@
   "mcpServers": {
     "repo-ast": {
       "command": "python3",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/repo_ast_server.py"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/bootstrap.py", "${CLAUDE_PLUGIN_ROOT}/mcp/repo_ast_server.py"],
       "env": {
         "REPO_AST_ALLOW_ROOT": "${CLAUDE_PROJECT_DIR}"
       }
     },
     "spec-doc": {
       "command": "python3",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/spec_doc_server.py"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/bootstrap.py", "${CLAUDE_PLUGIN_ROOT}/mcp/spec_doc_server.py"],
       "env": {
         "SPEC_DOC_ALLOWLIST": "docs,specs,requirements",
         "SPEC_DOC_REDACT": "on",
@@ -18,7 +18,7 @@
     },
     "build-test": {
       "command": "python3",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/build_test_server.py"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/bootstrap.py", "${CLAUDE_PLUGIN_ROOT}/mcp/build_test_server.py"],
       "env": {
         "BUILD_TEST_ALLOW_NETWORK": "0"
       }

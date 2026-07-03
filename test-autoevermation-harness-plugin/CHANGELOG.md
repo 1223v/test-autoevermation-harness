@@ -11,6 +11,16 @@ _(비어 있음)_
 
 ---
 
+## [0.12.0] - 2026-07-03
+
+### Added
+- **MCP 의존성 자동 부트스트랩 `mcp/bootstrap.py`**: 마켓플레이스 설치 직후 사용자가 `pip install`을 몰라도 MCP 서버 3종이 뜨도록, 공식 권장 패턴(plugins-reference의 `${CLAUDE_PLUGIN_DATA}` + SessionStart 훅 diff-manifest 패턴)으로 `mcp[cli]`를 플러그인 데이터 디렉터리의 venv(업데이트에도 유지)에 1회 자동 설치한다. `.mcp.json`의 서버 3종 커맨드가 bootstrap 경유로 변경되고(의존성 보장 후 `os.execv`로 서버 실행), SessionStart 훅(`--ensure-only`, timeout 300s)이 선제 준비/복구를 담당한다. 현재 인터프리터에 이미 `mcp`가 있으면 venv 없이 그대로 실행(기존 환경 존중), 동시 기동 경쟁은 flock으로 직렬화, requirements.txt 변경 업데이트 시 marker 불일치로 자동 재설치, 실패 시 수동 폴백 명령을 stderr 진단으로 안내. 검증: 신규 환경 첫 설치 3.6s(<30s MCP 타임아웃), 3서버 동시 기동 race 테스트에서 설치 1회+전원 initialize 성공.
+
+### Changed
+- README·DEPENDENCIES.md·docs/GUIDE.md(§4.2, 트러블슈팅)의 수동 `pip install` 안내를 자동 설치 기준으로 갱신(수동 명령은 오프라인 등 폴백으로 강등).
+
+---
+
 ## [0.11.0] - 2026-07-03
 
 ### Added
