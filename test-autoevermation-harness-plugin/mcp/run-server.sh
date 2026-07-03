@@ -94,6 +94,26 @@ provision_python() {
   pinned_python >/dev/null
 }
 
+# 사용자 화면용 수동 폴백 안내. SessionStart 훅(--ensure-only)에서 exit 2로 끝나면
+# stderr가 세션 transcript에 그대로 표시된다(공식 hooks 문서 — 세션은 계속 진행).
+print_fallback() {
+  {
+    echo "[test-autoevermation-harness-plugin] MCP 의존성 자동 설치 실패 — 아래 명령으로 수동 설치 후 /reload-plugins 하세요:"
+    if [ "$1" = "python" ]; then
+      echo "  1) Python 3.10+ 설치: macOS 'brew install python' | Ubuntu/Debian 'sudo apt install python3 python3-venv python3-pip' | https://www.python.org/downloads/"
+      echo "  2) MCP SDK 설치: python3 -m pip install -r \"$SCRIPT_DIR/requirements.txt\""
+      [ "${HARNESS_AUTO_PYTHON:-1}" = "0" ] && echo "  (참고: HARNESS_AUTO_PYTHON=0 으로 자동 설치가 꺼져 있습니다)"
+    else
+      echo "  MCP SDK 설치: python3 -m pip install -r \"$SCRIPT_DIR/requirements.txt\""
+      echo "  (Python은 준비됨: $PY — 위 명령은 .mcp.json이 실행하는 동일 인터프리터에 설치해야 합니다)"
+    fi
+    echo "  다음 세션 시작 시 자동 설치를 다시 시도합니다."
+  } >&2
+}
+
+ENSURE_ONLY=0
+[ "${1:-}" = "--ensure-only" ] && ENSURE_ONLY=1
+
 if PY=$(find_system_python); then
   :
 elif PY=$(pinned_python); then
@@ -102,8 +122,20 @@ elif provision_python; then
   PY=$(pinned_python) || { log "python pin missing after provisioning"; exit 1; }
 else
   log "Python 3.10+ unavailable and auto-provisioning failed — MCP servers cannot start."
+  if [ "$ENSURE_ONLY" = "1" ]; then
+    print_fallback python
+    exit 2
+  fi
   log "Manual fix: install Python 3.10+ (brew/apt/python.org), then /reload-plugins."
   exit 1
+fi
+
+if [ "$ENSURE_ONLY" = "1" ]; then
+  if "$PY" "$SCRIPT_DIR/bootstrap.py" --ensure-only; then
+    exit 0
+  fi
+  print_fallback deps
+  exit 2
 fi
 
 exec "$PY" "$SCRIPT_DIR/bootstrap.py" "$@"

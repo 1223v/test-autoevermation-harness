@@ -116,7 +116,11 @@ def ensure_venv():
     if os.path.exists(py) and deps_ready(marker):
         return py
 
-    os.makedirs(base, exist_ok=True)
+    try:
+        os.makedirs(base, exist_ok=True)
+    except Exception as e:
+        log("cannot create data dir %s: %s" % (base, e))
+        return None
     with InstallLock(os.path.join(base, ".bootstrap.lock")):
         # 잠금 대기 중 다른 서버 프로세스가 설치를 끝냈을 수 있다
         if os.path.exists(py) and deps_ready(marker):
@@ -160,9 +164,11 @@ def main():
         py = ensure_venv()
 
     if ensure_only:
-        # SessionStart 훅: 세션을 막지 않도록 항상 0으로 종료(실패는 stderr 진단만)
+        # 실패 시 exit 1 — 호출자(run-server.sh)가 SessionStart exit 2 + stderr로
+        # 변환해 사용자 화면에 수동 폴백 명령을 표시한다(세션은 계속 진행됨)
         if py is None:
             log("dependency provisioning failed; MCP servers will be unavailable")
+            return 1
         return 0
 
     if not args:

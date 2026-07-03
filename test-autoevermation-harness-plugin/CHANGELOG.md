@@ -11,6 +11,19 @@ _(비어 있음)_
 
 ---
 
+## [0.13.1] - 2026-07-03
+
+### Added
+- **자동 설치 실패 시 사용자 화면 폴백 안내**: SessionStart 훅(`run-server.sh --ensure-only`)이 Python/의존성 준비에 실패하면 **exit 2 + stderr**로 종료해 수동 폴백 명령(OS별 Python 설치 명령 → `pip install -r mcp/requirements.txt` → `/reload-plugins`)이 세션 transcript에 그대로 표시된다(공식 hooks 문서: SessionStart exit 2는 stderr를 사용자에게 표시하고 세션은 계속 진행). 실패 원인별 맞춤 메시지(Python 부재 vs SDK 설치 실패), `HARNESS_AUTO_PYTHON=0` 상태 안내 포함. `bootstrap.py --ensure-only`는 실패 시 exit 1을 반환하도록 변경(호출자가 변환), 데이터 디렉터리 생성 실패도 traceback 대신 한 줄 진단으로 처리. 검증: 성공(exit 0·무출력)/Python 부재(exit 2·안내)/SDK 실패(exit 2·안내) 3경로 실측.
+
+### Changed
+- README 사전 요구사항·설치 확인, GUIDE §4.2·트러블슈팅의 Windows 항목을 정확화: **Windows 네이티브 미지원**(MCP 진입점이 POSIX `sh` 기반, Git for Windows도 선택 설치라 `sh` 미보장 — 공식 setup 문서 근거), **WSL에서는 자동 설치 포함 전부 동작**. "수동 Python 설치로 해결" 오해 소지 문구 제거.
+
+### Fixed
+- Claude Code가 표준 `hooks/hooks.json`을 자동 로드하는 동작과 중복되지 않도록 `plugin.json`의 명시적 `hooks` 참조를 제거하고, `.lsp.json`을 실제 LSP 서버맵 형태로 보정해 `/reload-plugins` 로드 오류를 방지.
+
+---
+
 ## [0.13.0] - 2026-07-03
 
 ### Added

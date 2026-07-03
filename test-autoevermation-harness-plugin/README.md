@@ -32,7 +32,7 @@ Claude Code CLI 기반 Spring 테스트코드 자동 생성 플러그인.
 
 | 요구사항 | 확인 | 비고 |
 |---|---|---|
-| Python 3.10+ (자동 — macOS/Linux) | `python3 --version` | 없으면 uv로 자동 설치. **Windows 네이티브는 자동 설치 미지원** — [python.org](https://www.python.org/downloads/)/`winget install Python.Python.3.12`로 수동 설치하거나 WSL 사용 |
+| Python 3.10+ (자동 — macOS/Linux/WSL) | `python3 --version` | 없으면 uv로 자동 설치. **Windows 네이티브는 미지원** — MCP 서버 실행이 POSIX `sh`/`python3` 기반이므로 **WSL에서 사용**한다(WSL에서는 자동 설치 포함 전부 동작) |
 | JDK 17+ · Maven 3.6.3+ (선택 — 정밀 JavaParser AST) | `java -version` | 미설치여도 정규식 fallback으로 degrade(차단 없음). 상세: [DEPENDENCIES.md](./DEPENDENCIES.md) |
 
 ### 1) 마켓플레이스 설치 (권장)
@@ -64,11 +64,12 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 ### 3) 설치 확인
 
 - 세션에서 `/test-autoevermation-harness-plugin:full-pipeline` 명령이 자동완성에 뜨면 정상.
+- **자동 설치가 실패하면 세션 시작 화면에 수동 폴백 명령이 그대로 표시된다**(v0.13.1+ —
+  SessionStart 훅이 exit 2 + stderr로 안내; 세션은 정상 진행). 표시된 명령(Python 설치 →
+  `python3 -m pip install -r mcp/requirements.txt`) 실행 후 `/reload-plugins` 하면 된다.
 - `/plugin` Errors 탭에 MCP 서버 3종(repo-ast·spec-doc·build-test) 에러가 보이면:
   첫 세션은 Python/의존성 자동 설치 중일 수 있으니 잠시 후 `/reload-plugins`.
   계속 실패하면 MCP 로그(`mcp-logs-plugin-*`)의 `run-server`/`bootstrap` 진단을 확인한다.
-  오프라인 등 자동 설치 불가 환경의 수동 폴백: Python 3.10+ 설치 후
-  `python3 -m pip install -r mcp/requirements.txt`
 - `jdtls` 관련 항목은 선택 기능(Java LSP)이라 무시해도 된다(AST-only degrade).
 
 ### 상태줄 진행률 표시 (선택)
