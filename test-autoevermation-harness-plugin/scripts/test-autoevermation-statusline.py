@@ -80,7 +80,8 @@ def run_delegate(stdin_bytes):
 
 
 def harness_line(stdin_bytes):
-    prefix = "[Test-AutoEverMation#%s]" % read_version()
+    # \033[1m…\033[0m: 라벨만 굵게 (statusLine은 ANSI 코드 렌더링 지원, OMC HUD와 동일 방식)
+    prefix = "\033[1m[Test-AutoEverMation#%s]\033[0m" % read_version()
 
     try:
         data = json.loads(stdin_bytes) if stdin_bytes else {}
