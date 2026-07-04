@@ -62,14 +62,22 @@ TODO 리스트로 아래를 순서대로 수행한다.
 ```json
 "statusLine": {
   "type": "command",
-  "command": "python3 <pluginRoot>/scripts/test-autoevermation-statusline.py"
+  "command": "node \"<pluginRoot>/mcp/launch.cjs\" script \"<pluginRoot>/scripts/test-autoevermation-statusline.py\""
 }
 ```
+
+> `node launch.cjs script …` 경유가 크로스플랫폼 정본이다(Windows에는 `python3`가 없음 — launch.cjs가 `py -3`/`python`을 해석). POSIX 전용 환경에서 기존 `python3 <pluginRoot>/scripts/...` 형식이 이미 설치돼 있다면 유효하므로 그대로 두어도 된다(경로 갱신 시에만 node 형식으로 교체).
 
 ### 6. 스모크 테스트
 
 ```bash
-echo '{"workspace":{"current_dir":"'$PWD'"}}' | python3 <pluginRoot>/scripts/test-autoevermation-statusline.py
+echo '{"workspace":{"current_dir":"'$PWD'"}}' | node "<pluginRoot>/mcp/launch.cjs" script "<pluginRoot>/scripts/test-autoevermation-statusline.py"
+```
+
+Windows(PowerShell)에서는:
+
+```powershell
+'{"workspace":{"current_dir":"C:/path/to/project"}}' | node "<pluginRoot>/mcp/launch.cjs" script "<pluginRoot>/scripts/test-autoevermation-statusline.py"
 ```
 
 기대: 기존 statusLine 출력(있다면) + `[Test-AutoEverMation#<version>]`으로 시작하는 마지막 줄, exit 0. 실패 시 3번 백업으로 원복하고 보고한다. 성공 시 "다음 상태줄 새로고침부터 반영"을 안내한다.

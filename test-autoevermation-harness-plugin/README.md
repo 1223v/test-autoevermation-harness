@@ -32,7 +32,8 @@ Claude Code CLI 기반 Spring 테스트코드 자동 생성 플러그인.
 
 | 요구사항 | 확인 | 비고 |
 |---|---|---|
-| Python 3.10+ (자동 — macOS/Linux/WSL) | `python3 --version` | 없으면 uv로 자동 설치. **Windows 네이티브는 미지원** — MCP 서버 실행이 POSIX `sh`/`python3` 기반이므로 **WSL에서 사용**한다(WSL에서는 자동 설치 포함 전부 동작) |
+| Node.js (Claude Code 실행 환경) | `node --version` | MCP·훅 진입점(`mcp/launch.cjs`)이 node로 실행된다 — 공식 훅 문서의 크로스플랫폼 패턴("node + 스크립트 경로는 전 플랫폼 동작"). npm 설치형 Claude Code에는 이미 존재 |
+| Python 3.10+ (자동 — **전 OS**: macOS/Linux/WSL/Windows) | `python3 --version` (Windows: `py -3 --version`) | 없으면 uv로 자동 설치(v0.15.0+, POSIX `install.sh` / Windows `install.ps1`). Windows 네이티브 지원 — 빌드 래퍼는 `gradlew.bat`/`mvnw.cmd` 자동 인식 |
 | JDK 17+ · Maven 3.6.3+ (선택 — 정밀 JavaParser AST) | `java -version` | 미설치여도 정규식 fallback으로 degrade(차단 없음). 상세: [DEPENDENCIES.md](./DEPENDENCIES.md) |
 
 ### 1) 마켓플레이스 설치 (권장)

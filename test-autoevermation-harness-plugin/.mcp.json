@@ -1,15 +1,15 @@
 {
   "mcpServers": {
     "repo-ast": {
-      "command": "sh",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run-server.sh", "${CLAUDE_PLUGIN_ROOT}/mcp/repo_ast_server.py"],
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "${CLAUDE_PLUGIN_ROOT}/mcp/repo_ast_server.py"],
       "env": {
         "REPO_AST_ALLOW_ROOT": "${CLAUDE_PROJECT_DIR}"
       }
     },
     "spec-doc": {
-      "command": "sh",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run-server.sh", "${CLAUDE_PLUGIN_ROOT}/mcp/spec_doc_server.py"],
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "${CLAUDE_PLUGIN_ROOT}/mcp/spec_doc_server.py"],
       "env": {
         "SPEC_DOC_ALLOWLIST": "docs,specs,requirements",
         "SPEC_DOC_REDACT": "on",
@@ -17,8 +17,8 @@
       }
     },
     "build-test": {
-      "command": "sh",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run-server.sh", "${CLAUDE_PLUGIN_ROOT}/mcp/build_test_server.py"],
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "${CLAUDE_PLUGIN_ROOT}/mcp/build_test_server.py"],
       "env": {
         "BUILD_TEST_ALLOW_NETWORK": "0"
       }

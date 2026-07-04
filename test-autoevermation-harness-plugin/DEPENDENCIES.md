@@ -43,9 +43,10 @@
 
 ```bash
 # 1) 플러그인을 Claude Code에 등록 (marketplace 또는 로컬 경로)
-# 2) MCP 서버 런타임 — 전자동(v0.13.0+): 첫 세션에서 mcp/run-server.sh가
-#    Python 3.10+가 없으면 uv(무-sudo)로 자동 설치하고, mcp/bootstrap.py가
-#    ${CLAUDE_PLUGIN_DATA}/venv에 mcp[cli]를 설치 (수동 명령 불필요, macOS/Linux)
+# 2) MCP 서버 런타임 — 전자동(v0.15.0+, 전 OS): 첫 세션에서 mcp/launch.cjs(node)가
+#    Python 3.10+가 없으면 uv(무-sudo; POSIX install.sh / Windows install.ps1)로 자동
+#    설치하고, mcp/bootstrap.py가 ${CLAUDE_PLUGIN_DATA}/venv에 mcp[cli]를 설치
+#    (수동 명령 불필요 — POSIX 전용 구진입점 run-server.sh는 수동 폴백으로 유지)
 # 3) (선택) 정확한 Java AST
 cd mcp/javaparser-cli && mvn -q -DskipTests package
 ```

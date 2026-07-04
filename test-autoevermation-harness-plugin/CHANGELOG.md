@@ -11,6 +11,20 @@ _(비어 있음)_
 
 ---
 
+## [0.15.0] - 2026-07-05
+
+### Added
+- **Windows 네이티브 지원 — OS 의존 제거.** MCP·훅 진입점을 POSIX `sh`(run-server.sh)에서 **크로스플랫폼 Node 런처 `mcp/launch.cjs`**로 교체. 공식 문서 근거: 훅/플러그인 exec form(`command`+`args`)은 셸을 거치지 않고 실행 파일을 직접 spawn하며 "node + 스크립트 경로 패턴은 node.exe가 실제 바이너리이므로 전 플랫폼 동작"(hooks 공식 문서); Windows에서 셸 형식은 Git Bash 유무에 따라 PowerShell로 갈라져 신뢰 불가. 런처 모드: `<server.py>`(서버 기동)·`--ensure-only`(SessionStart)·`script <py>`(훅/statusline, fail-open). Python 해석: 핀 → Windows `py -3`/`python`/`python3`, POSIX `python3`→3.13…3.10 (sys.executable로 정규화 — Windows Store 가짜 python.exe는 버전 체크에서 걸러짐). 미존재 시 uv 자동 설치: POSIX `install.sh`(curl|wget) / **Windows 공식 `install.ps1`**(`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`, astral 공식 문서). mkdir 락 직렬화·수동 폴백 안내(exit 2)는 run-server.sh와 패리티 + 강제 종료로 고아가 된 락의 시효(10분) 파기와 설치 구간 한정 시그널 핸들러 스코프를 추가(리뷰어 lane 지적 반영 — run-server.sh에는 없던 견고성). `.mcp.json` 3서버와 hooks.json 4훅 전부 exec form(node)으로 전환(`python3` 하드코드 제거).
+- **build-test Windows 빌드 래퍼 지원**: `detect_build_tool`이 `gradlew.bat`/`mvnw.cmd`(공식 래퍼 산출물)도 인식, `_build_test_command`가 Windows에서 배치 래퍼를 `cmd.exe /s /c "…"` 문자열로 실행 — CreateProcess는 배치 직접 spawn 불가하고, `/c` 단독은 따옴표 제거 규칙(`cmd /?`)으로 공백 경로(`C:\Users\John Doe\…`) 래퍼를 깨뜨리므로 `/s` + tail 전체 재인용을 사용(리뷰어 lane 지적 반영). 이에 필수인 `test_pattern` 화이트리스트 검증(`[A-Za-z0-9_.$#*,!\[\]]+` — `!`/`[]`는 Surefire 제외·파라미터화 선택자) 추가 — cmd.exe 메타문자 유입(BatBadBut류) 차단, 전 OS 공통 방어.
+- **guard-network Windows 도구 차단**: `Invoke-WebRequest`/`Invoke-RestMethod`/`iwr`/`irm`/`certutil -urlcache`/`bitsadmin`/`Start-BitsTransfer`/`Net.WebClient` 패턴 추가(curl.exe/wget.exe는 기존 패턴이 매칭).
+
+### Changed
+- statusline 래퍼의 delegate 실행을 `/bin/sh` 하드코드에서 OS 분기(`COMSPEC`/`cmd.exe /c` ↔ `/bin/sh -c`)로. `setup-statusline`의 statusLine 커맨드 정본을 `node launch.cjs script …` 형식으로(기존 python3 형식은 POSIX에서 유효 — 경로 갱신 시에만 교체).
+- README(사전 요구사항: Node.js 행 신설, Windows 네이티브 지원 명시)·GUIDE(§4.2, 트러블슈팅)·DEPENDENCIES·environment-setup(E1 전 OS)·configure-harness·full-pipeline의 진입점 서술을 launch.cjs 기준으로 동기화. POSIX 전용 `run-server.sh`는 수동 폴백으로 유지.
+- 참고: `bootstrap.py`는 변경 없음 — venv 경로 `Scripts/python.exe`(nt) 분기와 fcntl 불가 시 무락 진행(fail-open)이 이미 Windows 호환이었다(이번 전환으로 해당 경로가 실사용됨).
+
+---
+
 ## [0.14.1] - 2026-07-04
 
 ### Fixed

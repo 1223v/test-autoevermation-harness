@@ -45,6 +45,16 @@ _NETWORK_PATTERNS = [
     re.compile(r'\bdig\b'),
     re.compile(r'\bnslookup\b'),
     re.compile(r'\bhost\b'),
+    # Windows-native network tools (PowerShell/cmd) — curl.exe/wget.exe는 위의
+    # \bcurl\b/\bwget\b 패턴이 이미 매칭한다.
+    re.compile(r'\binvoke-webrequest\b', re.IGNORECASE),
+    re.compile(r'\binvoke-restmethod\b', re.IGNORECASE),
+    re.compile(r'\biwr\b', re.IGNORECASE),
+    re.compile(r'\birm\b', re.IGNORECASE),
+    re.compile(r'\bcertutil\b.*-urlcache', re.IGNORECASE),
+    re.compile(r'\bbitsadmin\b', re.IGNORECASE),
+    re.compile(r'\bstart-bitstransfer\b', re.IGNORECASE),
+    re.compile(r'\bnet\.webclient\b', re.IGNORECASE),
     # Common patterns for inline network calls in build scripts
     re.compile(r'https?://'),
     re.compile(r'--network'),

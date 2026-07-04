@@ -67,9 +67,14 @@ def run_delegate(stdin_bytes):
             command = json.load(f).get("delegate")
         if not command:
             return ""
-        # ${CLAUDE_CONFIG_DIR:-$HOME/.claude} 같은 셸 확장을 위해 sh -c 필요
+        # ${CLAUDE_CONFIG_DIR:-$HOME/.claude} 같은 셸 확장을 위해 셸 경유 필요.
+        # delegate 문자열은 그 OS에서 저장된 것이므로 OS 기본 셸로 실행한다.
+        if os.name == "nt":
+            shell_cmd = [os.environ.get("COMSPEC", "cmd.exe"), "/c", command]
+        else:
+            shell_cmd = ["/bin/sh", "-c", command]
         proc = subprocess.run(
-            ["/bin/sh", "-c", command],
+            shell_cmd,
             input=stdin_bytes,
             capture_output=True,
             timeout=DELEGATE_TIMEOUT_SEC,

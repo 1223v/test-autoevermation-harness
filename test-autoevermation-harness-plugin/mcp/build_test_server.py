@@ -106,14 +106,17 @@ def _detect(root: str) -> dict:
     tool = "none"
     wrapper = False
 
-    if os.path.isfile(os.path.join(root, "gradlew")):
+    def _has(*names: str) -> bool:
+        return any(os.path.isfile(os.path.join(root, n)) for n in names)
+
+    # gradlew.bat/mvnw.cmd: Gradle/Maven 래퍼의 Windows 배치 변형(공식 래퍼 산출물)
+    if _has("gradlew", "gradlew.bat"):
         tool, wrapper = "gradle", True
-    elif (os.path.isfile(os.path.join(root, "build.gradle"))
-          or os.path.isfile(os.path.join(root, "build.gradle.kts"))):
+    elif _has("build.gradle", "build.gradle.kts"):
         tool, wrapper = "gradle", False
-    elif os.path.isfile(os.path.join(root, "mvnw")):
+    elif _has("mvnw", "mvnw.cmd"):
         tool, wrapper = "maven", True
-    elif os.path.isfile(os.path.join(root, "pom.xml")):
+    elif _has("pom.xml"):
         tool, wrapper = "maven", False
 
     if tool == "none":
@@ -496,9 +499,11 @@ def _profile_conflict(field: str, build_value: str, source_value: str, evidence:
                  f"vs {source_label}={source_value}; confirm before use")
 
 
-def _run_subprocess(cmd: list[str], cwd: str) -> dict:
+def _run_subprocess(cmd: "list[str] | str", cwd: str) -> dict:
     """Run a subprocess and return execution metadata.
 
+    POSIX는 argv 리스트, Windows 배치 래퍼는 사전 조립된 `cmd.exe /s /c "…"` 문자열을
+    받는다(Windows에서 문자열은 CreateProcess 커맨드라인으로 그대로 전달됨 — 재인용 없음).
     Offline mode is enforced by the build CLI flags (gradle --offline / maven -o)
     added in run_targeted_tests, not here; this only inherits the current environment.
     """
@@ -668,24 +673,45 @@ def list_test_tasks(root: str = ".") -> dict:
 
 
 def _build_test_command(build_tool: str, root: str, test_pattern: str,
-                        with_coverage: bool, offline: bool) -> list[str]:
-    """Construct the narrowest gradle/maven test command (wrapper-aware)."""
+                        with_coverage: bool, offline: bool) -> "list[str] | str":
+    """Construct the narrowest gradle/maven test command (wrapper-aware, cross-platform).
+
+    Windows: 래퍼는 gradlew.bat/mvnw.cmd이고, PATH의 gradle/mvn도 .bat/.cmd 심(shim)이다.
+    배치 파일은 CreateProcess로 직접 spawn할 수 없으므로 cmd.exe 를 경유하되,
+    `/c`의 따옴표 제거 규칙(따옴표가 정확히 2개면 바깥쪽을 벗김 — `cmd /?`)이
+    공백 경로의 래퍼를 깨뜨리므로 **`/s /c` + tail 전체 재인용** 문자열로 반환한다.
+    (Windows에서 subprocess는 문자열을 CreateProcess에 그대로 전달한다.)
+    (test_pattern은 run_targeted_tests에서 화이트리스트 검증됨 — cmd.exe 메타문자 유입 차단)
+    """
+    win = os.name == "nt"
     if build_tool == "gradle":
-        wrapper = os.path.join(root, "gradlew")
-        launcher = wrapper if os.path.isfile(wrapper) else "gradle"
+        wrapper_names = ("gradlew.bat", "gradlew.cmd") if win else ("gradlew",)
+        fallback = "gradle"
+    else:  # maven
+        wrapper_names = ("mvnw.cmd", "mvnw.bat") if win else ("mvnw",)
+        fallback = "mvn"
+    launcher = fallback
+    for name in wrapper_names:
+        cand = os.path.join(root, name)
+        if os.path.isfile(cand):
+            launcher = cand
+            break
+
+    if build_tool == "gradle":
         cmd = [launcher, "test", "--tests", test_pattern]
         if with_coverage:
             cmd.append("jacocoTestReport")
         if offline:
             cmd.append("--offline")
     else:  # maven
-        wrapper = os.path.join(root, "mvnw")
-        launcher = wrapper if os.path.isfile(wrapper) else "mvn"
         cmd = [launcher, "-B", "test", f"-Dtest={test_pattern}"]
         if with_coverage:
             cmd.append("jacoco:report")
         if offline:
             cmd.append("-o")
+
+    if win:
+        return f'cmd.exe /s /c "{subprocess.list2cmdline(cmd)}"'
     return cmd
 
 
@@ -734,12 +760,22 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
         return {"status": "failed", "error": "BUILD_TOOL_UNDETECTED",
                 "message": f"directory not found: {root}"}
 
+    # 클래스/메서드 패턴 화이트리스트 — 셸 메타문자 유입 차단.
+    # Windows에서는 배치 래퍼 실행이 cmd.exe 를 경유하므로 필수 방어선이다.
+    # ! [ ] 는 Surefire 선택자(-Dtest=!SlowIT, Test#method[1])용 — cmd 지연 확장(/v:on)은
+    # 이 서버가 켜지 않으므로 ! 는 안전하다.
+    if not re.fullmatch(r"[A-Za-z0-9_.$#*,!\[\]]+", test_pattern or ""):
+        return {"status": "failed", "error": "INVALID_TEST_PATTERN",
+                "message": "test_pattern may contain only letters, digits and . $ # * _ , ! [ ] "
+                           f"(class/method patterns); got: {test_pattern!r}"}
+
     offline = (not _network_allowed()) and (not online)
     pattern_q = shlex.quote(test_pattern)
     cmd = _build_test_command(build_tool, root, test_pattern, with_coverage, offline)
 
     # Human-readable command string with shlex quoting for transparency/logging.
-    display_cmd = " ".join(shlex.quote(part) for part in cmd)
+    # (Windows 배치 경로는 이미 cmd.exe /s /c 문자열로 조립됨 — 그대로 기록)
+    display_cmd = cmd if isinstance(cmd, str) else " ".join(shlex.quote(part) for part in cmd)
 
     # Remove stale JUnit XML before the run so a failed build (e.g. a test/main
     # compile error that produces no fresh reports) can't be reported green from
