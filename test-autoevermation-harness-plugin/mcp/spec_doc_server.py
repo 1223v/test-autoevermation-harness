@@ -272,17 +272,41 @@ def _score_chunk(chunk: dict[str, Any], query_tokens: list[str]) -> float:
 # ---------------------------------------------------------------------------
 
 def _extract_gherkin_blocks(text: str, source: str) -> list[dict[str, Any]]:
-    """Extract Given/When/Then blocks from text."""
+    """Extract Given/When/Then blocks from text.
+
+    Handles three real-world markdown shapes, not just bare Gherkin:
+    - ``Scenario:``/``시나리오:`` header followed by keyword lines (classic)
+    - headerless blocks of consecutive Given/When/Then lines
+    - markdown bullets (``- Given ...``) and single-line inline form
+      (``Given X, When Y, Then Z``) — normalized before matching
+    """
     criteria: list[dict[str, Any]] = []
-    # Match scenario blocks
+    # Normalize: strip markdown bullet/number prefixes so "- Given ..." matches,
+    # then split inline "Given X, When Y, Then Z" onto separate lines.
+    norm = re.sub(r"(?m)^([ \t]*)(?:[-*+]|\d+[.)])[ \t]+", r"\1", text)
+    norm = re.sub(r"(?i)[,;][ \t]*(when|then|and|but|했을때|그러면|그리고)\b", r"\n\1", norm)
+
+    _KW_LINE = r"[ \t]*(?:given|when|then|and|but|주어진|그러면|했을때|그리고)\b[^\n]*\n?"
+    # Pass 1: blocks introduced by a Scenario/Feature header (title preserved)
     scenario_pattern = re.compile(
         r"(?i)(?:scenario|시나리오|feature|기능)[:\s]+([^\n]+)\n"
-        r"((?:[ \t]*(?:given|when|then|and|but|주어진|그러면|했을때|그리고)[^\n]+\n?)+)",
+        rf"((?:{_KW_LINE})+)",
         re.MULTILINE,
     )
-    for i, match in enumerate(scenario_pattern.finditer(text)):
-        title = match.group(1).strip()
-        block = match.group(2)
+    # Pass 2: headerless GWT blocks — 2+ consecutive keyword lines
+    bare_pattern = re.compile(rf"(?im)^((?:{_KW_LINE}){{2,}})")
+
+    blocks: list[tuple[str, str]] = []
+    consumed: list[tuple[int, int]] = []
+    for m in scenario_pattern.finditer(norm):
+        blocks.append((m.group(1).strip(), m.group(2)))
+        consumed.append(m.span())
+    for m in bare_pattern.finditer(norm):
+        if any(s <= m.start() < e for s, e in consumed):
+            continue
+        blocks.append(("", m.group(1)))
+
+    for i, (title, block) in enumerate(blocks):
         given_parts: list[str] = []
         when_parts: list[str] = []
         then_parts: list[str] = []
@@ -310,6 +334,9 @@ def _extract_gherkin_blocks(text: str, source: str) -> list[dict[str, Any]]:
                 else:
                     then_parts.append(text_part)
         if then_parts:
+            if not title:
+                # headerless block: derive a title from the behavior (when > then)
+                title = (when_parts[0] if when_parts else then_parts[0])[:80]
             crit_id = f"AC-{hashlib.md5((source + title + str(i)).encode()).hexdigest()[:6].upper()}"
             criteria.append({
                 "id": crit_id,
@@ -328,17 +355,19 @@ def _extract_rule_sentences(text: str, source: str) -> list[dict[str, Any]]:
     # Match sentences containing obligation keywords
     rule_pattern = re.compile(
         r"[^.。\n]*(?:must|shall|should not|must not|is required to|are required to"
-        r"|해야|하여야|금지|해서는\s*안|하지\s*말아야|하면\s*안)[^.。\n]*[.。]?",
+        r"|해야|하여야|금지|해서는\s*안|되어서는\s*안|돼서는\s*안|하지\s*말아야|하면\s*안)[^.。\n]*[.。]?",
         re.IGNORECASE,
     )
     for i, match in enumerate(rule_pattern.finditer(text)):
         sentence = match.group(0).strip()
+        # strip a leading markdown bullet/number so the criterion reads as a sentence
+        sentence = re.sub(r"^(?:[-*+]|\d+[.)])[ \t]+", "", sentence)
         if len(sentence) < 10:
             continue
         crit_id = f"RULE-{hashlib.md5((source + sentence).encode()).hexdigest()[:6].upper()}"
         # Distinguish prohibition from requirement
         is_prohibition = bool(re.search(
-            r"(?i)(must not|should not|shall not|금지|해서는\s*안|하지\s*말아야|하면\s*안)",
+            r"(?i)(must not|should not|shall not|금지|해서는\s*안|되어서는\s*안|돼서는\s*안|하지\s*말아야|하면\s*안)",
             sentence,
         ))
         criteria.append({

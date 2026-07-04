@@ -11,6 +11,15 @@ _(비어 있음)_
 
 ---
 
+## [0.14.1] - 2026-07-04
+
+### Fixed
+- **spec-doc `extract_acceptance_criteria`가 실사용 마크다운 형식을 놓치던 결함 수정** (런타임 스모크 테스트로 발견 — MCP 3서버 실기동 `tools/call` 전수 호출 중 유일하게 빈 결과를 반환한 도구). 기존 구현은 `Scenario:`/`시나리오:` **헤더가 있는 블록만** 매칭해, ① 헤더 없는 Given/When/Then 연속 줄, ② 마크다운 불릿(`- Given ...`), ③ 한 줄 인라인(`Given X, When Y, Then Z`)을 전부 0건으로 반환했다. 정규화 전처리(불릿/번호 프리픽스 제거 + 인라인 GWT 줄 분리)와 헤더리스 블록 2차 패스(키워드 줄 2개 이상, `\b` 경계 추가로 "Andrea" 류 오탐 방지, 헤더 블록과 span 중복 제거)를 추가했다. 헤더 없는 블록의 title은 when(없으면 then)에서 유도.
+- **금지 규칙 키워드 보강**: `해서는 안`만 있고 `되어서는 안`/`돼서는 안`이 없어 "음수가 되어서는 안 된다" 류 금지 문장을 놓치던 것을 rule 추출·prohibition 분류 양쪽에 추가. RULE 문장 앞 마크다운 불릿 제거.
+- 검증: 실서버 stdio 경유 재호출로 3형식(인라인 불릿/클래식 헤더/규칙 문장) 모두 추출 확인, 클래식 형식 회귀 통과. 그 외 런타임 스모크는 전부 정상 — MCP 3서버 initialize/tools-list(17종 일치), build-test 8개 도구 픽스처 실호출(JUnit XML 실패 분류·JaCoCo uncovered·coverage_gate 카운터 판정·spring profile interviewRequired·build capabilities 4종 감지), repo-ast 4개 도구(JavaParser jar 정밀 경로, degraded=false), 훅 3종(guard-network deny/allow, guard-read deny/allow, redact-secrets 경고+비0 exit), statusline 진행률(21% 계산 정확), record-timing 스키마 일치.
+
+---
+
 ## [0.14.0] - 2026-07-04
 
 ### Fixed
