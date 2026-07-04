@@ -42,7 +42,12 @@ disallowedTools: Bash
   ],
   "buildTool": "gradle",
   "junitPolicy": "jupiter-style",
-  "stylePolicy": "google-java"
+  "stylePolicy": "google-java",
+  "springProfile": {
+    "bootMajor": 3, "namespace": "jakarta", "junitEngine": "jupiter",
+    "mockAnnotation": "MockitoBean",
+    "mockImport": "org.springframework.test.context.bean.override.mockito.MockitoBean"
+  }
 }
 ```
 
@@ -56,6 +61,7 @@ disallowedTools: Bash
 | `buildTool` | string | 아니오 | `"미지정"` | `gradle` 또는 `maven` |
 | `junitPolicy` | string | 아니오 | `"jupiter-style"` | `jupiter-style` 또는 `strict-5x` |
 | `stylePolicy` | string | 아니오 | `"google-java"` | 생성 코드 스타일 정책 |
+| `springProfile` | object\|null | 아니오 | `null` | 0단계 확정 버전 프로파일([version-compatibility.md](../references/version-compatibility.md)). 기존 테스트가 없어 **새 파일을 생성**할 때(`NO_TEST_FILE_FOUND`) 엔진·mock 애노테이션·네임스페이스의 기준. 미전달 시 대상 소스·인접 테스트의 실제 import를 정본으로 판별 |
 
 ---
 
@@ -109,6 +115,7 @@ disallowedTools: Bash
 - broad catch: `catch (Exception e) {}` 또는 `catch (Throwable t) {}`로 모든 예외 묵살
 - trivially-satisfying assertion: `assertTrue(true)`, `assertNotNull(result)` 단독 사용
 - 전체 파일 재생성(특별한 이유 없이 Write로 전체 교체)
+- **scenarioRef 훼손**: 기존 시나리오 테스트 메서드(`sc001_...` 네이밍)의 리네임, javadoc `scenarioRef`/`criteriaRef` 삭제·변경 — 10단계 `verify-scenarios`가 이 매핑으로 적합성을 판정하므로 단언 강화 시에도 메서드명·javadoc은 보존한다. 새로 추가하는 mutant-killing 테스트 메서드는 비시나리오 테스트이므로 scenarioRef가 필요 없다
 
 #### 권장 패턴
 

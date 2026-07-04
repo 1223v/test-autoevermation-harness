@@ -34,7 +34,8 @@ disallowedTools: Bash
   "buildTool": "gradle",
   "springProfile": { "bootMajor": 2, "namespace": "javax", "junitEngine": "junit4", "mockAnnotation": "MockBean", "mockImport": "org.springframework.boot.test.mock.mockito.MockBean", "javaBaseline": 8, "gradleTestMode": "useJUnit" },
   "junitPolicy": "jupiter-style",
-  "stylePolicy": "google-java-style",
+  "stylePolicy": "google-java",
+  "astResult": { "...": "AstAnalysisResult 전체 (선택)" },
   "projectRoot": "/absolute/path/to/spring-project",
   "testSourceRoot": "/absolute/path/to/src/test/java"
 }
@@ -46,7 +47,8 @@ disallowedTools: Bash
 | `buildTool` | string | `gradle` 또는 `maven`. 미지정 시 `build-test-mcp.detect_build_tool`로 자동 감지 |
 | `springProfile` | object | Boot 2.0–4.x 프로파일(namespace/junitEngine/mockAnnotation/mockImport/javaBaseline). 미지정 시 `detect_spring_profile`로 감지 |
 | `junitPolicy` | string | `jupiter-style`(BOM 위임, 기본) 또는 `strict-5x`(5.x 명시 고정) |
-| `stylePolicy` | string | `google-java-style` 고정 |
+| `stylePolicy` | string | `google-java`(기본, `HarnessRequest.stylePolicy`와 동일 리터럴) |
+| `astResult` | object\|null | `ast-structure-analyzer` 출력 — 메서드 시그니처 확인용(선택, 미전달 시 repo-ast-mcp로 재확인) |
 | `projectRoot` | string | 프로젝트 루트 절대 경로 |
 | `testSourceRoot` | string | 테스트 소스 루트. 미지정 시 `{projectRoot}/src/test/java` |
 

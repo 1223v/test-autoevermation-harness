@@ -23,10 +23,15 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
     "excludes": ["**/*Application*", "**/config/**", "**/dto/**", "**/generated/**"]
   },
   "maxIterations": 3,
-  "targetScope": ["com.example.orders"]
+  "targetScope": ["com.example.orders"],
+  "springProfile": { "...": "0단계 configure-harness가 확정한 버전 프로파일" },
+  "existingTestPaths": ["src/test/java/com/example/orders/OrderServiceTest.java"]
 }
 ```
 > `coverage` 임계값/제외는 `configure-harness` 인터뷰(§7 항목 d)에서 사용자가 조정 가능.
+> `targetScope`는 full-pipeline이 `HarnessConfig.targets`(+`targetModules`)를 매핑해 전달한다(HarnessConfig에 `targetScope`라는 필드는 없음). 이 필드는 **커버리지 측정 스코프(패키지 목록)** 로, run-tests의 실행 스코프 `targetScope{classes,packages,methods}`(객체)와 의도적으로 다른 형상이다 — 서로 그대로 전달하지 말 것.
+> `maxIterations`는 full-pipeline이 `HarnessConfig.coverageMaxIterations`를 매핑해 전달한다.
+> `springProfile`·`existingTestPaths`는 coverage-closer의 버전 인식 생성·중복 방지에 필수 — 미전달 시 closer가 기존 테스트 import로 판별/재탐색한다.
 
 ## 절차
 1. **측정 실행**: test-runner(또는 build-test `run_targeted_tests(with_coverage=true)`)로 타깃 범위 테스트 + JaCoCo 리포트 생성. 네트워크 off, 최소 범위.
@@ -34,10 +39,24 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
 3. **게이트**: `mcp__build-test__coverage_gate(root, line, branch, method, klass, mutation)` → counter별 pass/fail + gaps. (서버 파라미터명은 `klass` — `class`는 파이썬 예약어이므로 위치 인자로 전달.)
 4. **분기**:
    - 게이트 통과 → 상태 `ok`, 종료.
-   - 미달 → `uncovered[]`를 **coverage-closer** 에이전트에 전달:
+   - 미달 → `uncovered[]`를 **coverage-closer** 에이전트에 구조화 입력으로 전달(에이전트 입력 스키마와 1:1):
      ```
      Task(subagent_type="coverage-closer", model="inherit",
-          prompt="<uncovered[] + 대상 소스 + 제외 allowlist + 목표 임계값>")
+          prompt="""
+     입력:
+     {
+       "projectRoot": <root 절대 경로>,
+       "jacocoReportPath": <parse_jacoco_report가 읽은 XML 경로>,
+       "uncovered": <parse_jacoco_report.uncovered[]>,
+       "coverage": <coverage(임계값+excludes)>,
+       "existingTestPaths": <existingTestPaths + 이전 반복의 addedTests 병합>,
+       "buildTool": <buildTool>,
+       "springProfile": <springProfile>
+     }
+     지시: 기존 시나리오 테스트 수정 시 scenarioRef 메서드명·javadoc 보존.
+     springProfile 관용구(@MockBean/@MockitoBean·javax/jakarta·junit4/jupiter) 준수.
+     CoverageCloserResult JSON으로 반환하라.
+     """)
      ```
 5. **재측정 루프**: coverage-closer가 추가한 테스트를 포함해 재실행한다. 게이트 통과 시 중단. `maxIterations`는 고정 상한이 아니라 **진전 추적 단위**다 — 진전(미커버 집합 감소)이 있는 한 계속하고, **동일 미커버 집합이 3회 연속(무진전)**이면 `partial`로 `remainingGaps[]`를 전량 보고 후 중단한다(fallback-policy.md #12).
 6. **수렴 실패 처리**: 잔여 gap이 남으면 `partial` 상태로 `remainingGaps[]`와 사유(예: 도달 불가 코드, 제외 후보)를 보고하고 nextActions에 "exclude 검토" 제안.
@@ -56,6 +75,7 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
   "warnings": [], "errors": [], "nextActions": []
 }
 ```
+> `addedTests`(경로 배열)는 coverage-closer 출력 `addedTests[]`(object — `{path, action, addedMethods, targetsUncovered}`)에서 `path`만 **flatten**한 것이다. 다음 반복의 `existingTestPaths`와 full-pipeline의 회귀 실행·10단계 `generatedFiles` 병합에 쓰인다.
 
 ## 실패 유형
 - `BUILD_TOOL_UNDETECTED` / `TEST_COMPILE_FAILED` / `TEST_RUNTIME_FAILED` → run-tests/repair-tests로 위임 후 재측정.

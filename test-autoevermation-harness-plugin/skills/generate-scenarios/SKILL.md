@@ -31,6 +31,7 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
 | `astResult` | `AstAnalysisResult` | 아니오 | `null` | `analyze-ast` 출력 |
 | `sourceResult` | `SourceAnalysisResult` | 아니오 | `null` | `analyze-source` 출력 |
 | `specResult` | `SpecReviewResult` | 아니오 | `null` | `ingest-specs` 출력 |
+| `testScope` | `string` | 아니오 | `"mixed"` | `unit`/`slice`/`integration`/`mixed`. `unit`이면 unit 시나리오만 설계 (`HarnessRequest.testScope`) |
 
 세 결과 모두 `null`이면 `status: "failed"`를 즉시 반환하고 선행 단계 실행을 안내한다. 일부만 있으면 `status: "partial"`로 진행한다.
 
@@ -57,12 +58,14 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
    {
      "astResult": <astResult>,
      "sourceResult": <sourceResult>,
-     "specResult": <specResult>
+     "specResult": <specResult>,
+     "testScope": <testScope>
    }
 
    지시:
    - spec-doc-mcp의 `search_requirements`와 repo-ast-mcp의 `extract_test_targets`를 보조로 활용할 수 있다.
    - acceptance criteria(criteriaRefs)와 testSeams를 매핑해 최소 시나리오 집합을 만들라.
+   - testScope가 unit/slice/integration이면 해당 유형만 설계하고, mixed면 전체 유형을 허용하라.
    - **각 시나리오를 BDD Given/When/Then으로 구조화하라**: `given`(전제/입력 상태 배열), `when`(검증 대상 단일 행위), `then`(기대 결과/단언 배열)을 필수로 채운다. 한 시나리오의 `when`은 단일 행위로 유지(복합 행위는 별도 시나리오로 분리).
    - 시나리오 유형 우선순위: unit(P0 우선) → slice(P1) → integration(P2, 사유 명시 필수).
    - 동치류/경계값이 3개 이상인 경우 ParameterizedTest 시나리오로 표기하라.
@@ -82,8 +85,13 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
          "type": "unit" | "slice" | "integration",
          "target": string,
          "priority": "P0" | "P1" | "P2",
+         "given": [string],
+         "when": string,
+         "then": [string],
          "criteriaRefs": [string],
          "seamRefs": [string],
+         "mockTargets": [string],
+         "sliceAnnotation": string,
          "isParameterized": boolean,
          "slowReason": string
        }

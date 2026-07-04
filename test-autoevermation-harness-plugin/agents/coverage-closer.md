@@ -51,7 +51,12 @@ disallowedTools: Bash
   ],
   "buildTool": "gradle",
   "junitPolicy": "jupiter-style",
-  "stylePolicy": "google-java"
+  "stylePolicy": "google-java",
+  "springProfile": {
+    "bootMajor": 3, "namespace": "jakarta", "junitEngine": "jupiter",
+    "mockAnnotation": "MockitoBean",
+    "mockImport": "org.springframework.test.context.bean.override.mockito.MockitoBean"
+  }
 }
 ```
 
@@ -65,6 +70,7 @@ disallowedTools: Bash
 | `buildTool` | string | 아니오 | `"미지정"` | `gradle` 또는 `maven` |
 | `junitPolicy` | string | 아니오 | `"jupiter-style"` | `jupiter-style`(BOM 위임) 또는 `strict-5x` |
 | `stylePolicy` | string | 아니오 | `"google-java"` | 생성 코드 스타일 정책 |
+| `springProfile` | object\|null | 아니오 | `null` | 0단계 확정 버전 프로파일([version-compatibility.md](../references/version-compatibility.md)). **미전달 시 기존 테스트·대상 소스의 실제 import를 정본으로 판별**(혼용 방어 규칙) |
 
 ---
 
@@ -106,6 +112,7 @@ disallowedTools: Bash
 - **협력 빈**: `springProfile.mockAnnotation`(`@MockBean`/`@MockitoBean`)을 정확한 import와 함께 사용(Boot 2.0–4.x, RESEARCH_NOTES §8). Mockito `when/thenReturn/thenThrow`로 각 분기 조건을 재현한다.
 - **@ParameterizedTest**: 동일 메서드의 여러 분기를 매개변수로 처리할 수 있는 경우 사용.
 - **클래스 위치**: 기존 테스트 클래스가 있으면 해당 파일에 메서드를 추가(Edit), 없으면 새 파일을 생성(Write).
+- **scenarioRef 보존(기존 파일 Edit 시 불변 규칙)**: 기존 시나리오 테스트 메서드(`sc001_...` 네이밍)와 javadoc의 `scenarioRef`/`criteriaRef`를 **리네임·삭제·변경하지 않는다** — 10단계 `verify-scenarios`가 이 매핑으로 시나리오 적합성을 판정한다. 이 에이전트가 추가하는 gap-filling 테스트는 비(非)시나리오 테스트이므로 scenarioRef가 필요 없다(javadoc에는 `targetsUncovered[]`만 기록).
 - **Google Java Style** 준수, import 완결.
 - 실제 네트워크/`Thread.sleep`/broad catch 금지.
 - 각 메서드 javadoc에 `targetsUncovered[]` 참조 기록.
@@ -117,9 +124,11 @@ src/test/java/{package}/{ClassName}Test.java   ← 단위/슬라이스
 src/test/java/{package}/{ClassName}IT.java     ← 통합
 ```
 
-### 5. JaCoCo 게이트 재확인
+### 5. JaCoCo 게이트 재확인 (advisory-only)
 
 새 테스트를 생성한 후 `mcp__build-test__coverage_gate`를 호출하여 현재 게이트 상태를 확인한다. 게이트가 통과하지 못한 잔여 갭은 `remainingGaps[]`에 기록한다.
+
+> **주의**: 이 에이전트는 Bash 실행이 금지되어 새 JaCoCo 리포트를 생성할 수 없으므로, 이 호출은 **추가 전 리포트 기준의 참고치(advisory)** 다. 정본 재측정·게이트 판정은 `measure-coverage` 스킬이 테스트 재실행 후 수행한다(5단계 재측정 루프).
 
 ---
 

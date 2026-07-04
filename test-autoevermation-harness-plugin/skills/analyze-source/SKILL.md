@@ -84,18 +84,21 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
      "summary": string,
      "collaborators": [
        {
-         "symbol": string,
+         "fqcn": string,
+         "role": string,
          "injectionType": "constructor" | "field" | "setter" | "unknown",
-         "isExternal": boolean
+         "mockable": boolean
        }
      ],
      "sideEffects": [string],
      "testSeams": [string],
-     "transactionBoundaries": [
-       { "method": string, "propagation": string, "rollbackOn": [string] }
-     ],
+     "transactionBoundaries": [string],
      "exceptionFlows": [
-       { "method": string, "throws": [string], "caught": [string] }
+       { "exceptionType": string, "handledIn": string, "responseMapping": string }
+     ],
+     "externalDependencies": [
+       { "kind": "db" | "http" | "clock" | "random" | "filesystem" | "messaging" | "other",
+         "symbol": string, "seamSuggestion": string }
      ],
      "evidence": [string],
      "warnings": [string],

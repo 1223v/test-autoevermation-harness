@@ -31,6 +31,7 @@ disallowedTools: Write, Edit, Bash
   "astResult": { "...": "AstAnalysisResult 전체" },
   "sourceResult": { "...": "SourceAnalysisResult 전체" },
   "specResult": { "...": "SpecReviewResult 전체" },
+  "testScope": "mixed",
   "options": {
     "maxScenarios": 50,
     "testTypePreference": ["unit", "slice", "integration"],
@@ -44,6 +45,7 @@ disallowedTools: Write, Edit, Bash
 | `astResult` | object | `ast-structure-analyzer` 출력 전체. full-pipeline 경유 시 3.5 권고 게이트에서 제외 대상이 이미 필터링됨([refactor-advisory.md](../references/refactor-advisory.md) §4) |
 | `sourceResult` | object | `source-code-analyzer` 출력 전체(동일하게 3.5 필터 적용본) |
 | `specResult` | object | `spec-reviewer` 출력 전체 |
+| `testScope` | enum | `unit` / `slice` / `integration` / `mixed`(기본). `unit`이면 unit 시나리오만, `mixed`면 전체 유형 허용 — `HarnessRequest.testScope`가 full-pipeline 4단계에서 전달됨 |
 | `options.maxScenarios` | integer | 최대 시나리오 수. 기본 50 |
 | `options.testTypePreference` | string[] | 테스트 유형 우선순위. 기본 `["unit","slice","integration"]` |
 | `options.junitPolicy` | string | `jupiter-style`(BOM 위임) 또는 `strict-5x`(명시적 5.x 고정) |
@@ -115,9 +117,10 @@ disallowedTools: Write, Edit, Bash
             "items": { "type": "string" },
             "description": "매핑된 acceptance criteria ID 배열"
           },
-          "seamRef": {
-            "type": "string",
-            "description": "source-code-analyzer의 testSeams 항목 참조"
+          "seamRefs": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "source-code-analyzer의 testSeams 항목 참조 목록"
           },
           "mockTargets": {
             "type": "array",
@@ -133,7 +136,7 @@ disallowedTools: Write, Edit, Bash
             "type": "string",
             "description": "integration 타입일 때 느린 테스트를 선택한 필수 사유"
           },
-          "parameterized": {
+          "isParameterized": {
             "type": "boolean",
             "description": "동치류/경계값이 3개 이상이면 true (@ParameterizedTest 사용)"
           }
@@ -183,7 +186,7 @@ disallowedTools: Write, Edit, Bash
 
 ## 핵심 지시문
 
-acceptance criteria와 `testSeams`를 매핑해 최소 시나리오 집합을 만들라. **각 시나리오는 BDD Given/When/Then으로 구조화한다** — `given`(전제/입력 상태), `when`(검증 대상 행위 1개), `then`(기대 결과/단언)을 반드시 채운다. criteriaRefs의 Given/When/Then을 시나리오 단위로 구체화하되, 한 시나리오의 `when`은 단일 행위로 유지하라(복합 행위는 분리). unit → slice → integration 순으로 우선순위를 부여하고 중복은 병합하라. integration 타입을 선택할 때는 반드시 `slowReason`을 기재하라. 동치류·경계값이 3개 이상인 시나리오는 `parameterized: true`로 표시하라. `uncoveredCriteria`가 존재하면 `warnings`에 기록하고 `nextActions`에 수동 시나리오 추가를 권고하라.
+acceptance criteria와 `testSeams`를 매핑해 최소 시나리오 집합을 만들라. **각 시나리오는 BDD Given/When/Then으로 구조화한다** — `given`(전제/입력 상태), `when`(검증 대상 행위 1개), `then`(기대 결과/단언)을 반드시 채운다. criteriaRefs의 Given/When/Then을 시나리오 단위로 구체화하되, 한 시나리오의 `when`은 단일 행위로 유지하라(복합 행위는 분리). unit → slice → integration 순으로 우선순위를 부여하고 중복은 병합하라. `testScope`가 `unit`/`slice`/`integration`이면 해당 유형만 설계하고, `mixed`면 전체 유형을 허용하라. integration 타입을 선택할 때는 반드시 `slowReason`을 기재하라. 동치류·경계값이 3개 이상인 시나리오는 `isParameterized: true`로 표시하라. `uncoveredCriteria`가 존재하면 `warnings`에 기록하고 `nextActions`에 수동 시나리오 추가를 권고하라.
 
 ---
 

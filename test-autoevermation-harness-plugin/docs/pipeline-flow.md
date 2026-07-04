@@ -39,7 +39,7 @@ flowchart TD
 
     K --> L["6단계 — run-tests<br/>(test-runner)"]
     L --> M{"실패 있음?"}
-    M -- "예" --> N["7단계 — repair-tests<br/>(test-fixer) 최소 diff 보정"]
+    M -- "예" --> N["7단계 — repair-tests<br/>(test-fixer) 원인 분류 → 최소 diff 보정<br/>(생성 원칙·scenarioRef 보존) → patches[] 메인 반영"]
     N -. "그린까지 재시도<br/>(무진전 3회 → partial)" .-> L
     M -- "아니오 (그린)" --> O["8단계 — measure-coverage<br/>(coverage-closer) near-100% 게이트 루프"]
 
@@ -56,6 +56,7 @@ flowchart TD
 > 1·2단계는 **병렬**(서브에이전트 팬아웃)이라 `E`에서 두 갈래로 갈라져 `G`(3단계)에서 합류한다.
 > 3.5단계는 플래그 0건이거나 `refactorAdvisory.enabled: false`면 게이트 없이 3→4로 직결된다(상세: §3).
 > 7·8·9단계는 **게이트 충족까지 반복**하며, 직전과 동일한 실패/gap/survivor가 3회 연속(무진전)이면 `partial`로 중단한다(fallback-policy.md #12).
+> 8·9단계에서 테스트가 **추가·수정**되면 각 단계 수렴 후 6단계(run-tests)로 **회귀 실행**해 그린을 확인하고(실패 시 7단계 보정 재진입), 최종 `runResult`를 재할당해 10단계에 전달한다 — 10단계가 stale 실행 결과로 판정하는 것을 방지.
 
 ---
 

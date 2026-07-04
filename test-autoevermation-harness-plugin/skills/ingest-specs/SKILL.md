@@ -79,9 +79,10 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
    {
      "status": "ok" | "partial" | "failed",
      "summary": string,
-     "requirements": [{ "id": string, "description": string }],
+     "requirements": [{ "id": string, "text": string, "section": string }],
      "acceptanceCriteria": [
-       { "id": string, "given": string, "when": string, "then": string, "sourceDoc": string }
+       { "id": string, "given": string, "when": string, "then": string,
+         "priority": "P0" | "P1" | "P2", "tags": [string], "sourceDoc": string }
      ],
      "prohibitions": [string],
      "glossary": { "<term>": "<definition>" },
@@ -110,7 +111,7 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
   "status": "ok" | "partial" | "failed",
   "summary": "처리된 문서 수, 추출된 criteria 수 요약",
   "requirements": [
-    { "id": "REQ-001", "description": "주문 생성 시 재고를 확인해야 한다" }
+    { "id": "REQ-001", "text": "주문 생성 시 재고를 확인해야 한다", "section": "3.2 주문 생성" }
   ],
   "acceptanceCriteria": [
     {
@@ -118,6 +119,8 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
       "given": "재고가 0인 상품",
       "when": "주문 생성 요청",
       "then": "400 오류와 재고 부족 메시지를 반환한다",
+      "priority": "P0",
+      "tags": ["order", "stock"],
       "sourceDoc": "docs/api-spec.md"
     }
   ],

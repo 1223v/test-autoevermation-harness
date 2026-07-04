@@ -40,6 +40,12 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
       "fqcn": "com.example.order.OrderService"
     }
   ],
+  "springProfile": {
+    "bootMajor": 3, "namespace": "jakarta", "junitEngine": "jupiter",
+    "mockAnnotation": "MockitoBean",
+    "mockImport": "org.springframework.test.context.bean.override.mockito.MockitoBean"
+  },
+  "scenarioDocs": ["/absolute/path/to/test_docs/scenarios/SC-001.md"],
   "retryCount": 0
 }
 ```
@@ -47,8 +53,10 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `failResult` | object | `test-runner` 출력의 `TestRunResult` 전체 |
-| `originalTests` | object[] | 실패한 테스트 파일 경로 및 현재 내용 |
-| `relatedSources` | object[] | 실패와 관련된 프로덕션 소스 파일 경로·FQCN |
+| `originalTests` | object[] | 실패한 테스트 파일 경로 및 현재 내용. `content` 생략 시 `path`를 Read로 로드 |
+| `relatedSources` | object[] | 실패와 관련된 프로덕션 소스 파일 경로·FQCN. 경로 문자열만 전달되면 `repo-ast-mcp`로 FQCN을 해석 |
+| `springProfile` | object\|null | 0단계 `configure-harness`가 확정한 버전 프로파일(스키마: [version-compatibility.md](../references/version-compatibility.md)). **미전달 시 기존 테스트·대상 소스의 실제 import를 정본으로 삼는다**(혼용 방어와 동일 규칙) |
+| `scenarioDocs` | string[] | 실패 테스트의 `scenarioRef`에 해당하는 `test_docs/scenarios/<id>.md` 경로. assertion 수정 시 시나리오 given/when/then 근거로 사용 |
 | `retryCount` | integer | 현재 재시도 횟수 (0부터 시작; 진전 추적 단위 — 고정 상한 아님, #12) |
 
 ---
@@ -151,7 +159,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 ## 핵심 지시문
 
-실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안하라. 진전이 있는 한(실패가 줄어드는 한) 고정 횟수 상한 없이 계속 보정하라(#12). 직전과 **동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`과 `retryExhausted: true`를 반환하고 수동 개입을 요청하라.
+실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안하라. 수정은 **생성 시점의 테스트 원칙을 유지**해야 한다 — BDD 3단 구조·BDDMockito 스타일·`scenarioRef` 메서드명/javadoc 보존(10단계 매핑 의존)·`springProfile` 관용구(「테스트 원칙 준수」 절). 진전이 있는 한(실패가 줄어드는 한) 고정 횟수 상한 없이 계속 보정하라(#12). 직전과 **동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`과 `retryExhausted: true`를 반환하고 수동 개입을 요청하라.
 
 ---
 
@@ -171,6 +179,22 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 - 무조건 `@Disabled`로 테스트 비활성화 (문제 은폐)
 - assertion을 제거하여 테스트를 통과시키는 방식
 - 프로덕션 소스(`src/main/`) 수정 (테스트 수정만 허용, 단 `SPEC_MISMATCH`로 프로덕션 버그가 확인된 경우 `warnings`에 명시하고 수동 수정 요청)
+
+---
+
+## 테스트 원칙 준수 (수정 시 불변 규칙)
+
+패치는 **생성 시점의 테스트 원칙**(full-pipeline 5단계 `test-code-generator` 규약)을 그대로 유지해야 한다. 실패를 없애는 수정이라도 아래 규약을 깨면 잘못된 수정이다.
+
+| 원칙 | 규칙 | 근거·의존 |
+|---|---|---|
+| BDD 3단 구조 | `// given → // when → // then` 섹션 보존. 예외 검증은 `// when & then` 병합만 허용 | 시나리오 given/when/then 1:1 반영 ([scenario-docs.md](../references/scenario-docs.md)) |
+| stub 스타일 | `BDDMockito given().willReturn()/willThrow()` 유지. `when().thenReturn()` 혼용 도입 금지 | 5단계 생성 규약과 일관 |
+| scenarioRef 보존 | 메서드명 `<scenarioRefSlug>_<행위>`(예: `sc001_...`)와 javadoc `scenarioRef`/`criteriaRef` **리네임·삭제 금지** | 10단계 `verify-scenarios`가 이 매핑으로 시나리오↔테스트 적합성을 판정 — 깨지면 `missing` 오판 |
+| 버전 프로파일 관용구 | `springProfile`의 namespace(javax/jakarta)·junitEngine(junit4/jupiter)·mockAnnotation(`@MockBean`/`@MockitoBean`)+정확한 import를 따른다. `@MockBean`은 Boot 3.4+에서 deprecated → 3.4+ 프로파일이면 `@MockitoBean`으로 수정 | 정본: [version-compatibility.md](../references/version-compatibility.md); [Spring Framework `@MockitoBean` 공식 문서](https://docs.spring.io/spring-framework/reference/testing/annotations/integration-spring/annotation-mockitobean.html) |
+| then 단언 유지 | `// then` 단언은 시나리오 then(`scenarioDocs`)을 계속 빠짐없이 반영해야 한다. 단언 완화·축소로 통과시키기 금지(금지 패턴과 동일) | 10단계 `thenCovered` 판정 의존 |
+
+`springProfile`이 전달되지 않으면 **기존 테스트 파일·대상 소스의 실제 import를 정본**으로 삼아 관용구를 판별한다(version-compatibility.md §6 혼용 방어 규칙과 동일).
 
 ---
 

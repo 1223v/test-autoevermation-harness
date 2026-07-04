@@ -46,6 +46,8 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 | `junitPolicy` | `string` | 아니오 | `"jupiter-style"` | `jupiter-style`(BOM 위임) 또는 `strict-5x`(정책 예외, 명시 필요) |
 | `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
 | `astResult` | `AstAnalysisResult` | 아니오 | `null` | 메서드 시그니처 확인용 |
+| `projectRoot` | `string` | 아니오 | 현재 작업 디렉터리 | 프로젝트 루트 절대 경로 — 절대경로 파일 출력의 기준 |
+| `testSourceRoot` | `string` | 아니오 | `{projectRoot}/src/test/java` | 테스트 소스 루트 |
 
 `junitPolicy: "strict-5x"` 사용 시 빌드 파일에 명시적 version pin과 CHANGELOG 경고를 `buildChanges`에 포함한다.
 
@@ -71,9 +73,12 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
    {
      "scenarios": <scenarios>,
      "buildTool": <buildTool>,
+     "springProfile": <springProfile>,
      "junitPolicy": <junitPolicy>,
      "stylePolicy": <stylePolicy>,
-     "astResult": <astResult>
+     "astResult": <astResult>,
+     "projectRoot": <projectRoot>,
+     "testSourceRoot": <testSourceRoot 또는 {projectRoot}/src/test/java>
    }
 
    springProfile(버전 분기 — Boot 2.0–4.x):

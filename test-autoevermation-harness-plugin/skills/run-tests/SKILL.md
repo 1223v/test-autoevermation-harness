@@ -39,7 +39,8 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
 |---|---|---|---|---|
 | `buildTool` | `string` | 아니오 | `"미지정"` → auto-detect | `gradle` 또는 `maven` |
 | `task` | `string` | 아니오 | `"미지정"` → auto-detect | 실행할 테스트 task 이름 |
-| `targetScope` | `string[]` | 아니오 | `[]` → 생성된 파일 전체 | 실행할 테스트 클래스 FQCN 또는 패턴 목록 |
+| `targetScope` | `object\|string[]` | 아니오 | `{}` → 생성된 파일 전체 | 실행 대상 — 정본 형상은 test-runner 에이전트의 `{classes[], packages[], methods[]}`. string[] 전달 시 `classes`로 매핑 |
+| `projectRoot` | `string` | 아니오 | 현재 작업 디렉터리 | 프로젝트 루트 절대 경로 |
 | `rerunTargets` | `string[]` | 아니오 | `[]` | repair-tests가 전달하는 재실행 대상 |
 
 `buildTool`이 `"미지정"`이면 `build-test-mcp.detect_build_tool`로 auto-detect. 탐지 실패 시 `BUILD_TOOL_UNDETECTED` 오류로 즉시 반환.
@@ -69,7 +70,8 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
    {
      "buildTool": <buildTool>,
      "task": <task>,
-     "targetScope": <targetScope>,
+     "targetScope": <targetScope (string[]이면 {classes: [...]}로 매핑)>,
+     "projectRoot": <projectRoot>,
      "rerunTargets": <rerunTargets>
    }
 

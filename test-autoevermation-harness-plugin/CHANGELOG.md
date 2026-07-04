@@ -11,6 +11,29 @@ _(비어 있음)_
 
 ---
 
+## [0.14.0] - 2026-07-04
+
+### Fixed
+- **전수 계약 감사(스킬 14·에이전트 11·MCP 3종) — "미전달·미연결" 배선 공백 일괄 수정.** v0.13.2의 7단계 self-healing 배선 수정과 동일 클래스의 공백을 파이프라인 전 구간에서 감사(0–5단계/6–10단계/MCP 계층 3축)해 수정했다.
+  - **0–5단계 계약 정렬**: `testScope`가 scenario-generator에 착지 필드 없이 전달되던 3자 불일치 해소(에이전트 입력·스킬 전달 추가). scenario-generator 출력 필드 통일(`parameterized`→`isParameterized`, `seamRef`→`seamRefs`), generate-scenarios 스킬 스키마에 `given/when/then`(필수)·`mockTargets` 복원. ingest-specs 스키마에 `acceptanceCriteria.priority/tags` 추가(P0 매핑 규칙의 소비 필드), requirements `text/section` 정렬. test-code-generator에 `projectRoot`/`testSourceRoot` 전달(절대경로 출력의 기준 부재 해소), `stylePolicy` 리터럴 통일(`google-java`), generate-tests 단독 실행 시 `springProfile` 누락 보완. analyze-source 스킬 출력 스키마를 에이전트 정본으로 통일(collaborators `fqcn/role/mockable`, `externalDependencies[]`·exceptionFlows·transactionBoundaries 형상 복원), 3단계 `buildMetadata.springBootVersion` 전달.
+  - **8·9단계 구조화 배선(H1)**: full-pipeline 8·9단계에 명시 입력 블록 신설 — `HarnessConfig.coverage/mutation`, `coverageMaxIterations`/`mutationMaxIterations`→`maxIterations`, `targets`→`targetScope` 매핑(고아 필드 해소), **`springProfile`·`existingTestPaths`를 coverage-closer/mutation-analyst까지 전달**(버전 프로파일 없이 신규 테스트를 추측 생성하던 공백 — 7단계와 동일 클래스). measure-coverage/mutation-test의 에이전트 호출을 산문에서 에이전트 입력 스키마 1:1 구조화 프롬프트로 교체.
+  - **그린 회귀 + stale runResult 해소(H2)**: 8단계(테스트 추가 후)·9단계(단언 강화 후) 수렴 시 6단계 회귀 실행 → 실패 시 7단계 보정 재진입 → **최종 `runResult` 재할당**을 명문화. 10단계 입력을 "8·9단계 회귀 후 최종값"으로, `generatedFiles`에 8단계 `addedTests` 병합. 기존에는 9단계에서 강화된 단언이 실패해도 10단계가 stale 결과로 `satisfied`를 오판할 수 있었다.
+  - **scenarioRef 보존 불변식 확장**: test-fixer에만 있던 "시나리오 테스트 수정 시 `sc001_` 메서드명·javadoc scenarioRef/criteriaRef 보존" 규칙을 coverage-closer·mutation-analyst에도 추가(자체 신규 gap-filling/mutant-killing 테스트는 비시나리오로 scenarioRef 불요 명시).
+  - **집계·형상 정합**: PipelineResult 집계 매핑 명시(`coverageResult.coverage.*`·`conformanceResult.totals.*` 중첩 경로), measure-coverage `addedTests`는 closer 출력 object[]에서 경로 flatten임을 명시, `targetScope` 형상을 test-runner 정본(`{classes,packages,methods}`)으로 통일하고 6단계에 `projectRoot` 전달, coverage-closer 자체 `coverage_gate` 호출을 advisory-only로 명시(정본 재측정은 스킬), `refactorAdvisory` 병합 순서(HarnessConfig>HarnessRequest>기본값) 정의, full-pipeline의 `coverage_gate` 파라미터 표기를 실제 서버 시그니처(`klass`)로 정정.
+  - **문서 보완**: GUIDE 환경변수 표에 코드가 읽지만 미문서화였던 `REPO_AST_JAVA_BIN`·`TEST_AUTOEVERMATION_HARNESS_NETWORK` 추가.
+  - MCP 계층 검증 결과 도구 15종·훅 스크립트 4종·statusline ORDER·주요 파라미터/반환 키 계약은 전부 정합(수정 불요)이었다.
+
+---
+
+## [0.13.2] - 2026-07-04
+
+### Fixed
+- **Self-healing 루프의 "기존 테스트 원칙 참조" 배선 보강**: `test-fixer`가 에러 원인(5종 분류)뿐 아니라 **생성 시점 테스트 원칙을 참조해 수정**하도록 명시 연결. `agents/test-fixer.md`에 「테스트 원칙 준수(수정 시 불변 규칙)」 절 신설 — BDD 3단 구조·BDDMockito 스타일·`scenarioRef` 메서드명/javadoc 보존(10단계 verify-scenarios 매핑 의존)·springProfile 관용구(`@MockBean`은 Boot 3.4+ deprecated → `@MockitoBean`, 공식 Spring Framework 문서 근거). 입력에 `springProfile`·`scenarioDocs` 필드 추가(미전달 시 기존 테스트·대상 소스 import를 정본으로 판별). `repair-tests`·`full-pipeline` 7단계 프롬프트를 동일 원칙으로 동기화.
+- **full-pipeline 7단계 패치 반영 단계 명시**: `test-fixer`는 `isolation: worktree` 격리 실행이므로 반환된 `patches[]`를 **메인 작업 트리에 적용한 뒤** `run-tests`를 재실행하도록 절차를 명문화(누락 시 동일 실패가 재현되는 배선 공백 제거). `_workspace/07_repair_result.json` 저장 명시.
+- **7단계 `relatedSources` 실전달**: 항상 빈 배열이던 것을 `sourceResult`의 실패 대상 FQCN→프로덕션 소스 매핑으로 전달(원인 분석 시 재탐색 비용 제거). `docs/pipeline-flow.md` 7단계 노드 동기화.
+
+---
+
 ## [0.13.1] - 2026-07-03
 
 ### Added

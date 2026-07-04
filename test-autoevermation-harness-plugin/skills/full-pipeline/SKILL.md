@@ -119,7 +119,8 @@ stylePolicy       = 입력값 또는 "google-java"
 lspAvailable      = 입력값 또는 configure-harness E7 감지값(jdtls + `.lsp.json` + Java 21+ 가용=true, 아니면 false)
 maxRepairRetries  = 입력값 또는 2
 domainKeywords    = 입력값 또는 []
-refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 시 refactor-advisory.md §2 기본값)
+refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 시 refactor-advisory.md §2 기본값;
+                    병합 순서: HarnessConfig.refactorAdvisory(0단계 산출) > HarnessRequest 입력값 > 기본값)
 ```
 
 `junitPolicy: "strict-5x"` 감지 시 `warnings`에 "BOM 기본값(Jupiter 6.0.x)과의 버전 충돌 주의 — 명시적 version pin 필요" 추가.
@@ -145,7 +146,7 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 /test-autoevermation-harness-plugin:configure-harness
 ```
 
-산출 `HarnessConfig`는 `specDocPaths`(추가 병합), `targetScope`, `coverage{line,branch,method,class,excludes}`, `mutation{targetClasses,targetTests,mutators,mutationThreshold}`, `refactorAdvisory{enabled,thresholds}`(3.5단계 제어, 인터뷰 항목 아님)를 포함하며, 이후 모든 단계의 입력에 병합된다. 사용자가 재사용 가능한 도메인 특화 단계를 원하면 configure-harness가 `skills/<custom>/SKILL.md`를 그 자리에서 스캐폴드하고 `/test-autoevermation-harness-plugin:<custom>`로 호출 가능하게 한다.
+산출 `HarnessConfig`는 `specDocPaths`(추가 병합), `targets`/`targetModules`(대상 스코프 — 8단계에서 measure-coverage의 `targetScope` 입력으로 매핑), `coverage{line,branch,method,class,excludes}`, `mutation{targetClasses,targetTests,mutators,mutationThreshold}`, `coverageMaxIterations`/`mutationMaxIterations`(8·9단계 `maxIterations`로 매핑), `refactorAdvisory{enabled,thresholds}`(3.5단계 제어, 인터뷰 항목 아님)를 포함하며, 이후 모든 단계의 입력에 병합된다. 사용자가 재사용 가능한 도메인 특화 단계를 원하면 configure-harness가 `skills/<custom>/SKILL.md`를 그 자리에서 스캐폴드하고 `/test-autoevermation-harness-plugin:<custom>`로 호출 가능하게 한다.
 
 ---
 
@@ -217,7 +218,7 @@ Task(
 {
   "codeRoots": <projectRoot 기반>,
   "targetSymbols": <astResult.testTargets[].fqcn>,
-  "buildMetadata": { "buildTool": <buildTool>, "javaVersion": <javaVersion> },
+  "buildMetadata": { "buildTool": <buildTool>, "javaVersion": <javaVersion>, "springBootVersion": <springProfile.bootVersion> },
   "lspAvailable": <lspAvailable>
 }
 
@@ -345,7 +346,9 @@ Task(
   "junitPolicy": <junitPolicy>,
   "stylePolicy": <stylePolicy>,
   "astResult": <astResult>,
-  "springProfile": <springProfile (0단계 configure-harness 산출 — 인터뷰로 확정된 프로파일을 그대로 전달)>
+  "springProfile": <springProfile (0단계 configure-harness 산출 — 인터뷰로 확정된 프로파일을 그대로 전달)>,
+  "projectRoot": <projectRoot>,
+  "testSourceRoot": <{projectRoot}/src/test/java>
 }
 
 지시:
@@ -387,7 +390,8 @@ Task(
 {
   "buildTool": <buildTool>,
   "task": "미지정",
-  "targetScope": <genResult.files[].testClass>
+  "targetScope": { "classes": <genResult.files[].testClass>, "packages": [], "methods": [] },
+  "projectRoot": <projectRoot>
 }
 
 지시:
@@ -412,7 +416,7 @@ Task(
 
 `runResult.failed`가 비어 있으면 7단계를 건너뛴다.
 
-`retryCount = 0`부터 시작해 `maxRepairRetries`에 도달할 때까지 반복한다.
+`retryCount = 0`부터 시작해 **그린이 될 때까지** 반복한다 — `maxRepairRetries`는 진전 추적 단위일 뿐 고정 상한이 아니다(fallback-policy.md #12).
 
 ```
 Task(
@@ -423,15 +427,18 @@ Task(
 {
   "failResult": <runResult>,
   "originalTests": <genResult.files[].path>,
-  "relatedSources": [],
+  "relatedSources": <sourceResult에서 실패 테스트의 대상 FQCN에 해당하는 프로덕션 소스 경로·FQCN 목록>,
+  "springProfile": <springProfile (0단계 configure-harness 산출)>,
+  "scenarioDocs": <실패 테스트의 scenarioRef에 해당하는 test_docs/scenarios/<id>.md 경로 목록>,
   "retryCount": <retryCount>
 }
 
 지시:
 - 실패를 유형(TEST_COMPILE_FAILED/TEST_RUNTIME_FAILED/FLAKY_SUSPECTED/SPEC_MISMATCH/SYMBOL_UNRESOLVED)으로 분류하라.
 - 최소 diff 수정만 적용하라. 전체 재생성 금지.
+- 수정 시 5단계 생성 원칙을 유지하라: BDD 3단(// given → // when → // then) 구조·BDDMockito 스타일·메서드명 <scenarioRefSlug>_<행위>와 javadoc scenarioRef/criteriaRef 보존(10단계 verify-scenarios 매핑 의존)·springProfile 관용구(references/version-compatibility.md). then 단언 완화 금지.
 - FLAKY_SUSPECTED: Thread.sleep 대신 await/clock 주입 등 결정적 방식 제안.
-- SPEC_MISMATCH: spec-doc-mcp로 criteria 재확인 후 assertion 수정.
+- SPEC_MISMATCH: spec-doc-mcp로 criteria 재확인 후 assertion 수정(scenarioDocs의 given/when/then 대조).
 - SYMBOL_UNRESOLVED: repo-ast-mcp로 시그니처 재확인.
 - build-test-mcp.parse_junit_xml로 실패 메시지 정밀 파싱.
 - isolation: worktree 환경 전제.
@@ -440,22 +447,35 @@ Task(
 )
 ```
 
-보정 완료 후 `run-tests`를 `rerunTargets`로 재실행. **그린이 될 때까지 재시도**한다(fallback-policy.md #12). `retryCount`/`maxRepairRetries`는 **진전 추적 단위**일 뿐 상한이 아니다 — 실패가 줄어드는 한 계속하고, **직전과 동일한 실패가 3회 연속(무진전)**이면 `partial`로 잔여 실패를 전량 보고하고 중단한다.
+**패치 반영**: `test-fixer`는 `isolation: worktree`로 격리 실행되므로 worktree 안의 수정은 메인 작업 트리에 반영되지 않는다. 반환된 `patches[]`의 각 unified diff를 **메인 트리의 대응 파일에 적용**한다 — `path`가 worktree 절대경로면 프로젝트 상대경로로 재매핑하고, diff의 변경 hunk를 Edit(old→new 치환)으로 옮긴다. 적용 결과를 `_workspace/07_repair_result.json`에 저장한 뒤, `run-tests`를 `rerunTargets`로 재실행한다. **그린이 될 때까지 재시도**한다(fallback-policy.md #12). `retryCount`/`maxRepairRetries`는 **진전 추적 단위**일 뿐 상한이 아니다 — 실패가 줄어드는 한 계속하고, **직전과 동일한 실패가 3회 연속(무진전)**이면 `partial`로 잔여 실패를 전량 보고하고 중단한다.
 
 ---
 
 ### 8단계: measure-coverage (near-100% 게이트 루프)
 
-테스트가 통과 상태(6/7단계 완료)가 되면 `measure-coverage` 스킬로 JaCoCo 게이트 루프를 돌린다.
+테스트가 통과 상태(6/7단계 완료)가 되면 `measure-coverage` 스킬로 JaCoCo 게이트 루프를 돌린다. **HarnessConfig를 명시적으로 매핑해 전달한다** — 스킬 호출만 하고 입력을 생략하면 임계값·제외·스코프·프로파일이 기본값으로 떨어진다.
 
 ```
 /test-autoevermation-harness-plugin:measure-coverage
 ```
 
-- build-test-mcp로 JaCoCo 리포트 생성 → `parse_jacoco_report` → `coverage_gate(line,branch,method,class)`.
+입력(HarnessConfig 매핑):
+```json
+{
+  "buildTool": <buildTool>,
+  "root": <projectRoot>,
+  "coverage": <HarnessConfig.coverage (임계값 4종 + excludes)>,
+  "maxIterations": <HarnessConfig.coverageMaxIterations>,
+  "targetScope": <HarnessConfig.targets + targetModules 매핑>,
+  "springProfile": <springProfile>,
+  "existingTestPaths": <genResult.files[].path>
+}
+```
+
+- build-test-mcp로 JaCoCo 리포트 생성 → `parse_jacoco_report` → `coverage_gate(root, line, branch, method, klass, mutation)`(서버 파라미터명은 `klass` — `class`는 파이썬 예약어).
 - 미달 시 `coverage-closer` 에이전트가 `uncovered[]`를 받아 추가 테스트 생성 → 게이트 충족까지 재측정(fallback-policy.md #12: 진전 있는 한 계속, 동일 미커버 집합 3회 연속이면 무진전으로 보고 후 중단).
 - 임계값 기본(RESEARCH_NOTES §6): LINE≥0.95 / BRANCH≥0.90 / METHOD≥0.95 / CLASS=1.00, 제외 allowlist 적용.
-- 추가된 테스트는 6단계(run-tests)로 회귀 실행해 그린 상태 유지.
+- **회귀 실행 + runResult 재할당**: 게이트 수렴 후 `coverageResult.addedTests`가 있으면 6단계(run-tests)를 생성+추가 테스트 전체로 회귀 실행해 그린 상태를 확인하고(실패 시 7단계 보정 루프 재진입), 그 결과를 **`runResult`로 재할당**한다 — 10단계는 이 최신 값을 받는다.
 
 결과를 `coverageResult`로 저장.
 
@@ -463,15 +483,28 @@ Task(
 
 ### 9단계: mutation-test (PITest 강화 루프)
 
-커버리지 게이트 통과 후 `mutation-test` 스킬로 테스트 강도를 검증한다.
+커버리지 게이트 통과 후 `mutation-test` 스킬로 테스트 강도를 검증한다. 8단계와 마찬가지로 **HarnessConfig를 명시적으로 매핑해 전달한다**.
 
 ```
 /test-autoevermation-harness-plugin:mutation-test
 ```
 
+입력(HarnessConfig 매핑):
+```json
+{
+  "buildTool": <buildTool>,
+  "root": <projectRoot>,
+  "mutation": <HarnessConfig.mutation (targetClasses/targetTests/mutators/mutationThreshold/threads)>,
+  "maxIterations": <HarnessConfig.mutationMaxIterations>,
+  "springProfile": <springProfile>,
+  "existingTestPaths": <genResult.files[].path + coverageResult.addedTests 병합>
+}
+```
+
 - build-test-mcp로 PITest 실행 → `parse_pitest_report` → `mutationScore` / `survivedMutants[]`.
 - score < `mutationThreshold`(기본 0.80) 또는 survivor 존재 시 `mutation-analyst`가 단언을 강화해 mutant 제거 → 재실행.
 - 금지: Thread.sleep / broad catch / over-mock / 의미 없는 assert. 동등(equivalent) mutant 의심은 보고.
+- **회귀 실행 + runResult 재할당**: 뮤테이션 루프 수렴 후(단언 강화·테스트 추가가 1회라도 있었으면) 6단계(run-tests)를 전체 대상(생성+추가 테스트)으로 회귀 실행한다. 강화된 단언이 실패하면 7단계 보정 루프로 재진입하고, 최종 그린 결과를 **`runResult`로 재할당**한다 — 이것이 10단계에 전달되는 최종 실행 결과다. 이 회귀가 없으면 9단계에서 바뀐 테스트의 실행 상태가 10단계에 stale로 전달된다.
 
 결과를 `mutationResult`로 저장.
 
@@ -493,8 +526,8 @@ Task(
 입력:
 {
   "approvedScenarios": <approvedScenarios>,
-  "generatedFiles": <genResult.files[].path>,
-  "runResult": <runResult (최종, 보정 후)>,
+  "generatedFiles": <genResult.files[].path + coverageResult.addedTests 병합 (8단계 gap-filling 테스트 포함)>,
+  "runResult": <runResult (최종 — 7단계 보정 및 8·9단계 회귀 실행 이후 재할당된 값)>,
   "coverageResult": <coverageResult>,
   "projectRoot": <projectRoot>,
   "testDocsDir": "test_docs"
@@ -520,6 +553,8 @@ Task(
 ### 최종 결과 집계 및 반환
 
 모든 단계 결과(`coverageResult`, `mutationResult`, `conformanceResult` 포함)를 수렴해 `PipelineResult` JSON과 Markdown 보고서를 생성한다.
+
+**집계 매핑(중첩 필드 주의)**: `stages.measureCoverage`의 `line/branch/method/class`는 `coverageResult.coverage.*`(중첩)에서, `gatePassed`/`iterations`는 top-level에서 읽는다. `stages.verifyScenarios`의 `approved/satisfied/unsatisfied/missing`은 `conformanceResult.totals.*`(중첩)에서 읽는다. `stages.mutationTest`는 `mutationResult`의 top-level(`mutationScore`/`thresholdMet`/`iterations`)과 1:1.
 
 ---
 
