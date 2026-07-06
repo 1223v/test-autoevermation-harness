@@ -8,14 +8,16 @@ jar/JDK가 없으면 서버는 **정규식 fallback으로 degrade**한다(`degra
 그때만 jar 부재 시 `JAVAPARSER_REQUIRED`로 실패한다.
 
 ## 요구사항
-- JDK 17+ (RESEARCH_NOTES §5의 Java 범위와 일치)
-- Maven 3.6.3+
+- **이 jar 빌드**: JDK 17+ (RESEARCH_NOTES §5의 Java 범위와 일치)
+  - 참고: JDT LS(.lsp.json)는 **실행에 JDK 21+**를 요구한다 — 하네스 전체로 보면 빌드=17+, LSP 런타임=21+.
+- Maven: **번들 wrapper(`./mvnw`)로 자동 조달되므로 시스템 Maven 설치는 선택**이다. 로컬에 Maven 3.6.3+이 있으면 `mvn`을 써도 된다.
 - JavaParser symbol-solver **3.28.2** (pom.xml에 고정, RESEARCH_NOTES §2)
 
 ## 빌드
+Maven wrapper가 번들되어 있으므로 시스템 Maven 없이 빌드할 수 있다.
 ```bash
 cd mcp/javaparser-cli
-mvn -q -DskipTests package
+./mvnw -q -DskipTests package        # Windows: mvnw.cmd -q -DskipTests package
 ```
 산출물: `target/astcli-1.0.0-shaded.jar`
 

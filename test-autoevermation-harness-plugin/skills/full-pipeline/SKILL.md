@@ -59,7 +59,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
   "javaVersion": "17",
   "springVersion": "미지정",
   "stylePolicy": "google-java",
-  "lspAvailable": false,
+  "lspAvailable": true,
   "maxRepairRetries": 2
 }
 ```
@@ -80,7 +80,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 | `javaVersion` | `string` | 아니오 | `"미지정"` → auto-detect | `17`–`26` |
 | `springVersion` | `string` | 아니오 | `"미지정"` → auto-detect | Spring Boot 버전 (예: `4.1.0`) |
 | `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
-| `lspAvailable` | `boolean` | 아니오 | `false` | JDT LS 연결 여부 |
+| `lspAvailable` | `boolean` | 아니오 | `true` | JDT LS 연결 여부. E7(JDT LS)은 Phase E 필수 항목이므로 통과 시 항상 `true` — 미가용이면 Phase E에서 하드 중단 |
 | `maxRepairRetries` | `integer` | 아니오 | `2` | repair-tests 최대 재시도 횟수 |
 | `domainKeywords` | `string[]` | 아니오 | `[]` | 스펙 검색 힌트 |
 | `refactorAdvisory` | `object` | 아니오 | `{ "enabled": true }` | 3.5단계 제어. `enabled`·`thresholds{cyclomatic,constructorArgs}` — 정본: [refactor-advisory.md](../../references/refactor-advisory.md) §5 |
@@ -116,7 +116,7 @@ testScope         = 입력값 또는 "mixed"
 javaVersion       = 입력값 또는 "미지정"
 springVersion     = 입력값 또는 "미지정"
 stylePolicy       = 입력값 또는 "google-java"
-lspAvailable      = 입력값 또는 configure-harness E7 감지값(jdtls + `.lsp.json` + Java 21+ 가용=true, 아니면 false)
+lspAvailable      = 입력값 또는 configure-harness E7 통과값(Phase E 통과 시 항상 true — E7은 필수 항목이며, 미가용이면 Phase E에서 하드 중단하므로 false로 이 단계에 도달하지 않는다)
 maxRepairRetries  = 입력값 또는 2
 domainKeywords    = 입력값 또는 []
 refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 시 refactor-advisory.md §2 기본값;
@@ -131,10 +131,10 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 
 전처리 직후, 0단계 진입 **전에** [references/environment-setup.md](../../references/environment-setup.md) 체크리스트를 **TodoWrite로 만들어 전부 통과**시킨다. 이 단계는 `configure-harness`의 Preflight(Phase E)와 동일 절차이며, `configure-harness`를 호출하면 그 안에서 수행된다(중복 실행 금지 — 이미 통과한 `_workspace/00_config-harness.json`이 있으면 재사용).
 
-- **대상 항목**: E1 Python 3.10+ · E2 MCP SDK · E3 MCP 서버 등록 · E4 JDK 17+ · E5 Maven · E6 JavaParser jar · E7 JDT LS+Java21(**선택**) · E10 테스트 실행 JDK 호환. (E8 빌드도구·E9 Spring 프로파일은 0단계 configure-harness 0.5단계에서, **E11 빌드 능력(JaCoCo XML·PITest)·E12 의존성 캐시 프라이밍은 0.6단계**에서 확정 — 6단계 run-tests 이전 필수. 정본: [references/build-provisioning.md](../../references/build-provisioning.md).)
-- **세팅 방식**: 자동 가능 항목(E1·E2·E6)은 **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / CI=자동 실행**(E1+E2는 v0.15.0+ `node <pluginRoot>/mcp/launch.cjs --ensure-only`로 질문 없이 자동(전 OS) — Python 없으면 uv 무-sudo 설치 + venv 의존성, 실패 시에만 수동 폴백 질문, E6은 `cd mcp/javaparser-cli && mvn -q -DskipTests package`). assist 항목(E4·E5·E10)은 대화형=설치/런타임 안내 질문, CI=미충족 시 하드 중단. E7(JDT LS)은 **선택** — 미가용이면 AST-only degrade로 진행(중단 안 함).
+- **대상 항목**: E1 Python 3.10+ · E2 MCP SDK · E3 MCP 서버 등록 · **E3b MCP 라이브 연결 검증(`health` 3종 호출)** · E4 JDK 21+ · E5 mvnw 동봉 · E6 JavaParser jar · E7 JDT LS+Java21 · E10 테스트 실행 JDK 호환. (E8 빌드도구·E9 Spring 프로파일은 0단계 configure-harness 0.5단계에서, **E11 빌드 능력(JaCoCo XML·PITest)·E12 의존성 캐시 프라이밍은 0.6단계**에서 확정 — 6단계 run-tests 이전 필수. 정본: [references/build-provisioning.md](../../references/build-provisioning.md).)
+- **세팅 방식**: 자동 가능 항목(E1·E2·E6·E7)은 **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / CI=자동 실행**(E1+E2는 v0.15.0+ `node <pluginRoot>/mcp/launch.cjs --ensure-only`로 질문 없이 자동(전 OS) — Python 없으면 uv 무-sudo 설치 + venv 의존성, 실패 시에만 수동 폴백 질문, E6은 `cd mcp/javaparser-cli && ./mvnw -q -DskipTests package`, E7은 `python3 <pluginRoot>/scripts/setup_jdtls.py`). assist 항목(E4 JDK 21+·E10)은 대화형=설치/런타임 안내 질문, CI=미충족 시 하드 중단. **E3b·E6·E7은 필수** — 미가용이면 자동 세팅을 시도하고, 실패 시 하드 중단한다(degrade 진행 없음).
 - **검증 후 체크**: 각 세팅 뒤 재감지로 통과 확인 후 `completed` 표시.
-- **게이트** (정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」): 필수 항목 **E1·E2·E3(런타임) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 통과하지 못하면 0단계로 진행하지 않고 `status:"failed"` + remediation으로 중단한다. **E4·E5·E6(JavaParser jar용 JDK/Maven/빌드)와 E7(JDT LS)은 선택** — 미가용 시 각각 정규식·AST-only degrade로 진행(차단하지 않음).
+- **게이트** (정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」): 필수 항목 **E1·E2·E3·E3b(런타임·MCP 라이브 연결) + E4(JDK 21+)·E5(mvnw)·E6(JavaParser jar)·E7(JDT LS) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 통과하지 못하면 0단계로 진행하지 않고 `status:"failed"` + remediation으로 중단한다. **E4·E5·E6·E7·E3b는 모두 필수** — 미가용 시 자동 세팅을 시도하고, 실패하면 하드 중단한다(정규식·AST-only degrade로 진행하지 않는다).
 
 ---
 
@@ -647,6 +647,8 @@ Markdown 보고서는 아래 구조로 출력한다.
 
 | 상황 | 처리 방식 |
 |---|---|
+| **Phase E·E3b MCP 연결 검증 실패 (#20)** | 대화형·CI 양 모드 `status:"failed"` + remediation(플러그인 활성화 확인 → `node <pluginRoot>/mcp/launch.cjs --ensure-only` → `/reload-plugins`/재시작). **파이프라인을 시작하지 않는다.** Grep/Read 대체 금지 |
+| **파이프라인 도중 MCP 도구 호출 실패 또는 `JAVAPARSER_REQUIRED`/`degraded:true` 수신 (#20/#2)** | 즉시 중단(`status:"failed"` + remediation). **Grep/Read/직접 파싱으로 대체 생성 금지** — MCP 도구는 필수 경로다 |
 | 1·2단계(병렬) 모두 `failed` | 3단계 이후 중단, `status: "failed"` 반환 |
 | 1단계만 `failed` | specResult 없이 진행, `status: "partial"` |
 | 2단계만 `failed` | `status: "failed"` 반환 (AST 없이 이후 단계 불가) |
@@ -666,6 +668,8 @@ Markdown 보고서는 아래 구조로 출력한다.
 | 9단계 뮤테이션 (#12) | score 도달까지 강화. 동일 survivor 집합 **3회 연속(무진전)**이면 `partial` + `survivingMutants[]` + 동등 mutant 사유 보고 |
 | 10단계 적합성 (#16) | `unmet`(unsatisfied/missing) 존재 시 `status: "partial"` + 잔여 전량 보고. 대화형=`AskUserQuestion`(추가 보정/partial 종료), CI=partial 종료. 임의 제외 금지 |
 | junitPolicy `strict-5x` | `warnings`에 버전 충돌 경고 추가 후 진행 |
+
+MCP 필수 경로: 모든 단계에서 MCP 도구(repo-ast·spec-doc·build-test)는 **필수 경로**다 — 미가용·호출 실패·`degraded:true`/`JAVAPARSER_REQUIRED` 응답 시 대체하지 말고 중단한다(fallback-policy.md #20/#2, Grep/Read/직접 파싱 대체 금지).
 
 보안: 각 단계 subagent의 권한 모델은 **해당 에이전트 자신의 frontmatter `tools:` 목록**(`agents/*.md`)으로 정의된다(필요 시 `disallowedTools`로 추가 제한). 쉘 인자 escaping, 네트워크 기본 차단, redaction 필수.
 성능: 1·2단계 병렬. 이후 단계는 순차. 대형 저장소는 targets로 스코프를 좁혀 AST 파싱 비용 절감. context 절약을 위해 각 단계 결과는 JSON summary만 메인에 환원.

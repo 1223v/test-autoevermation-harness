@@ -46,7 +46,7 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
 | `sourceResult` | object | 3단계 산출. `testSeams`·`collaborators.injectionType`을 신호로 재사용(이중 파싱 방지) |
 | `targetSymbols` | string[] | 판정 대상 FQCN. 비어 있으면 `astResult.testTargets[].fqcn` |
 | `projectRoot` | string | 소스 탐색 루트(allowlist 경계) |
-| `lspAvailable` | boolean | JDT LS 연결 여부(선택 — 참조 탐색 보강용) |
+| `lspAvailable` | boolean | JDT LS 연결 여부(필수 — false면 `status:"failed"`로 중단) |
 | `thresholds` | object | 임계값 오버라이드. 미지정 시 refactor-advisory.md §2 기본값 |
 
 ---
@@ -141,9 +141,9 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
 - **코드 본문 처리**: repo-ast는 메서드 바디를 반환하지 않는다(설계 불변). 바디 신호(분기 수·루프 내 호출·`new`·
   `now()`)는 에이전트의 `Read`로 대상 파일을 직접 읽어 계산하되, 결과 JSON에 소스 원문을 포함하지 않는다.
 
-### JDT LS (선택, LSP)
-- **미가용 시**: AST+Read-only로 degrade하여 진행(fallback-policy.md #3 준용). `status: partial` +
-  `warnings`에 `JDT_LS_UNAVAILABLE`. 중단하지 않음.
+### JDT LS (필수, LSP)
+- **미가용 시**: 중단한다(fallback-policy.md #3 준용). `status: "failed"` + `errors`에
+  `JDT_LS_UNAVAILABLE` + remediation(`node <pluginRoot>/mcp/launch.cjs script <pluginRoot>/scripts/setup_jdtls.py`, Java 21+ 필요).
 
 ---
 
@@ -171,7 +171,7 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
-| LSP 미가용 | `lspAvailable: false` | AST+Read-only degrade로 진행, `status: partial` + `warnings: JDT_LS_UNAVAILABLE` (#3 준용) |
+| LSP 미가용 | `lspAvailable: false` | 중단, `status: "failed"` + `errors: JDT_LS_UNAVAILABLE` + remediation(`node <pluginRoot>/mcp/launch.cjs script <pluginRoot>/scripts/setup_jdtls.py`, Java 21+ 필요) (#3 준용) |
 | 바디 Read 불가 | 파일 접근 불가·비Java | 해당 대상만 `warnings` 기록 + 시그니처 기반 부분 판정, 나머지 계속 |
 | `targetSymbols` 미제공 + `astResult` 없음 | — | `status: partial`, `analyze-ast` 선행 실행 안내 |
 | 대상 전부 판정 불가 | — | `status: failed`, `errors`에 원인 기록 |

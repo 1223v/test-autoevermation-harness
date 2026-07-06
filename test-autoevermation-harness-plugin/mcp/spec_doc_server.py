@@ -16,6 +16,7 @@ Environment variables:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 from pathlib import Path
@@ -59,6 +60,19 @@ def _get_allowlist() -> list[str]:
 
 def _redact_enabled() -> bool:
     return os.environ.get("SPEC_DOC_REDACT", "on").lower() != "off"
+
+
+def _plugin_version() -> str | None:
+    """Best-effort read of the plugin's declared version, or None on failure.
+
+    Reads .claude-plugin/plugin.json next to the plugin root (this file lives in
+    mcp/). Never raises: any error degrades to None.
+    """
+    try:
+        manifest = Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json"
+        return json.loads(manifest.read_text(encoding="utf-8")).get("version")
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +404,30 @@ def _strip_prohibition(crit: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
+@mcp.tool()
+def health() -> dict:
+    """Side-effect-free diagnostic probe: report server config status.
+
+    Reports the plugin version and the redaction/allowlist configuration read
+    from the environment, without indexing anything. Never raises: each field
+    degrades independently on error.
+    """
+    try:
+        redact = _redact_enabled()
+    except Exception:
+        redact = True
+    try:
+        allowlist = _get_allowlist()
+    except Exception:
+        allowlist = []
+    return {
+        "server": "spec-doc",
+        "pluginVersion": _plugin_version(),
+        "redact": redact,
+        "allowlist": allowlist,
+    }
+
 
 @mcp.tool()
 def index_docs(paths: list[str]) -> dict:

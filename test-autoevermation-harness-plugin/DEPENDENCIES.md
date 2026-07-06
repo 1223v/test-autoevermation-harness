@@ -12,8 +12,8 @@
 | MCP | 공식 MCP 프로토콜(stdio) — `repo-ast`/`spec-doc`/`build-test` 서버 | 공식 표준 |
 | 훅 | `PreToolUse`/`PostToolUse` (네트워크 가드, 시크릿 redaction) | 네이티브 |
 | Python | 3.10+, `mcp[cli]` (MCP 서버 런타임) | 표준 |
-| Java(권장) | JDK 17+ / Maven 3.6.3+ (JavaParser jar 빌드 — 정밀 AST). 미가용 시 **정규식 fallback으로 degrade**(`degraded:true`+경고). `REPO_AST_REQUIRE_JAVAPARSER=1`로 하드실패 강제는 opt-in. Phase E·E6에서 best-effort 빌드 | 권장 |
-| JDT LS(선택) | `jdtls` + Java 21+ 런타임 (semantic 분석 보강). `plugin.json` `lspServers`로 `.lsp.json` 등록(미설치 시 graceful — AST-only degrade). Phase E·E7(선택) | 선택 |
+| Java(필수) | JDK 21+ (JavaParser jar 빌드 17+ ⊂ JDT LS 구동 21+ — 단일 기준). `mcp/javaparser-cli`에 Maven Wrapper(`mvnw`)가 동봉되어 시스템 Maven 불요. `.mcp.json` 기본값이 `REPO_AST_REQUIRE_JAVAPARSER=1`이라 jar 미빌드 시 정규식 fallback 없이 하드실패. Phase E·E6이 `./mvnw -q -DskipTests package` 자동 빌드, 실패 시 `JAVAPARSER_REQUIRED`로 하드 중단 | 필수 |
+| JDT LS(필수) | `jdtls` + Java 21+ 런타임 (semantic 분석 보강). `plugin.json` `lspServers`로 `.lsp.json`(node 경유 `mcp/jdtls-launcher.cjs`) 등록. Phase E·E7이 `scripts/setup_jdtls.py`로 자동 설치(PATH → brew(macOS) → eclipse.org milestone tarball), 실패 시 하드 중단 | 필수 |
 | 대상 빌드 도구 | Gradle 8.14+/9.x 또는 Maven 3.6.3+ (대상 Spring 프로젝트용) | 대상 프로젝트 |
 
 ## 의존하지 않는 것 (명시적 비의존)
@@ -47,8 +47,8 @@
 #    Python 3.10+가 없으면 uv(무-sudo; POSIX install.sh / Windows install.ps1)로 자동
 #    설치하고, mcp/bootstrap.py가 ${CLAUDE_PLUGIN_DATA}/venv에 mcp[cli]를 설치
 #    (수동 명령 불필요 — POSIX 전용 구진입점 run-server.sh는 수동 폴백으로 유지)
-# 3) (선택) 정확한 Java AST
-cd mcp/javaparser-cli && mvn -q -DskipTests package
+# 3) JavaParser AST 백엔드 빌드 (필수, v0.16.0+) — 시스템 Maven 불요, mvnw 동봉
+cd mcp/javaparser-cli && ./mvnw -q -DskipTests package
 ```
 
 OMC를 설치하지 않은 순정 Claude Code 환경에서 그대로 동작한다.

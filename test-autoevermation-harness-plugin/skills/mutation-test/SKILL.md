@@ -9,6 +9,10 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 
 근거: `[[../../RESEARCH_NOTES.md]]` §4(gradle-pitest 1.19.0 / pitest-junit5-plugin 1.0.0), §6(mutationThreshold≥0.80).
 
+## MCP 필수 (대체 금지)
+
+이 스킬은 `build-test` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다.
+
 ## 호출 조건
 - 자동: `measure-coverage` 게이트 통과 직후(커버리지 충족 후 품질 검증).
 - 수동: `/test-autoevermation-harness-plugin:mutation-test`

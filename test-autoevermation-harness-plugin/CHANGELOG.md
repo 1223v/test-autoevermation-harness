@@ -11,6 +11,48 @@ _(비어 있음)_
 
 ---
 
+## [0.16.0] - 2026-07-06
+
+### Changed — **Breaking: MCP 필수화 (silent degrade 전면 제거)**
+- **JavaParser 백엔드 필수화**: `.mcp.json`이 repo-ast에 `REPO_AST_REQUIRE_JAVAPARSER=1`을 기본 설정 —
+  jar/JDK 미가용 시 정규식 fallback(`degraded:true`)으로 진행하지 않고 `status:"failed"`(`JAVAPARSER_REQUIRED`)로
+  하드 실패한다(정규식 경로는 서버 스크립트 단독 사용 시에만 코드 기본값으로 잔존). jar는 gitignore된 빌드 산출물이므로
+  Phase E·E6가 동봉 Maven wrapper로 자동 빌드(`cd mcp/javaparser-cli && ./mvnw -q -DskipTests package`)하고,
+  실패 시 하드 중단한다. fallback-policy #2 개정.
+- **JDT LS 필수화(E7)**: optional·AST-only degrade 제거 — Phase E·E7이 `scripts/setup_jdtls.py`로 자동
+  설치(PATH → brew(macOS) → eclipse.org milestone tarball → `${CLAUDE_PLUGIN_DATA}/jdtls`)하고, 실패 시 하드 중단.
+  `lspAvailable:false` 상태로 파이프라인 진입 금지. fallback-policy #3 개정.
+- **JDK 21+ 필수(E4)**: jar 빌드(17+)와 JDT LS 구동(21+, Eclipse JDT LS 공식 요구) 요건을 "JDK 21+" 단일
+  메시지로 통합. 대상 프로젝트의 테스트 실행 JDK(E10, Mockito/ByteBuddy 호환)와는 별개.
+- **"무설치(zero-install)" 문구 철회**: README·GUIDE·DEPENDENCIES 전제조건을 정직화 — Node.js(동봉),
+  **JDK 21+(필수)**, Maven(선택 — mvnw 동봉), 첫 세팅 1회 네트워크(uv Python·Maven 의존성·mvnw 배포판·JDT LS
+  tarball). 오프라인 대안: 사전 빌드 jar를 `REPO_AST_JAVAPARSER_JAR`로 지정 + jdtls 사전 설치.
+- 스킬 11종(analyze-ast·analyze-source·ingest-specs·run-tests·generate-scenarios·generate-tests·repair-tests·
+  measure-coverage·mutation-test·refactor-advisory·verify-scenarios)에 "MCP 필수(대체 금지)" 규칙 명시,
+  에이전트 3종(ast-structure-analyzer·source-code-analyzer·refactor-advisor)의 degrade 서술을 하드 중단으로 개정.
+
+### Added
+- **MCP 서버 3종에 `health` 도구 신설**: 무부작용 연결·백엔드 상태 프로브 — repo-ast는
+  `{pluginVersion, javaparser:{jarFound, jarPath, javaOk, requireJavaparser}, allowRoot}`, spec-doc은
+  redact/allowlist, build-test는 networkAllowed를 함께 반환한다.
+- **Phase E 신규 게이트 E3b(MCP 라이브 연결 검증)**: 파이프라인 시작 전 메인 루프가 `health` 3종을 **실제
+  호출**해 세션 연결을 검증 — E3의 import 검사로는 잡히지 않던 플러그인 MCP 등록 실패를 차단. 실패 시 하드
+  중단 + remediation(플러그인 활성화 확인 → `launch.cjs --ensure-only` → `/reload-plugins`/재시작).
+  fallback-policy **#20 신설**(파이프라인 도중 MCP 도구 호출 실패 포함, Grep/Read 대체 금지).
+- **`scripts/setup_jdtls.py`**(stdlib·크로스플랫폼·멱등)와 **`mcp/jdtls-launcher.cjs`**(PATH →
+  `${CLAUDE_PLUGIN_DATA}/jdtls` 순 해석 spawn 래퍼) 추가, `.lsp.json`을 node 래퍼 경유로 전환.
+- **`mcp/javaparser-cli`에 Maven wrapper(`mvnw`/`mvnw.cmd`) 동봉** — 시스템 Maven 전제 제거.
+- **제거(uninstall)·재설정(reset) 가이드**: 루트 `README.md`·플러그인 `README.md`·`docs/GUIDE.md`(§4.5·§4.6)에
+  플러그인 제거(`/plugin uninstall`)·비활성화(`/plugin disable`/`enable`)·마켓플레이스 해제
+  (`/plugin marketplace remove` — 소속 플러그인 동반 제거 경고 포함)·로컬 설치본(symlink/복사) 삭제 절차를 추가.
+  재설정은 3가지 시나리오로 구분: ① 일반 업데이트(`/plugin marketplace update` + `/reload-plugins`),
+  ② 설치 상태 손상 시 플러그인 캐시 초기화(`rm -rf ~/.claude/plugins/cache`, 공식 트러블슈팅 절차),
+  ③ 하네스 실행 상태 재설정(대상 프로젝트 `_workspace/` 삭제 — 다음 실행이 처음부터 시작되며,
+  사람이 읽는 영속 산출물인 `test_docs/`는 보존). GUIDE §9 트러블슈팅 표에 캐시 손상 증상 행 추가.
+  근거: [Discover and install plugins](https://code.claude.com/docs/en/discover-plugins)(2026-07-06 재검증).
+
+---
+
 ## [0.15.0] - 2026-07-05
 
 ### Added

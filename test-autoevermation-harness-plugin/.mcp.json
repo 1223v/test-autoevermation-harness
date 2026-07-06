@@ -4,7 +4,8 @@
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "${CLAUDE_PLUGIN_ROOT}/mcp/repo_ast_server.py"],
       "env": {
-        "REPO_AST_ALLOW_ROOT": "${CLAUDE_PROJECT_DIR}"
+        "REPO_AST_ALLOW_ROOT": "${CLAUDE_PROJECT_DIR}",
+        "REPO_AST_REQUIRE_JAVAPARSER": "1"
       }
     },
     "spec-doc": {

@@ -15,6 +15,12 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 
 ---
 
+## MCP 필수 (대체 금지)
+
+이 스킬은 `repo-ast` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 진행을 금지하고 즉시 중단한다(fallback-policy #3 개정). 단, 이 MCP 가용성 요구는 **판정 자체의 실패(허위 양성 억제, 근거 부족 시 미플래그 등)가 non-blocking(#19)인 것과는 별개**다 — MCP 미가용은 하드 중단, 판정 보수성은 기존 정책대로 유지한다.
+
+---
+
 ## 자동 호출 조건
 
 - 사용자가 "리팩토링 권고", "복잡도 검사", "테스트 적합성", "N+1 검사", "테스트 저해"와 같은 키워드를 사용할 때
@@ -46,7 +52,7 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 | `sourceResult` | `SourceAnalysisResult` | 아니오 | `null` | 3단계 산출. `testSeams`·`collaborators` 신호 재사용 |
 | `targetSymbols` | `string[]` | 아니오 | `[]` → `astResult.testTargets[].fqcn` 사용 | 판정 대상 FQCN 목록 |
 | `projectRoot` | `string` | 아니오 | cwd | 소스 탐색 루트(allowlist 경계) |
-| `lspAvailable` | `boolean` | 아니오 | `false` | JDT LS 연결 여부(선택) |
+| `lspAvailable` | `boolean` | 예 (사실상) | `false` | JDT LS 연결 여부 — `false`면 진행 금지, 즉시 중단(fallback-policy #3) |
 | `thresholds` | `object` | 아니오 | refactor-advisory.md §2 기본값 | `HarnessConfig.refactorAdvisory.thresholds` 오버라이드 |
 
 `targetSymbols`가 비어 있고 `astResult`도 없으면 `status: "partial"`을 즉시 반환하고 `analyze-ast` 선행 실행을 안내한다.
@@ -94,7 +100,7 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 
 3. **결과 검증**
    - `advisories`가 빈 배열이면 "플래그 0건 — 전 대상 생성 적합"을 요약에 명시한다(다운스트림 게이트 생략 신호).
-   - LSP 미가용이면 `status: "partial"` + `warnings: JDT_LS_UNAVAILABLE`로 진행(degrade 허용, #3 준용). 중단하지 않는다.
+   - LSP 미가용이면 즉시 `status:"failed"`로 중단한다(degrade 금지, #3 개정).
    - `advisories[].signals[].evidence`가 파일:라인 형식인지, 소스 원문이 섞이지 않았는지 확인한다.
 
 4. **결과 반환**
@@ -143,7 +149,7 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 
 | 오류 코드 | 발생 조건 | 처리 방식 |
 |---|---|---|
-| LSP 미가용 | `lspAvailable: false` | AST+Read-only degrade로 진행, `status: "partial"` + `warnings: JDT_LS_UNAVAILABLE` (#3 준용) |
+| LSP 미가용 | `lspAvailable: false` | 즉시 `status:"failed"`로 중단(AST+Read-only degrade 금지, #3 개정) |
 | 바디 Read 불가 | 파일 접근 불가·비Java | 해당 대상 `warnings` + 시그니처 기반 부분 판정, 나머지 계속 |
 | `targetSymbols` 미제공 + `astResult` 없음 | — | `status: "partial"`, `analyze-ast` 선행 실행 안내 |
 | subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |

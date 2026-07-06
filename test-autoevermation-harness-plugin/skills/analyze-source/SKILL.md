@@ -5,7 +5,13 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
 ## 목적
 
-`analyze-ast` 결과로 확보된 심볼 목록을 기반으로, 각 대상의 **동작** 관점 정보를 추출한다. 구체적으로 협력 객체(collaborators), 부수 효과(sideEffects), 테스트 seam(외부 DB/HTTP/clock/randomness), 트랜잭션 경계를 식별해 `generate-scenarios`가 mock 전략을 수립할 수 있도록 한다. `repo-ast-mcp`를 기본으로, JDT LS가 가용하면 정의 이동·참조 탐색에 추가 활용한다.
+`analyze-ast` 결과로 확보된 심볼 목록을 기반으로, 각 대상의 **동작** 관점 정보를 추출한다. 구체적으로 협력 객체(collaborators), 부수 효과(sideEffects), 테스트 seam(외부 DB/HTTP/clock/randomness), 트랜잭션 경계를 식별해 `generate-scenarios`가 mock 전략을 수립할 수 있도록 한다. `repo-ast-mcp`와 JDT LS를 함께 사용한다.
+
+---
+
+## MCP 필수 (대체 금지)
+
+이 스킬은 `repo-ast` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 AST-only degrade로 진행하지 말고 즉시 중단한다(fallback-policy #3 개정: Phase E·E7 설치/검증 실패 시 하드 중단).
 
 ---
 
@@ -40,7 +46,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 | `targetSymbols` | `string[]` | 아니오 | `[]` → `analyze-ast.testTargets[].fqcn` 사용 | 분석 대상 FQCN 목록 |
 | `buildMetadata` | `object` | 아니오 | `{}` → auto-detect | 빌드 도구, Java 버전 등 메타 |
 | `astResult` | `AstAnalysisResult` | 아니오 | `null` | 이전 단계 AST 결과(있으면 재파싱 생략) |
-| `lspAvailable` | `boolean` | 아니오 | `false` | JDT LS 연결 여부 |
+| `lspAvailable` | `boolean` | 예 (사실상) | `false` | JDT LS 연결 여부 — `false`면 진행 금지, 즉시 중단(fallback-policy #3) |
 
 `targetSymbols`가 비어 있고 `astResult`도 없으면 `status: "partial"`을 즉시 반환하고 `analyze-ast` 선행 실행을 안내한다.
 
@@ -50,7 +56,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
 1. **입력 정규화**
    - `targetSymbols`가 비어 있으면 `astResult.testTargets[].fqcn`을 사용한다.
-   - `lspAvailable`이 `false`이면 AST-only 모드로 동작(degrade 허용).
+   - `lspAvailable`이 `false`이면 즉시 `status:"failed"`로 중단한다(AST-only degrade 금지, fallback-policy #3 개정).
 
 2. **subagent 호출**
 
@@ -71,7 +77,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
    지시:
    - repo-ast-mcp의 `resolve_symbol`, `parse_java_file` 도구를 사용해 각 대상의 호출 그래프를 탐색하라.
-   - JDT LS는 **선택**이다([fallback-policy.md](../../references/fallback-policy.md) #3). `lspAvailable`이 true면 정의이동·참조탐색에 활용하고, **미가용이면 AST-only로 degrade하여 진행**한다(`status: "partial"` + `warnings`에 `JDT_LS_UNAVAILABLE`). 중단하지 않는다.
+   - JDT LS는 **필수**다([fallback-policy.md](../../references/fallback-policy.md) #3). `lspAvailable`이 true면 정의이동·참조탐색에 활용하고, **미가용이면 즉시 `status:"failed"`로 중단**한다. AST-only degrade로 진행하지 않는다.
    - 각 대상의 외부 의존(DB/HTTP/clock/random)을 식별해 testSeams에 기록하라.
    - 동작 흐름과 예외 경로(checked/unchecked exception, 롤백 조건)를 분리해 기술하라.
    - DI 패턴(@Autowired, 생성자 주입, @Value)과 트랜잭션 경계(@Transactional)를 명시하라.
@@ -111,7 +117,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
 3. **결과 검증**
    - `testSeams`가 비어 있으면 `warnings`에 "seam 미식별 — 순수 로직 또는 분석 범위 확인 필요"를 추가한다.
-   - LSP 미가용이면 AST-only로 진행하고 `status:"partial"` + `warnings`에 `JDT_LS_UNAVAILABLE`(정밀도 저하)를 기록한다(degrade 허용, fallback-policy.md #3). 중단하지 않는다.
+   - LSP 미가용이면 AST-only로 진행하지 말고 즉시 `status:"failed"`로 중단한다(degrade 금지, fallback-policy.md #3 개정).
 
 4. **결과 반환**
    - `SourceAnalysisResult` JSON을 메인 세션으로 반환한다. 코드 본문은 포함하지 않는다.
@@ -154,7 +160,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 | 오류 코드 | 발생 조건 | 처리 방식 |
 |---|---|---|
 | `SYMBOL_UNRESOLVED` | 대상 심볼 탐색 불가 | `status: "partial"`, LSP 보강 권고 |
-| LSP 미가용 | `lspAvailable: false` | AST-only degrade로 진행, `status:"partial"` + `warnings: JDT_LS_UNAVAILABLE` (degrade 허용, #3) |
+| LSP 미가용 | `lspAvailable: false` | 즉시 `status:"failed"`로 중단(AST-only degrade 금지, fallback-policy #3 개정) |
 | `targetSymbols` 미제공 + `astResult` 없음 | — | `status: "partial"`, `analyze-ast` 선행 실행 안내 |
 | subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 

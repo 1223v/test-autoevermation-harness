@@ -94,6 +94,23 @@ def _network_allowed() -> bool:
     return val in ("1", "true", "yes", "on")
 
 
+def _plugin_version() -> "str | None":
+    """Best-effort read of the plugin's declared version, or None on failure.
+
+    Reads .claude-plugin/plugin.json next to the plugin root (this file lives in
+    mcp/). Never raises: any error degrades to None.
+    """
+    try:
+        manifest = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            ".claude-plugin", "plugin.json",
+        )
+        with open(manifest, encoding="utf-8") as fh:
+            return json.load(fh).get("version")
+    except Exception:
+        return None
+
+
 def _detect(root: str) -> dict:
     """Core build-tool detection. Returns {buildTool, wrapper} or BUILD_TOOL_UNDETECTED.
 
@@ -542,6 +559,24 @@ def _run_subprocess(cmd: "list[str] | str", cwd: str) -> dict:
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
+@mcp.tool()
+def health() -> dict:
+    """Side-effect-free diagnostic probe: report server config status.
+
+    Reports the plugin version and whether outbound network is allowed
+    (BUILD_TEST_ALLOW_NETWORK), without running any build. Never raises.
+    """
+    try:
+        network_allowed = _network_allowed()
+    except Exception:
+        network_allowed = False
+    return {
+        "server": "build-test",
+        "pluginVersion": _plugin_version(),
+        "networkAllowed": network_allowed,
+    }
+
 
 @mcp.tool()
 def detect_build_tool(root: str = ".") -> dict:

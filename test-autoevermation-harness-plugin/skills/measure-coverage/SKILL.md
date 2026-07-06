@@ -9,6 +9,10 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
 
 근거: `[[../../RESEARCH_NOTES.md]]` §3(JaCoCo 0.8.12), §6(near-100% 정책). 게이트 도구는 build-test MCP의 `parse_jacoco_report` / `coverage_gate`.
 
+## MCP 필수 (대체 금지)
+
+이 스킬은 `build-test` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다.
+
 ## 호출 조건
 - 자동: `full-pipeline` 의 생성·실행 단계 직후, 또는 사용자가 커버리지 상향을 요청할 때.
 - 수동: `/test-autoevermation-harness-plugin:measure-coverage`

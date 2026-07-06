@@ -11,6 +11,12 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
 
 ---
 
+## MCP 필수 (대체 금지)
+
+이 스킬은 `spec-doc` + `repo-ast` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다.
+
+---
+
 ## 자동 호출 조건
 
 - 사용자가 "테스트 시나리오", "시나리오 설계", "테스트 케이스 도출", "AC 매핑"과 같은 키워드를 사용할 때

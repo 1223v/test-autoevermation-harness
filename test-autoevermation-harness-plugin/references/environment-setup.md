@@ -4,7 +4,7 @@
 fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서 **선제적으로 세팅**해 제거한다.
 
 > 정책 연계: 런타임 의사결정(스펙 읽기불가·건너뛰기 등)은 [fallback-policy.md](./fallback-policy.md)를 따른다.
-> 이 문서는 그중 **환경·역량·버전 감지** 항목(#1·#2·#3·#4·#5·#6 + 테스트 실행 JDK)을 **시작 시점에 일괄 처리**하는 절차다.
+> 이 문서는 그중 **환경·역량·버전 감지** 항목(#1·#2·#3·#4·#5·#6·**#20** + 테스트 실행 JDK)을 **시작 시점에 일괄 처리**하는 절차다.
 
 ## 핵심 원칙
 
@@ -25,10 +25,11 @@ fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서
 | E1 | **Python 3.10+** | `python3 -c "import sys;assert sys.version_info>=(3,10)"` (Windows: `py -3 -c ...` 또는 `python -c ...`) 또는 `${CLAUDE_PLUGIN_DATA}/python-path` 핀 존재 | auto(전 OS) | **자동**(v0.15.0+ 전 OS): `node <pluginRoot>/mcp/launch.cjs --ensure-only` — PATH에 3.10+ 없으면 uv(무-sudo; POSIX `install.sh` / Windows `install.ps1`)로 관리형 Python 자동 설치. 실패 시에만 설치 경로 안내(brew/apt/winget/python.org). `HARNESS_AUTO_PYTHON=0`이면 assist로 강등. POSIX 전용 구진입점 `run-server.sh`는 수동 폴백으로 유지 | 동일 자동, 실패 시 하드 중단 + remediation | MCP 런타임 |
 | E2 | **MCP Python SDK** (`mcp[cli]>=1.2.0`) | `python3 -c "import mcp"` 성공 **또는** bootstrap venv marker 존재 | auto | **자동**(v0.12.0+): `python3 <pluginRoot>/mcp/bootstrap.py --ensure-only` — `${CLAUDE_PLUGIN_DATA}/venv`에 설치, 시스템 python 비오염. 실패 시에만 `AskUserQuestion` → pip 수동 폴백 | **자동** bootstrap 동일, 실패 시 중단 + pip 폴백 remediation | policy #1 |
 | E3 | **MCP 서버 3종 등록** (repo-ast·spec-doc·build-test) | `.mcp.json` 존재 + 각 서버 import 가능(`python3 mcp/<server>.py --help` 또는 모듈 로드) | auto | 누락 서버를 `.mcp.json`에 맞춰 점검, import 실패는 E2로 귀결. 재로딩 안내 | 자동 점검, import 실패면 중단 | `.mcp.json` |
-| E4 | **JDK 17+** (jar 빌드·일반) | `java -version` ≥ 17 | assist | AskUserQuestion으로 설치/`JAVA_HOME` 지정 안내(sdkman/brew). 없으면 중단 | 하드 중단 + remediation | jar/E6 |
-| E5 | **Maven 3.6.3+** (jar 빌드용) | `mvn -version` ≥ 3.6.3 | assist | jar가 이미 있으면 생략 가능. 없고 빌드 필요하면 설치 안내 | jar 없으면 중단(빌드 불가) | E6 |
-| E6 | **JavaParser CLI jar** (권장) | `REPO_AST_JAVAPARSER_JAR` 또는 `mcp/javaparser-cli/target/*-shaded.jar` 존재 | auto(best-effort) | `AskUserQuestion("jar 빌드할까요?")` → 예: `(cd mcp/javaparser-cli && mvn -q -DskipTests package)` → `target/astcli-1.0.0-shaded.jar`. 미빌드 시 **정규식 degrade(경고)** | **자동** 동일 명령 빌드, 실패 시 degrade(중단 아님) | policy #2 (기본 degrade; `REPO_AST_REQUIRE_JAVAPARSER=1`은 opt-in 하드실패) |
-| E7 | **JDT LS + Java 21+ 런타임** (선택) | `jdtls`(PATH) + `.lsp.json` + Java 21+ on `JAVA_HOME`/PATH | optional | `AskUserQuestion`으로 jdtls 설치·Java 21+ 지정 안내(선택). 미가용이면 AST-only degrade로 진행(중단 안 함) | 미가용이면 AST-only degrade(경고, 중단 안 함) | policy #3 |
+| E3b | **MCP 라이브 연결 검증** | 메인 루프가 `repo-ast-mcp.health`·`spec-doc-mcp.health`·`build-test-mcp.health` 3종 도구를 **실제 호출**해 응답 확인 (E3의 import 검사로는 플러그인 MCP 등록 실패를 못 잡음) | auto | 실패 시 하드 중단 + remediation(① 플러그인 활성화 확인 → ② `node <pluginRoot>/mcp/launch.cjs --ensure-only` 수동 실행 → ③ `/reload-plugins` 또는 Claude Code 재시작 → ④ SessionStart 훅 stderr 확인) | 동일 절차로 하드 중단(질문 없이 자동 판정) | policy #20 (repo-ast health는 jar 상태도 함께 반환 — E6 검증 겸용) |
+| E4 | **JDK 21+** (jar 빌드·JDT LS 구동 공통 필수) | `java -version` ≥ 21 | assist | AskUserQuestion으로 설치/`JAVA_HOME` 지정 안내(sdkman/brew). 미충족이면 중단 | 하드 중단 + remediation | jar/E6, JDT LS/E7 |
+| E5 | **Maven 3.6.3+** (jar 빌드용, 선택적) | `mcp/javaparser-cli/mvnw`(Windows `mvnw.cmd`) 존재 또는 `mvn -version` ≥ 3.6.3 | auto | mvnw 동봉으로 시스템 Maven 불필요(있으면 사용 가능). mvnw도 시스템 Maven도 없으면 설치 안내 | mvnw 사용, 둘 다 없으면 중단(빌드 불가) | E6 |
+| E6 | **JavaParser CLI jar** (필수) | `REPO_AST_JAVAPARSER_JAR` 또는 `mcp/javaparser-cli/target/*-shaded.jar` 존재 | auto | `AskUserQuestion`: "예 — jar 빌드(`./mvnw package`)" / "아니오 — 중단" (정규식 degrade 선택지 없음) → 예: `(cd mcp/javaparser-cli && ./mvnw -q -DskipTests package)` → `target/astcli-1.0.0-shaded.jar` | **자동** 동일 명령 빌드, 실패 시 하드 중단(`JAVAPARSER_REQUIRED`) | policy #2 (필수; `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1` 기본 설정) |
+| E7 | **JDT LS + Java 21+ 런타임** (필수) | `jdtls`(PATH) + `.lsp.json` + Java 21+ on `JAVA_HOME`/PATH | auto | 세팅: `node <pluginRoot>/mcp/launch.cjs script <pluginRoot>/scripts/setup_jdtls.py`. 실패(Java 21 미탐지 포함) 시 중단 | 동일 세팅 자동 수행, 실패 시 하드 중단(AST-only degrade 문구 없음) | policy #3 |
 | E8 | **빌드 도구**(gradle/maven) | `build-test-mcp.detect_build_tool(root)` | data | `BUILD_TOOL_UNDETECTED`면 `AskUserQuestion("gradle? maven?")` | 미감지면 중단(`HarnessRequest.buildTool` 명시 요청) | policy #5 |
 | E9 | **Spring Boot 버전/프로파일** | `build-test-mcp.detect_spring_profile(root)` | data | `interviewRequired`면 Boot major AskUserQuestion(#4); `requiresConfirmation`면 충돌 확정(#6). 가정 금지 | 미감지/충돌이면 중단(`HarnessRequest.springVersion` 명시) | policy #4·#6 |
 | E10 | **테스트 실행 JDK ↔ Mockito 호환** | 실행 JDK major vs Mockito/ByteBuddy 지원 범위 | assist | JDK 24/25에서 inline mock-maker 미지원 위험이면 `AskUserQuestion`: "① 테스트 실행 JDK를 17/21 LTS로 / ② Mockito 5.16+(ByteBuddy 1.17+)로 / ③ `-Dnet.bytebuddy.experimental=true`" | 위험이면 자동 보정 불가 → 중단(remediation 안내) | RESEARCH_NOTES §5, ByteBuddy |
@@ -48,18 +49,27 @@ node "<pluginRoot>/mcp/launch.cjs" --ensure-only        # E1(uv 관리형 Python
 #   수동 폴백(오프라인/venv 불가 환경): Python 3.10+ 설치 후 .mcp.json이 실행하는 동일 인터프리터에
 python3 -m pip install -r mcp/requirements.txt          # (which python3 로 인터프리터 확인)
 
-# E6: JavaParser CLI jar (JDK 17+, Maven 3.6.3+)
-cd mcp/javaparser-cli && mvn -q -DskipTests package
-#   산출물: target/astcli-1.0.0-shaded.jar
-#   대안:   export REPO_AST_JAVAPARSER_JAR="/abs/path/astcli-1.0.0-shaded.jar"
+# E3b: MCP 라이브 연결 검증 — 세 서버의 health 도구를 실제 호출해 응답을 확인한다
+#   (repo-ast-mcp.health / spec-doc-mcp.health / build-test-mcp.health)
+#   실패 시 수동 점검: node "<pluginRoot>/mcp/launch.cjs" --ensure-only 재실행 → /reload-plugins 또는 재시작
 
-# E7: JDT LS — jdtls 실행 파일 + Java 21+ 런타임 필요
+# E6: JavaParser CLI jar — mvnw 동봉(시스템 Maven 불필요), JDK 21+ 필요
+cd mcp/javaparser-cli && ./mvnw -q -DskipTests package   # Windows: mvnw.cmd -q -DskipTests package
+#   산출물: target/astcli-1.0.0-shaded.jar
+#   오프라인 대안: 사전 빌드한 jar를 REPO_AST_JAVAPARSER_JAR="/abs/path/astcli-1.0.0-shaded.jar" 로 지정
+
+# E7: JDT LS — jdtls 실행 파일 + Java 21+ 런타임 필요, 자동 설치 스크립트 제공
+node "<pluginRoot>/mcp/launch.cjs" script "<pluginRoot>/scripts/setup_jdtls.py"
+#   PATH → brew(macOS) → eclipse.org milestone tarball(${CLAUDE_PLUGIN_DATA}/jdtls) 순으로 프로비저닝
 #   (Eclipse JDT LS는 구동에 Java 21+ 요구, 컴파일 대상은 1.8–25 지원)
+#   오프라인 대안: jdtls를 사전 설치해 PATH에 두거나 ${CLAUDE_PLUGIN_DATA}/jdtls에 미리 배치
 
 # E10: 테스트 실행 JDK
 #   JDK 17/21 LTS = inline mock-maker 완전 지원(권장)
 #   JDK 24/25 = Mockito 5.16+(ByteBuddy 1.17+) 또는 -Dnet.bytebuddy.experimental=true 필요
 ```
+
+> **첫 세팅 1회 네트워크 필요**: uv Python 설치, Maven 의존성 해석(mvnw 최초 실행 시 wrapper 배포판 다운로드 포함), JDT LS tarball 다운로드는 모두 최초 1회만 온라인이 필요하고 이후에는 로컬 캐시로 동작한다. 완전 오프라인 환경에서는 위 오프라인 대안(사전 빌드 jar 지정, jdtls 사전 설치)을 사용한다.
 
 근거: `mcp/requirements.txt`·`mcp/javaparser-cli/README.md`·`.lsp.json`(저장소), Eclipse JDT LS Java 21 런타임 요구(2025-03 SDK 4.35), Mockito/ByteBuddy Java 25 class-file 69 미지원(Mockito ≤5.13).
 
@@ -68,17 +78,15 @@ cd mcp/javaparser-cli && mvn -q -DskipTests package
 ## 비대화형/CI 자동 세팅 흐름
 
 ```
-for item in [E2, ...결정적]:                     # 런타임 필수(MCP SDK 등)
+for item in [E2, E6, E7, ...결정적]:              # 런타임/필수 세팅(MCP SDK, JavaParser jar, JDT LS 등)
     if not detect(item):
-        run(auto_fix_command)        # pip install
+        run(auto_fix_command)        # pip install / ./mvnw package / setup_jdtls.py
         if not detect(item):         # 재검증
-            return failed(item, remediation)   # 자동 세팅 실패 → 중단
-run_best_effort(E6)                  # JavaParser jar: mvn package 시도, 실패해도 degrade(중단 아님)
-for item in [E1, E8, E9, E10]:                 # 비결정적/시스템 필수
+            return failed(item, remediation)   # 자동 세팅 실패 → 하드 중단
+for item in [E1, E4, E8, E9, E10]:              # 비결정적/시스템 필수(JDK 21+ 포함)
     if not detect(item):
         return failed(item, remediation)        # 질문 불가 → 중단(HarnessRequest 사전지정 요청)
-# E4·E5·E6(JavaParser jar용 JDK/Maven/빌드)·E7(JDT LS)은 선택: 미가용이면 중단하지 않고
-# 각각 정규식·AST-only로 degrade(경고)로 진행한다.
+verify_mcp_health(E3b)                # repo-ast/spec-doc/build-test health 3종 호출, 실패 시 즉시 중단
 ```
 
 대화형은 위 `run(auto_fix_command)`를 **AskUserQuestion 확인 후** 실행하고, 비결정적 항목은 **질문**으로 채운다.
@@ -87,6 +95,6 @@ for item in [E1, E8, E9, E10]:                 # 비결정적/시스템 필수
 
 ## 통과 기준
 
-- E1·E2·E3(런타임 필수) **통과** + E8·E9(빌드도구·프로파일) **확정** + E10(실행 JDK 호환) **확인** → 0단계(configure-harness 인터뷰)로 진행. **E4·E5·E6(JavaParser jar용 JDK/Maven/빌드)와 E7(JDT LS)은 선택** — 미가용이면 각각 정규식·AST-only로 degrade(차단하지 않음).
+- **E1·E2·E3·E3b·E4·E5(시스템 mvn 또는 동봉 mvnw)·E6·E7(전부 필수) 통과** + E8·E9(빌드도구·프로파일) **확정** + E10(실행 JDK 호환) **확인** → 0단계(configure-harness 인터뷰)로 진행. 하나라도 미충족이면 파이프라인을 시작하지 않는다.
 - **E11(빌드 능력)·E12(캐시 프라이밍)**는 0.5단계 직후 **0.6단계**에서 처리한다(6단계 run-tests 이전 필수). 대화형=승인 후 주입/프라이밍, CI=미비 시 remediation 중단.
 - 하나라도 미충족(대화형에서 사용자가 중단 선택 / CI에서 자동 세팅 실패·비결정적) → `status:"failed"`, `errors`에 항목과 remediation 명시, 파이프라인 **미시작**.

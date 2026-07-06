@@ -9,9 +9,12 @@ Design contract (see RESEARCH_NOTES.md sections 1-2):
 * High-level API: ``from mcp.server.fastmcp import FastMCP`` with ``@mcp.tool()``,
   ``@mcp.resource()`` and ``@mcp.prompt()`` decorators; stdio transport.
 * Java AST is produced by a bundled JavaParser symbol-solver CLI jar invoked via
-  ``subprocess`` returning JSON. When the jar or a JDK is unavailable the server
-  *degrades gracefully* to a pure-Python regex extractor, sets ``degraded: true``
-  and records what could not be resolved in ``unresolvedSymbols``.
+  ``subprocess`` returning JSON. Plugin deployments set
+  ``REPO_AST_REQUIRE_JAVAPARSER=1`` so the jar + JDK are REQUIRED and a missing
+  capability is a hard failure (fallback-policy.md #2). When the flag is unset
+  (standalone use) and the jar or a JDK is unavailable the server *degrades
+  gracefully* to a pure-Python regex extractor, sets ``degraded: true`` and
+  records what could not be resolved in ``unresolvedSymbols``.
 * Output conforms to the ``AstAnalysisResult`` schema:
   ``status``/``summary``/``testTargets[]``/``dependencyGraph``/
   ``unresolvedSymbols[]``/``riskPoints[]``/``evidence``/``warnings``/``errors``/
@@ -21,8 +24,9 @@ Design contract (see RESEARCH_NOTES.md sections 1-2):
   no network access.
 
 The module is import-safe: importing it (or running ``py_compile``) must not
-require the ``mcp`` package to be installed. The pure-Python fallback works
-without the Java jar so the server is usable immediately.
+require the ``mcp`` package to be installed. Under standalone use the pure-Python
+fallback works without the Java jar so the server is usable immediately; plugin
+deployments instead require the jar via ``REPO_AST_REQUIRE_JAVAPARSER=1``.
 """
 
 from __future__ import annotations
@@ -216,6 +220,19 @@ def _require_javaparser() -> bool:
     capability becomes a hard failure instead of a silent degrade."""
     val = os.environ.get("REPO_AST_REQUIRE_JAVAPARSER", "").strip().lower()
     return val in {"1", "true", "yes", "on"}
+
+
+def _plugin_version() -> Optional[str]:
+    """Best-effort read of the plugin's declared version, or ``None`` on failure.
+
+    Reads ``.claude-plugin/plugin.json`` next to the plugin root (this file lives
+    in ``mcp/``). Never raises: any error degrades to ``None``.
+    """
+    try:
+        manifest = Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json"
+        return json.loads(manifest.read_text(encoding="utf-8")).get("version")
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _run_java_cli(jar: str, target: Path) -> Optional[dict[str, Any]]:
@@ -937,6 +954,49 @@ def build_server() -> Any:
         )
 
     mcp = FastMCP(SERVER_NAME)
+
+    @mcp.tool()
+    def health() -> dict:
+        """Side-effect-free diagnostic probe: report server capability status.
+
+        Reports whether the JavaParser jar/JDK are available and the strict-mode
+        flag, without parsing anything. This is a probe, NOT a capability gate: it
+        never hard-fails when the jar is missing even under
+        REPO_AST_REQUIRE_JAVAPARSER=1, and every field degrades to None/False on
+        error rather than raising.
+        """
+        jar_path: Optional[str] = None
+        java_ok = False
+        require = False
+        allow_root: Optional[str] = None
+        try:
+            jar_path = _locate_jar()
+        except Exception:  # noqa: BLE001
+            jar_path = None
+        try:
+            java_ok = _jdk_available()
+        except Exception:  # noqa: BLE001
+            java_ok = False
+        try:
+            require = _require_javaparser()
+        except Exception:  # noqa: BLE001
+            require = False
+        try:
+            root = _allow_root()
+            allow_root = str(root) if root is not None else None
+        except Exception:  # noqa: BLE001
+            allow_root = None
+        return {
+            "server": "repo-ast",
+            "pluginVersion": _plugin_version(),
+            "javaparser": {
+                "jarFound": jar_path is not None,
+                "jarPath": jar_path,
+                "javaOk": java_ok,
+                "requireJavaparser": require,
+            },
+            "allowRoot": allow_root,
+        }
 
     @mcp.tool()
     def parse_java_file(path: str) -> dict:

@@ -184,7 +184,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
-| `JAVAPARSER_REQUIRED` (#2, opt-in) | `REPO_AST_REQUIRE_JAVAPARSER=1`이 **설정된 경우에만** repo-ast가 jar/JDK 미가용 시 `status:failed` 반환 | 그 경우 중단하고 remediation(jar 빌드 또는 `REPO_AST_JAVAPARSER_JAR` + JDK) 보고. **기본 배포는 플래그 미설정 → 정규식 fallback으로 degrade**(`degraded:true`+경고 보고)([fallback-policy.md](../references/fallback-policy.md) #2) |
+| `JAVAPARSER_REQUIRED` (#2, 필수) | `REPO_AST_REQUIRE_JAVAPARSER=1`은 opt-in이 아니라 플러그인 기본값(`.mcp.json`)이다. jar/JDK 미가용 시 repo-ast가 `status:failed`(`JAVAPARSER_REQUIRED`) 반환 | 결과 수용 금지. 그대로 `status:"failed"` + `errors`에 원인 + remediation(`cd mcp/javaparser-cli && ./mvnw -q -DskipTests package` 또는 `REPO_AST_JAVAPARSER_JAR` 지정 + JDK) 보고 후 중단. `degraded:true` 응답(비플러그인 단독 환경)도 채택 금지 — 동일하게 중단([fallback-policy.md](../references/fallback-policy.md) #2) |
 | `SYMBOL_UNRESOLVED` | 클래스패스 불완전, 제네릭 타입 추론 불가 | `partial` 반환. `unresolvedSymbols` 채움. `nextActions`에 "JDT LS LSP 보강 권고" 추가 |
 | `UNSUPPORTED_PROJECT_SHAPE` | 비표준 디렉터리 구조, annotation processor 전용 생성 클래스 | `partial` 반환. 탐지 가능한 범위만 결과 포함. `warnings`에 상세 기록 |
 | 프로젝트 루트 없음 | `projectRoot`가 존재하지 않음 | `failed` 반환. `errors`에 경로 명시 |

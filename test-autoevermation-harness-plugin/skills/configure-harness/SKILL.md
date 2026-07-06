@@ -65,22 +65,40 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 | E1 | Python 3.10+ | `python3 -c "import sys;assert sys.version_info>=(3,10)"` (Windows: `py -3 -c ...`) 또는 python-path 핀 | `node <pluginRoot>/mcp/launch.cjs --ensure-only` (auto, v0.15.0+ — uv로 무-sudo 자동 설치, 전 OS). 실패 시 설치 경로 안내 |
 | E2 | MCP SDK `mcp[cli]>=1.2.0` | `python3 -c "import mcp"` 또는 bootstrap venv marker | `python3 <pluginRoot>/mcp/bootstrap.py --ensure-only` (auto, v0.12.0+ — 플러그인 venv에 설치). 실패 시 pip 폴백 |
 | E3 | MCP 서버 3종 등록 | `.mcp.json` + 서버 모듈 로드 | import 실패는 E2로 귀결 |
-| E4 | JDK 17+ | `java -version`≥17 | 설치/`JAVA_HOME` 안내(assist) |
-| E5 | Maven 3.6.3+ | `mvn -version` | jar 이미 있으면 생략 |
-| E6 | JavaParser CLI jar | `REPO_AST_JAVAPARSER_JAR` 또는 `mcp/javaparser-cli/target/*-shaded.jar` | `(cd mcp/javaparser-cli && mvn -q -DskipTests package)` (auto) |
-| E7 | JDT LS + Java 21+ (선택) | `jdtls` PATH + `.lsp.json` + Java 21+ | 미가용이면 AST-only degrade(중단 안 함, optional). **감지 결과를 `HarnessConfig.lspAvailable`에 반영**(가용=`true`, 미가용=`false`) |
+| E3b | MCP 라이브 연결 검증 (필수) | `health` 3종(repo-ast·spec-doc·build-test) 실제 호출 성공 | 도구 미존재/호출 실패 시 하드 중단 + remediation(플러그인 활성화 확인 → `node <pluginRoot>/mcp/launch.cjs --ensure-only` → `/reload-plugins`/재시작). 아래 **E3b 실행 블록** 참조 |
+| E4 | JDK 21+ (필수) | `java -version`≥21 | 설치/`JAVA_HOME` 안내(assist). 미충족 시 중단 |
+| E5 | mvnw 동봉 — 시스템 Maven 불요 | `mcp/javaparser-cli/mvnw`(Windows: `mvnw.cmd`) 존재 | 동봉 wrapper 사용(시스템 Maven 불필요). E6이 이를 호출 |
+| E6 | JavaParser CLI jar (필수) | `REPO_AST_JAVAPARSER_JAR` 또는 `mcp/javaparser-cli/target/*-shaded.jar` | `(cd mcp/javaparser-cli && ./mvnw -q -DskipTests package)` (auto). 실패 시 `JAVAPARSER_REQUIRED` 하드 중단 |
+| E7 | JDT LS + Java 21+ (필수) | `jdtls`(PATH/프로비저닝) + `.lsp.json` + Java 21+ | `python3 <pluginRoot>/scripts/setup_jdtls.py` (auto). 실패 시 하드 중단. **E7 통과 시 `HarnessConfig.lspAvailable`은 항상 `true`** |
 | E10 | 테스트 실행 JDK ↔ Mockito 호환 | 실행 JDK major vs Mockito/ByteBuddy 지원 범위 | 17/21 LTS 권장 또는 Mockito 5.16+/experimental 플래그 |
 
 > E8(빌드도구)·E9(Spring 프로파일)는 데이터 감지라 아래 **0.5단계**에서 함께 확정한다.
 
+**E3b 실행 블록 — MCP 라이브 연결 검증 (E3 직후, 필수)**
+
+E3의 모듈 로드 검사만으로는 플러그인 MCP 등록 실패(세션에 도구 미노출)를 못 잡는다. 따라서 3개 서버의 무부작용 `health` 도구를 **실제로 호출**해 연결을 검증한다.
+
+```
+repo-ast-mcp.health()   → { server, pluginVersion, javaparser:{jarFound, jarPath, javaOk, requireJavaparser}, allowRoot }
+spec-doc-mcp.health()   → { server, pluginVersion, ... }
+build-test-mcp.health() → { server, pluginVersion, networkAllowed, ... }
+```
+
+- **3종 모두 성공**: 응답의 `pluginVersion`과 repo-ast의 `javaparser` 상태를 기록(`_workspace/00_config-harness.json`)하고 E3b를 `completed`로 표시한다.
+- **도구 미존재 또는 호출 실패**(어느 서버든): 침묵 fallback·Grep/Read 대체 없이 **하드 중단**한다 — `status:"failed"` + remediation:
+  1. 플러그인이 활성화되어 있는지 확인(`/plugin` 목록에 `test-autoevermation-harness-plugin`).
+  2. `node <pluginRoot>/mcp/launch.cjs --ensure-only`로 런타임을 재프로비저닝.
+  3. `/reload-plugins` 또는 Claude Code 재시작으로 MCP 서버를 재등록.
+- **repo-ast health의 `javaparser.jarFound:false`**: jar 미빌드 상태다 — E6 세팅(자동 빌드)으로 연결한다. `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1`이므로 jar 없이는 이후 파싱이 `JAVAPARSER_REQUIRED`로 실패한다.
+
 **세팅 방식 (정책: environment-setup.md)**
-- **대화형 — 항목별로 함께 세팅**: 자동으로 고칠 수 있는 항목(E2·E6 등)은 항목마다 `AskUserQuestion("〈항목〉이 없습니다. 지금 함께 세팅할까요?")` → "예"면 그 자리에서 설치/빌드 실행 → **재감지 검증** → `completed`. "아니오"면 `status:"failed"` 중단. assist 항목(E4·E5, 그리고 자동 설치 실패/`HARNESS_AUTO_PYTHON=0`인 E1)은 설치/경로 안내 질문, 사용자가 못 갖추면 중단. E7(JDT LS)은 **선택** — 미가용이면 안내만 하고 AST-only degrade로 진행(중단 안 함).
-- **비대화형/CI — 항상 자동 세팅**: 결정적 항목(E1·E2·E6)은 질문 없이 `node launch.cjs --ensure-only`(Python+SDK)/`mvn package`를 **자동 실행** 후 재검증. 자동 세팅이 실패하거나 시스템 항목(E4·E5·E7)이 없으면 `status:"failed"` + remediation으로 중단(`HarnessRequest`로 사전 충족 가능).
+- **대화형 — 항목별로 함께 세팅**: 자동으로 고칠 수 있는 항목(E2·E6·E7 등)은 항목마다 `AskUserQuestion("〈항목〉이 없습니다. 지금 함께 세팅할까요?")` → "예"면 그 자리에서 설치/빌드 실행(E6=`./mvnw package`, E7=`setup_jdtls.py`) → **재감지 검증** → `completed`. "아니오"면 `status:"failed"` 중단. assist 항목(E4 JDK 21+, 그리고 자동 설치 실패/`HARNESS_AUTO_PYTHON=0`인 E1)은 설치/경로 안내 질문, 사용자가 못 갖추면 중단. E3b(MCP 라이브 연결)·E6(JavaParser jar)·E7(JDT LS)은 **필수** — 미가용이면 자동 세팅을 시도하고, 실패 시 하드 중단한다(degrade 진행 없음).
+- **비대화형/CI — 항상 자동 세팅**: 결정적 항목(E1·E2·E6·E7)은 질문 없이 `node launch.cjs --ensure-only`(Python+SDK)/`./mvnw -DskipTests package`(jar)/`python3 scripts/setup_jdtls.py`(JDT LS)를 **자동 실행** 후 재검증. 자동 세팅이 실패하거나 시스템 항목(E4 JDK 21+)이 없으면, 그리고 E3b MCP 연결 검증이 실패하면 `status:"failed"` + remediation으로 하드 중단한다(`HarnessRequest`로 사전 충족 가능). **E4~E7·E3b 어느 것도 degrade로 진행하지 않는다.**
 - **검증 후 체크**: 세팅 액션 뒤 반드시 재감지해서 통과를 확인한 뒤에만 `completed`로 표시한다.
 
-필수 항목 **E1·E2·E3(런타임) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 `completed`여야 0단계로 진행한다. **E4·E5·E6(JavaParser jar용 JDK/Maven/빌드)와 E7(JDT LS)은 선택** — 미가용 시 각각 정규식·AST-only degrade로 진행(차단하지 않음). 정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」. (예시: E2는 v0.12.0+ 자동 bootstrap이 기본이므로 질문 불필요 — bootstrap 실패 시에만 `AskUserQuestion(options=["예 — python3 -m pip install -r mcp/requirements.txt 실행","아니오 — 중단"])`, E6 `options=["예 — javaparser jar 빌드","아니오 — 정규식 degrade로 진행"]`.)
+필수 항목 **E1·E2·E3·E3b(런타임·MCP 라이브 연결) + E4(JDK 21+)·E5(mvnw)·E6(JavaParser jar)·E7(JDT LS) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 `completed`여야 0단계로 진행한다. **E3b·E4·E5·E6·E7은 모두 필수** — 미가용 시 자동 세팅을 시도하고, 실패하면 하드 중단한다(정규식·AST-only degrade로 진행하지 않는다). 정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」. (예시: E2는 v0.12.0+ 자동 bootstrap이 기본이므로 질문 불필요 — bootstrap 실패 시에만 `AskUserQuestion(options=["예 — python3 -m pip install -r mcp/requirements.txt 실행","아니오 — 중단"])`, E6 `options=["예 — javaparser jar 빌드","아니오 — 중단"]`.)
 
-> **`lspAvailable`은 E7 감지 결과로 설정한다** — `jdtls`(PATH) + `.lsp.json`(plugin.json `lspServers`로 등록됨) + Java 21+ 런타임이 모두 가용이면 `true`, 아니면 `false`. 아래 `HarnessConfig` 출력 예시는 미가용 기본값(`false`)이다. `lspAvailable:true`일 때만 `analyze-source`/`full-pipeline`의 LSP 보강(정의이동·참조탐색) 경로가 활성화된다.
+> **`lspAvailable`은 E7 통과 시 항상 `true`다** — E7(JDT LS)은 필수 항목이므로 `jdtls`(PATH/프로비저닝) + `.lsp.json`(plugin.json `lspServers`로 등록됨) + Java 21+ 런타임이 모두 통과해야 0단계로 진행한다. E7이 미가용이면 Phase E에서 하드 중단하므로 **`lspAvailable:false` 상태로는 0단계에 진입하지 않는다**. 아래 `HarnessConfig` 출력 예시의 `lspAvailable`은 E7 통과 후 값인 `true`다. `analyze-source`/`full-pipeline`의 LSP 보강(정의이동·참조탐색) 경로는 이 전제 위에서 항상 활성화된다.
 
 ### 0단계: 모드 판별
 
@@ -331,7 +349,7 @@ AskUserQuestion(
     "degraded": false
   },
   "stylePolicy": "google-java",
-  "lspAvailable": false,
+  "lspAvailable": true,
   "maxRepairRetries": 2,
   "domainKeywords": [],
   "coverage": {
