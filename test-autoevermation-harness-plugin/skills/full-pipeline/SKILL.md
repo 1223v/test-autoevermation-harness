@@ -11,7 +11,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 **리팩토링 권고 게이트(3.5단계).** 소스 분석(3단계) 직후, 시나리오 설계(4단계) **전에** 테스트 부적합 코드(순환복잡도 초과·비효율·테스트 저해 설계)를 공식문서 근거로 판정한다. 플래그된 대상은 권고 `.md`(`test_docs/refactoring/RA-*.md`)를 **항상** 작성하고, 대화형은 `AskUserQuestion`으로 "생성 대상 포함/제외"를 묻는다(제외분은 4단계 입력에서 필터링, 권고 문서는 보존). 비대화형·CI는 전 대상 포함+경고. 정본: [references/refactor-advisory.md](../../references/refactor-advisory.md), fallback-policy.md #19.
 
-**시나리오 승인 + 산출물(`test_docs/`).** 시나리오 설계(4단계) 직후, 테스트 생성(5단계) **전에 사용자 승인 게이트**를 둔다 — 시나리오를 대상 프로젝트의 `test_docs/scenarios/<id>.md`로 저장하고, 대화형은 `AskUserQuestion`으로 승인/제외·수정/재설계를 묻는다(승인분만 생성으로 진행). 비대화형·CI는 자동 승인 후 기록. 모든 단계가 끝나면 **마지막 단계(10단계)에서 시나리오 적합성을 검증**해(통과한 테스트가 시나리오 given/when/then을 실제로 만족하는지) `test_docs/`를 **시나리오 ↔ 테스트코드 ↔ 결과**로 정리한다. 정본: [references/scenario-docs.md](../../references/scenario-docs.md).
+**시나리오 승인 + 산출물(`test_docs/`).** 시나리오 설계(4단계) 직후, 테스트 생성(5단계) **전에 사용자 승인 게이트**를 둔다 — 시나리오를 대상 프로젝트의 `test_docs/scenarios/<id>.md`로 저장하고, 대화형은 `AskUserQuestion`으로 승인/제외·수정/재설계를 묻는다(승인분만 생성으로 진행). 비대화형·CI는 자동 승인 후 기록. 모든 단계가 끝나면 **마지막 단계(10단계)에서 시나리오 적합성을 검증**해(통과한 테스트가 시나리오 given/when/then을 실제로 만족하는지) `test_docs/`를 **시나리오 ↔ 테스트코드 ↔ 결과**로 정리하고, 불일치(`unmet`)가 있으면 **10.5단계 적합성 자동 보정 루프**(최대 3라운드)로 자동 교정한다. 정본: [references/scenario-docs.md](../../references/scenario-docs.md).
 
 **가장 먼저 Phase E 환경 세팅을 끝낸다.** 0단계 이전에 [references/environment-setup.md](../../references/environment-setup.md)(SSOT) 체크리스트를 TODO로 만들어 환경(역량·빌드도구·프로파일·실행 JDK)을 **선제적으로 전부 세팅**한다 — fallback을 파이프라인 도중에 마주치기 전에 제거한다. 여기에 **대상 빌드 능력(JaCoCo XML·PITest 플러그인)과 의존성 캐시 프라이밍**(0.6단계, E11·E12)이 포함된다 — 미비 시 커버리지/뮤테이션(8·9단계)·첫 실행(6단계)이 깨지므로 `detect→approve→inject`로 선제 처리한다([references/build-provisioning.md](../../references/build-provisioning.md)). 자동으로 고칠 수 있는 항목은 **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / 비대화형·CI=자동 세팅**(`pip install`·`mvn package`). 미충족 잔여 항목이 있으면 파이프라인을 **시작하지 않는다**. 런타임 의사결정 fallback은 [references/fallback-policy.md](../../references/fallback-policy.md)(SSOT)를 따른다 — **대화형은 `AskUserQuestion`, 비대화형은 결정적 항목 자동 세팅·그 외 하드 중단**(remediation 안내).
 
@@ -370,12 +370,17 @@ Task(
 - 실제 네트워크/Thread.sleep/broad catch 금지.
 - junitPolicy=strict-5x이면 빌드 파일에 version pin + CHANGELOG 경고 (jupiter 한정).
 - unresolved 시그니처는 생성 보류 + warnings 기록.
+- 시나리오 target 호출 자가 검증(필수 게이트): 각 파일 기록 후 parse_java_file의 methodCalls로 각 scNNN_ 메서드가
+  시나리오 target(FQCN#method) 메서드를 실제 호출하는지 대조하라(unit 직접호출은 기계 대조 → "matched",
+  slice는 when HTTP verb/경로 ↔ perform(...) 및 given stub 메서드명 대조 → "manual-verified").
+  불일치는 1회 자가 수정 후에도 불일치면 파일 제외 + warnings에 SCENARIO_TARGET_MISMATCH 기록.
+  모든 files[] 항목에 targetCallCheck를 기록하라.
 - TestGenResult JSON으로 반환하라.
 """
 )
 ```
 
-결과를 `genResult`로 저장. `genResult.files[]`를 각 경로에 Write.
+결과를 `genResult`로 저장. `genResult.files[]`를 각 경로에 Write. **단, `targetCallCheck`가 없거나 `"mismatch"`인 항목은 Write하지 않고 해당 시나리오를 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다** — 필드 누락은 게이트 미수행으로 간주한다(별도 5.5단계 없이 이 필드 검사로 게이트를 강제한다).
 
 ---
 
@@ -476,6 +481,7 @@ Task(
 - 미달 시 `coverage-closer` 에이전트가 `uncovered[]`를 받아 추가 테스트 생성 → 게이트 충족까지 재측정(fallback-policy.md #12: 진전 있는 한 계속, 동일 미커버 집합 3회 연속이면 무진전으로 보고 후 중단).
 - 임계값 기본(RESEARCH_NOTES §6): LINE≥0.95 / BRANCH≥0.90 / METHOD≥0.95 / CLASS=1.00, 제외 allowlist 적용.
 - **회귀 실행 + runResult 재할당**: 게이트 수렴 후 `coverageResult.addedTests`가 있으면 6단계(run-tests)를 생성+추가 테스트 전체로 회귀 실행해 그린 상태를 확인하고(실패 시 7단계 보정 루프 재진입), 그 결과를 **`runResult`로 재할당**한다 — 10단계는 이 최신 값을 받는다.
+- **스킵 금지 + 산출물 유효성 (#21)**: RA advisory 대상이라는 이유로 coverage-closer 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 이 게이트와 무관하다. "구조적으로 커버 불가" 판단은 coverage-closer가 루프를 실제 수행한 뒤 `remainingGaps[].reason`으로만 성립하고, 제외는 `coverage.excludes`(사용자 승인)로만 가능하다. `gatePassed:false`인데 `iterations<1` 또는 `remainingGaps`가 빈 `coverageResult`는 **게이트 미수행 산출물로 무효** — 9단계로 진행하지 말고 8단계를 다시 실행하라(`guard-gate-artifacts.py` 훅이 무효 `08_coverage_result.json` 기록을 차단한다).
 
 결과를 `coverageResult`로 저장.
 
@@ -505,6 +511,7 @@ Task(
 - score < `mutationThreshold`(기본 0.80) 또는 survivor 존재 시 `mutation-analyst`가 단언을 강화해 mutant 제거 → 재실행.
 - 금지: Thread.sleep / broad catch / over-mock / 의미 없는 assert. 동등(equivalent) mutant 의심은 보고.
 - **회귀 실행 + runResult 재할당**: 뮤테이션 루프 수렴 후(단언 강화·테스트 추가가 1회라도 있었으면) 6단계(run-tests)를 전체 대상(생성+추가 테스트)으로 회귀 실행한다. 강화된 단언이 실패하면 7단계 보정 루프로 재진입하고, 최종 그린 결과를 **`runResult`로 재할당**한다 — 이것이 10단계에 전달되는 최종 실행 결과다. 이 회귀가 없으면 9단계에서 바뀐 테스트의 실행 상태가 10단계에 stale로 전달된다.
+- **스킵 금지 + 산출물 유효성 (#21)**: RA advisory 대상이라는 이유로 mutation-analyst 강화 루프를 건너뛸 수 없다. `thresholdMet:false`인데 `iterations<1` 또는 `survivingMutants`가 빈 `mutationResult`는 **게이트 미수행 산출물로 무효** — 10단계로 진행하지 말고 9단계를 다시 실행하라(`guard-gate-artifacts.py` 훅이 무효 `09_mutation_result.json` 기록을 차단한다).
 
 결과를 `mutationResult`로 저장.
 
@@ -535,7 +542,11 @@ Task(
 
 지시:
 - scenarioRef(메서드명 sc001_… + javadoc scenarioRef/criteriaRef)로 시나리오 → 테스트 메서드를 매핑하라.
-- satisfied(매핑+통과+then 단언 충족) / unsatisfied(매핑되나 실패·단언 부족) / missing(매핑 없음)으로 판정하라.
+- target 호출 기계 대조: parse_java_file의 methodCalls로, unit/직접호출 시나리오는 시나리오 target(FQCN#method)의
+  메서드 단순명이 매핑 테스트 메서드의 호출 목록에 있는지 기계 판정하라(없으면 결정적 unsatisfied +
+  nonconformanceClass: WRONG_TARGET_CALL). slice는 when의 HTTP verb/경로 ↔ perform(...) 및 given stub 메서드명 대조.
+- satisfied(매핑+통과+target 호출 일치+then 단언 충족) / unsatisfied(매핑되나 실패·target 불일치·단언 부족) / missing(매핑 없음)으로 판정하라.
+- unsatisfied/missing에는 nonconformanceClass(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH/MAPPING_MISSING)를 반드시 기록하라(10.5단계 라우팅 힌트).
 - // then 단언이 시나리오 then을 빠짐없이 반영하는지 테스트 본문과 대조해 판정하라(thenCovered 충족/전체).
 - test_docs/scenarios/<id>.md의 "테스트 코드 매핑"·"검증 결과" 섹션과 INDEX.md를 갱신하라(references/scenario-docs.md §2).
 - 테스트 코드를 새로 생성/수정하지 마라(검증·문서화 전용). 소스 원문·민감정보 기록 금지.
@@ -546,7 +557,50 @@ Task(
 
 결과를 `conformanceResult`로 저장하고 `_workspace/10_conformance.json`에 보존한다.
 
-**게이트 (fallback-policy.md #16)**: `unmet`(unsatisfied/missing)이 하나라도 있으면 파이프라인 `status: "partial"`로 잔여를 전량 보고한다. 전부 satisfied라야 `ok`. 대화형은 잔여에 대해 `AskUserQuestion`("추가 보정 시도 / partial로 종료")로 5→6→(8·9) 부분 재실행을 선택할 수 있다. CI는 `partial`로 종료. 임의 제외·무시 금지.
+**게이트 (fallback-policy.md #16)**: `unmet`(unsatisfied/missing)이 하나라도 있으면 **10.5단계 적합성 자동 보정 루프로 진입한다**(대화형·CI 동일 — 사용자에게 먼저 묻지 않는다). 전부 satisfied면 10.5단계를 건너뛰고 `ok`. 임의 제외·무시 금지.
+
+---
+
+### 10.5단계: 조건부 — 적합성 자동 보정 루프 (unmet 존재 시)
+
+10단계가 발견한 불일치를 **보고로 끝내지 않고** 자동 보정한다. 통과했지만 시나리오와 어긋난 테스트(예: target `recordMoResult` 대신 유사명 `recordMtResult` 호출)는 6·7단계가 잡을 수 없으므로(7단계는 실패 테스트만 보정) 이 루프가 유일한 자동 교정 경로다.
+
+```
+round = 1..3 (하드 캡):
+  1. conformanceResult.unmet을 verdict별로 분할:
+     - unsatisfied → test-fixer 호출(모드 B — SCENARIO_NONCONFORMANT): 입력에 nonconformantItems[]
+       (scenarioResults에서 unsatisfied 항목의 scenarioId/testClass/testMethods/verdict/
+       nonconformanceClass/notes), originalTests, relatedSources, springProfile, scenarioDocs를 전달.
+       failResult는 생략.
+       7단계와 동일하게 worktree patches[]를 메인 트리에 적용.
+     - missing → test-code-generator 호출: 해당 시나리오만 부분 재생성(5단계와 동일 프롬프트,
+       scenarios를 missing 시나리오로 한정 — targetCallCheck 게이트 적용으로 재발 방지).
+  2. 6단계 run-tests를 영향 클래스 한정으로 재실행. 실패하면 기존 7단계 보정 루프(#12) 재진입
+     (적합성 교정이 green→red를 만드는 것은 정상 — 교정된 호출이 실제 결함을 드러낸 것).
+  3. 10단계 verify-scenarios를 영향 시나리오 한정으로 재실행 → unmet 재계산.
+  중단 조건: unmet == ∅ (성공) / 직전 라운드와 동일한 unmet 집합(무진전 — 즉시 중단) / 3라운드 소진.
+```
+
+- **하드 캡 3라운드 근거(#12의 명시적 예외)**: #12("진전 있는 한 무제한")는 실패 집합·커버리지 라인 같은 결정적 신호 전제다. 적합성 판정은 일부가 LLM 판단이라 verifier↔fixer 진동으로 unmet 집합이 계속 섞이며 "진전처럼 보일" 수 있어, 하드 캡 + 동일 집합 즉시 중단을 적용한다(#16).
+- **수렴 후 회귀**: 루프 중 테스트가 수정·추가되었으면 8·9단계를 회귀 실행하고(기존 규약대로 `runResult` 재할당) 최종 10단계 확인을 1회 수행한다 — 여기서 새 unmet이 나오면 남은 라운드 예산 내에서만 처리(재순환 아님).
+- **소진 후 잔여 unmet**: 대화형 = `AskUserQuestion`("수동 보정 계속 / partial로 종료"). CI = `status: "partial"` + 잔여 전량 보고.
+- 라운드 로그를 `_workspace/10b_conformance_repair.json`에 저장:
+
+```json
+{
+  "rounds": [
+    {
+      "round": 1,
+      "unmetBefore": ["SC-013"],
+      "routed": { "fixer": ["SC-013"], "regen": [] },
+      "unmetAfter": [],
+      "progress": true
+    }
+  ]
+}
+```
+
+결과를 `conformanceRepairResult`로 저장하고, 최종 `conformanceResult`(마지막 10단계 재검증 결과)를 갱신한다.
 
 ---
 
@@ -554,7 +608,9 @@ Task(
 
 모든 단계 결과(`coverageResult`, `mutationResult`, `conformanceResult` 포함)를 수렴해 `PipelineResult` JSON과 Markdown 보고서를 생성한다.
 
-**집계 매핑(중첩 필드 주의)**: `stages.measureCoverage`의 `line/branch/method/class`는 `coverageResult.coverage.*`(중첩)에서, `gatePassed`/`iterations`는 top-level에서 읽는다. `stages.verifyScenarios`의 `approved/satisfied/unsatisfied/missing`은 `conformanceResult.totals.*`(중첩)에서 읽는다. `stages.mutationTest`는 `mutationResult`의 top-level(`mutationScore`/`thresholdMet`/`iterations`)과 1:1.
+**집계 유효성 교차검증 (#21)**: `stages.measureCoverage`/`stages.mutationTest`는 무효 조건 검사를 통과한 결과만 집계한다 — `gatePassed:false`∧(`iterations<1`∨`remainingGaps` 빈 배열) 또는 `thresholdMet:false`∧(`iterations<1`∨`survivingMutants` 빈 배열)이면 게이트 미수행이므로 집계하지 말고 해당 단계를 재실행한다.
+
+**집계 매핑(중첩 필드 주의)**: `stages.measureCoverage`의 `line/branch/method/class`는 `coverageResult.coverage.*`(중첩)에서, `gatePassed`/`iterations`는 top-level에서 읽는다. `stages.verifyScenarios`의 `approved/satisfied/unsatisfied/missing`은 **최종**(10.5단계 이후 재검증된) `conformanceResult.totals.*`(중첩)에서 읽는다. `stages.conformanceRepair`는 `conformanceRepairResult`에서 읽는다(10.5단계 미진입 시 `"skipped"`). `stages.mutationTest`는 `mutationResult`의 top-level(`mutationScore`/`thresholdMet`/`iterations`)과 1:1.
 
 ---
 
@@ -576,7 +632,8 @@ Task(
     "repairTests": { "status": "skipped" },
     "measureCoverage": { "status": "ok", "line": 0.97, "branch": 0.92, "method": 0.98, "class": 1.00, "gatePassed": true, "iterations": 2 },
     "mutationTest": { "status": "ok", "mutationScore": 0.86, "thresholdMet": true, "iterations": 1 },
-    "verifyScenarios": { "status": "ok", "approved": 7, "satisfied": 7, "unsatisfied": 0, "missing": 0 }
+    "verifyScenarios": { "status": "ok", "approved": 7, "satisfied": 7, "unsatisfied": 0, "missing": 0 },
+    "conformanceRepair": { "status": "skipped", "rounds": 0, "fixed": 0, "regenerated": 0 }
   },
   "generatedFiles": [
     "src/test/java/com/example/order/OrderServiceTest.java",
@@ -625,6 +682,7 @@ Markdown 보고서는 아래 구조로 출력한다.
 | measure-coverage | ok | 라인 0.97 / 브랜치 0.92 / 메서드 0.98 / 클래스 1.00 (2회 반복) |
 | mutation-test | ok | mutation score 0.86 (목표 0.80 충족) |
 | verify-scenarios | ok | 승인 7건 satisfied 7 / unsatisfied 0 / missing 0 |
+| 적합성 자동 보정 | 건너뜀 | unmet 없음 (있으면: 1라운드, fixer 보정 1 / 재생성 0) |
 
 ## 시나리오 적합성 (test_docs/)
 - 산출물: `test_docs/INDEX.md` (시나리오↔테스트코드↔결과 매핑)
@@ -660,13 +718,14 @@ Markdown 보고서는 아래 구조로 출력한다.
 | 4.5단계 승인 게이트 (#15) | 대화형=`AskUserQuestion`(전체 승인/일부 제외·수정/재설계). 승인분만 5단계로. CI=자동 승인+기록 후 진행 |
 | 4.5단계 전체 제외 | 승인된 시나리오가 0건이면 `status: "partial"` + "승인된 시나리오 없음" 보고 후 중단 |
 | 5단계 `files` 비어 있음 | `status: "failed"` 반환 |
+| 5단계 target 호출 게이트 | `targetCallCheck` 누락 또는 `"mismatch"` 파일은 Write 금지 + `warnings`(`SCENARIO_TARGET_MISMATCH`) 보고. 전 파일 mismatch면 `status: "failed"` |
 | 6단계 `BUILD_TOOL_UNDETECTED` (#5) | 대화형=`AskUserQuestion("gradle/maven?")` 후 진행 / CI=`status:"failed"` |
 | 0.6단계 빌드 능력 미비 (#17) | JaCoCo XML/PITest 미적용 → 대화형=승인 후 스니펫 주입(`buildChanges[]`)·재감지 / 거부 시 8·9단계 `skipped` / CI=자동 주입 금지·remediation 중단 |
 | 0.6단계 콜드 캐시 (#18) | `primed:false` → 대화형=승인 후 6단계 1회 `online=True` 프라이밍 / CI=`BUILD_TEST_ALLOW_NETWORK=1` 옵트인·워밍업 안내 |
 | 7단계 보정 루프 (#12) | **그린 될 때까지 재시도**(진전 있는 한 계속). 동일 실패 시그니처 **3회 연속(무진전)**이면 `partial`로 잔여 전량 보고 후 종료 |
-| 8단계 커버리지 게이트 (#12) | 게이트 충족까지 재측정/보정. 동일 미커버 집합 **3회 연속(무진전)**이면 `partial` + `remainingGaps[]` 전량 보고(임의 제외 금지) |
-| 9단계 뮤테이션 (#12) | score 도달까지 강화. 동일 survivor 집합 **3회 연속(무진전)**이면 `partial` + `survivingMutants[]` + 동등 mutant 사유 보고 |
-| 10단계 적합성 (#16) | `unmet`(unsatisfied/missing) 존재 시 `status: "partial"` + 잔여 전량 보고. 대화형=`AskUserQuestion`(추가 보정/partial 종료), CI=partial 종료. 임의 제외 금지 |
+| 8단계 커버리지 게이트 (#12/#21) | 게이트 충족까지 재측정/보정. 동일 미커버 집합 **3회 연속(무진전)**이면 `partial` + `remainingGaps[]` 전량 보고(임의 제외 금지). **RA advisory는 스킵 사유 아님** — `gatePassed:false`∧`iterations<1`(또는 `remainingGaps` 빈 배열)인 결과는 게이트 미수행으로 무효, 8단계 재실행(훅이 기록 차단) |
+| 9단계 뮤테이션 (#12/#21) | score 도달까지 강화. 동일 survivor 집합 **3회 연속(무진전)**이면 `partial` + `survivingMutants[]` + 동등 mutant 사유 보고. **RA advisory는 스킵 사유 아님** — `thresholdMet:false`∧`iterations<1`(또는 `survivingMutants` 빈 배열)인 결과는 게이트 미수행으로 무효, 9단계 재실행(훅이 기록 차단) |
+| 10단계 적합성 (#16) | `unmet` 존재 시 **10.5단계 자동 보정 루프**(unsatisfied→test-fixer 모드 B / missing→부분 재생성, 최대 3라운드·동일 unmet 집합 즉시 무진전 중단, 대화형·CI 동일 자동 수행) → 소진 후 잔여: 대화형=`AskUserQuestion`(수동 보정 계속/partial 종료), CI=`status: "partial"` + 잔여 전량 보고. 임의 제외 금지 |
 | junitPolicy `strict-5x` | `warnings`에 버전 충돌 경고 추가 후 진행 |
 
 MCP 필수 경로: 모든 단계에서 MCP 도구(repo-ast·spec-doc·build-test)는 **필수 경로**다 — 미가용·호출 실패·`degraded:true`/`JAVAPARSER_REQUIRED` 응답 시 대체하지 말고 중단한다(fallback-policy.md #20/#2, Grep/Read/직접 파싱 대체 금지).

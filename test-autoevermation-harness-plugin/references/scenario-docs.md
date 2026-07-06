@@ -132,9 +132,14 @@ approvedAt: 2026-06-27
 1. **매핑**: `scenarioRef`(메서드명 `sc001_…`)와 javadoc `scenarioRef/criteriaRef`로 시나리오 → 테스트 메서드를 찾는다.
    매핑되는 메서드가 없으면 `missing`.
 2. **실행 결과**: 매핑된 메서드가 최종 실행에서 `passed`인지 확인한다. `failed`/미실행이면 `unsatisfied`.
-3. **then 충족**: 테스트 본문의 `// then` 단언이 시나리오 `then` 항목을 **빠짐없이** 반영하는지 확인한다
-   (단언 누락·약화 시 `unsatisfied`, 사유 기록). given/when도 시나리오와 일치하는지 점검한다.
-4. **판정**: `satisfied`(매핑+통과+then 충족) / `unsatisfied`(매핑되나 실패·단언 부족) / `missing`(매핑 테스트 없음).
+3. **target 호출 기계 대조**: `parse_java_file`의 `methodCalls`로, unit/직접호출 시나리오는 시나리오
+   `target`(`FQCN#method`)의 메서드 단순명이 매핑 테스트 메서드의 호출 목록에 있는지 **기계 판정**한다
+   (없으면 결정적 `unsatisfied` + `nonconformanceClass: WRONG_TARGET_CALL` — 유사명 혼동 차단).
+   slice는 `when`의 HTTP verb/경로 ↔ `perform(...)`, `given` stub 메서드명을 대조한다.
+4. **then 충족**: 테스트 본문의 `// then` 단언이 시나리오 `then` 항목을 **빠짐없이** 반영하는지 확인한다
+   (단언 누락·약화 시 `unsatisfied` + `THEN_GAP`, 사유 기록). given도 시나리오와 일치하는지 점검한다(`GIVEN_MISMATCH`).
+5. **판정**: `satisfied`(매핑+통과+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·target 불일치·단언 부족) / `missing`(매핑 테스트 없음, `MAPPING_MISSING`).
+   `unsatisfied`/`missing`에는 `nonconformanceClass`를 기록한다(10.5단계 보정 라우팅 힌트).
 
 산출 후:
 - 각 `scenarios/<id>.md`의 "테스트 코드 매핑"·"검증 결과" 섹션을 채우고 `INDEX.md`를 갱신한다.
@@ -142,10 +147,13 @@ approvedAt: 2026-06-27
 
 ### 4.1 게이트 (fallback-policy.md #16)
 
-- `missing` 또는 `unsatisfied` 시나리오가 하나라도 있으면 파이프라인 `status: "partial"`로 보고하고 잔여를 전량 명시한다.
-- 전부 `satisfied`라야 `status: "ok"`. 임의 제외·무시 금지(커버리지/뮤테이션 게이트와 동일 정책).
-- 대화형: 잔여 unsatisfied/missing에 대해 `AskUserQuestion`("추가 보정 시도 / partial로 종료")로 후속을 정할 수 있다.
-  보정 시도 선택 시 5→6→(8·9) 부분 재실행. CI: `partial`로 보고 후 종료.
+- `missing` 또는 `unsatisfied` 시나리오가 하나라도 있으면 **full-pipeline 10.5단계 적합성 자동 보정 루프**가
+  대화형·CI 동일하게 자동 수행된다: unsatisfied→`test-fixer` 모드 B(`SCENARIO_NONCONFORMANT`),
+  missing→`test-code-generator` 부분 재생성 → 6단계 재실행 → 10단계 재검증.
+  **최대 3라운드, 직전 라운드와 동일 unmet 집합이면 즉시 무진전 중단**(#12의 명시적 예외 — 적합성 판정은 일부 LLM 판단).
+- 루프 소진 후 잔여가 있으면 `status: "partial"`로 잔여를 전량 명시한다. 전부 `satisfied`라야 `status: "ok"`.
+  임의 제외·무시 금지(커버리지/뮤테이션 게이트와 동일 정책).
+- 소진 후 대화형: 잔여에 대해 `AskUserQuestion`("수동 보정 계속 / partial로 종료"). CI: `partial`로 보고 후 종료.
 
 ### 4.2 `ConformanceResult` 스키마
 
@@ -163,6 +171,7 @@ approvedAt: 2026-06-27
       "executed": "passed",
       "thenCovered": "2/2",
       "verdict": "satisfied",
+      "nonconformanceClass": null,
       "notes": ""
     }
   ],
@@ -178,6 +187,6 @@ approvedAt: 2026-06-27
 
 ## 5. `_workspace/`·부분 재실행 연계
 
-- `04_scenario_set.json`(설계) → `04b_approval.json`(승인/제외 결과) → … → `10_conformance.json`(적합성).
+- `04_scenario_set.json`(설계) → `04b_approval.json`(승인/제외 결과) → … → `10_conformance.json`(적합성) → `10b_conformance_repair.json`(10.5단계 보정 라운드 로그, unmet 존재 시).
 - 승인 결과(`04b_approval.json`)는 5단계 입력 필터로 쓰고, 부분 재실행("이 패키지만", "시나리오 다시")에서 재사용한다.
 - `test_docs/`는 대상 프로젝트의 영속 산출물, `_workspace/*.json`은 감사용 중간 산출물(서로 다른 위치).

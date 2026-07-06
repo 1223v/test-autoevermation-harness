@@ -51,13 +51,14 @@ AST 구조 추출  ───┘                                                 
   `scenarioRef`(`SC-001` → `sc001_…`)가 박히며, 결과가 대상 프로젝트의 `test_docs/`에
   시나리오↔테스트코드↔결과 매핑으로 영속화된다.
 - **게이트 3종**: ① 3.5단계 리팩토링 권고(테스트 부적합 코드 선별), ② 4.5단계 시나리오 승인(승인분만 생성),
-  ③ 10단계 적합성 검증(통과한 테스트가 시나리오를 실제로 만족하는지). 대화형은 `AskUserQuestion`으로 묻고,
+  ③ 10단계 적합성 검증(통과한 테스트가 시나리오를 실제로 만족하는지 — target 호출은 `methodCalls` 기계 대조,
+  불일치는 10.5단계 자동 보정 루프가 최대 3라운드 교정). 대화형은 `AskUserQuestion`으로 묻고,
   CI는 정책에 따라 자동 진행/중단한다.
 - **품질 루프 2종**: JaCoCo near-100% 커버리지 게이트(기본 LINE≥0.95/BRANCH≥0.90/METHOD≥0.95/CLASS=1.00),
   PITest 뮤테이션 강화(기본 score≥0.80). 무진전 3회 연속이면 `partial`로 정직하게 중단한다.
 - **독립 실행**: oh-my-claudecode 등 외부 플러그인에 의존하지 않는다. Claude Code 네이티브 기능
   (플러그인·`Task` 서브에이전트·`AskUserQuestion`·MCP·훅)만 필수다 — Python 3.10+는 없으면
-  자동 설치된다(v0.13.0+, macOS/Linux). 상세: [DEPENDENCIES.md](../DEPENDENCIES.md).
+  자동 설치된다(v0.15.0+, 전 OS: macOS/Linux/WSL/Windows). 상세: [DEPENDENCIES.md](../DEPENDENCIES.md).
 
 ---
 
@@ -195,9 +196,10 @@ AST-only degrade는 더 이상 허용되지 않는다.
 | **5** | generate-tests(test-code-generator) | 프로파일 분기 코드 생성 — 컨트롤러 `@WebMvcTest`+MockMvc, JPA `@DataJpaTest`, 서비스는 컨텍스트 없는 단위, BDD 3단 본문 | `src/test/java/*`, `05_*.json` |
 | **6** | run-tests(test-runner) | 생성 클래스만 대상 한정 실행(Gradle `--tests`/Maven `-Dtest=`), JUnit XML 파싱 | `06_run_result.json` |
 | **7** | repair-tests(test-fixer) — 실패 시만 | 실패 유형 분류(COMPILE/RUNTIME/FLAKY/SPEC_MISMATCH/SYMBOL) → 최소 diff 보정 → 6단계 재실행. **그린까지 반복**, 동일 실패 3회 연속(무진전)이면 partial | `07_*.json` |
-| **8** | measure-coverage(coverage-closer) | JaCoCo 측정 → `coverage_gate` → 미달 gap에 보완 테스트 생성 → 재측정 루프 | `08_*.json` |
-| **9** | mutation-test(mutation-analyst) | PITest → 생존 mutant 단언 강화 → 재실행 루프 (sleep/over-mock/broad-catch 금지) | `09_*.json` |
-| **10** | verify-scenarios(scenario-conformance-verifier) | scenarioRef로 시나리오↔테스트 매핑 → satisfied/unsatisfied/missing 판정(then 단언 전수 반영 확인) → `test_docs/` 최종 갱신 | `10_conformance.json` |
+| **8** | measure-coverage(coverage-closer) | JaCoCo 측정 → `coverage_gate` → 미달 gap에 보완 테스트 생성 → 재측정 루프. **스킵 불가**(#21 — advisory는 면제 사유 아님, 무효 산출물은 훅이 차단) | `08_*.json` |
+| **9** | mutation-test(mutation-analyst) | PITest → 생존 mutant 단언 강화 → 재실행 루프 (sleep/over-mock/broad-catch 금지). **스킵 불가**(#21) | `09_*.json` |
+| **10** | verify-scenarios(scenario-conformance-verifier) | scenarioRef로 시나리오↔테스트 매핑 → target 호출 `methodCalls` 기계 대조(WRONG_TARGET_CALL) → satisfied/unsatisfied/missing 판정(then 단언 전수 반영 확인) → `test_docs/` 최종 갱신 | `10_conformance.json` |
+| **10.5** | full-pipeline(적합성 자동 보정) — unmet 시만 | unsatisfied→test-fixer 모드 B(`SCENARIO_NONCONFORMANT` 최소 diff) / missing→부분 재생성 → 6단계 재실행 → 10단계 재검증. **최대 3라운드**, 동일 unmet 집합 즉시 무진전 중단(#16) | `10b_conformance_repair.json` |
 | 집계 | full-pipeline | `PipelineResult` JSON + Markdown 보고서 | `pipeline_result.json` |
 
 ### 3.3 리팩토링 권고 게이트(3.5)의 판정 기준
@@ -423,9 +425,9 @@ configure-harness 마지막의 **도메인 스킬 스캐폴딩**으로 `/test-au
 full-pipeline 진행률이 한 줄 추가된다(기존 상태줄 출력은 그대로 유지):
 
 ```text
-[Test-AutoEverMation#0.11.0]                                    ← 파이프라인 없음(버전만)
-[Test-AutoEverMation#0.11.0] 43% | stage 4: generate-scenarios  ← 진행 중(_workspace/ 산출물 기반)
-[Test-AutoEverMation#0.11.0] 100% | done (ok)                   ← 완료(pipeline_result.json의 status)
+[Test-AutoEverMation#<version>]                                    ← 파이프라인 없음(버전만; plugin.json에서 동적으로 읽음)
+[Test-AutoEverMation#<version>] 43% | stage 4: generate-scenarios  ← 진행 중(_workspace/ 산출물 기반)
+[Test-AutoEverMation#<version>] 100% | done (ok)                   ← 완료(pipeline_result.json의 status)
 ```
 
 동작 원리: 스킬이 `~/.claude/settings.json`의 `statusLine` 커맨드를 래퍼(`scripts/test-autoevermation-statusline.py`)로

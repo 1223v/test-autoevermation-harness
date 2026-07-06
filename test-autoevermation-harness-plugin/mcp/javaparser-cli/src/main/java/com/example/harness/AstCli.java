@@ -10,6 +10,7 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
@@ -37,12 +38,15 @@ import java.util.stream.Stream;
  * { "package": str, "imports": [str],
  *   "classes": [ { "name": str, "package": str, "annotations": [str], "extendsImplements": str,
  *                  "methods": [ {name, signature, returnType, parameters:[str],
- *                                annotations:[str], public:bool} ],
+ *                                annotations:[str], public:bool, invokedMethods:[str]} ],
  *                  "fields":  [ {name, type, annotations:[str]} ] } ],
  *   "unresolvedSymbols": [str] }
  * </pre>
  *
- * <p>By contract method bodies are NEVER emitted. Symbol resolution uses
+ * <p>By contract method bodies and call ARGUMENTS are NEVER emitted; only the
+ * simple names of methods invoked inside each method body are exposed as
+ * {@code invokedMethods} structure metadata (used by the scenario target-call
+ * conformance gate). Symbol resolution uses
  * JavaParser symbol-solver (pinned 3.28.2). Unresolved types are collected
  * best-effort into {@code unresolvedSymbols} rather than failing the run.
  */
@@ -195,7 +199,16 @@ public final class AstCli {
                 + returnType + " " + m.getNameAsString()
                 + "(" + String.join(", ", paramSig) + ")";
         obj.put("signature", JsonValue.str(signature));
-        // Contract: never emit method bodies.
+
+        // Invoked method simple names only — never argument text or bodies.
+        Set<String> calls = new LinkedHashSet<>();
+        m.findAll(MethodCallExpr.class).forEach(c -> calls.add(c.getNameAsString()));
+        JsonArray invoked = new JsonArray();
+        for (String c : calls) {
+            invoked.add(JsonValue.str(c));
+        }
+        obj.put("invokedMethods", invoked);
+        // Contract: never emit method bodies or call arguments.
         return obj;
     }
 

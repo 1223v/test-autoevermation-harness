@@ -19,9 +19,10 @@ Design contract (see RESEARCH_NOTES.md sections 1-2):
   ``status``/``summary``/``testTargets[]``/``dependencyGraph``/
   ``unresolvedSymbols[]``/``riskPoints[]``/``evidence``/``warnings``/``errors``/
   ``nextActions``.
-* SECURITY: never returns method *bodies* (only signatures / annotations /
-  metadata); enforces a path allowlist rooted at ``REPO_AST_ALLOW_ROOT``; performs
-  no network access.
+* SECURITY: never returns method *bodies* or call *arguments* (only signatures /
+  annotations / metadata; invoked method *names* are exposed as structure
+  metadata for the scenario target-call conformance gate); enforces a path
+  allowlist rooted at ``REPO_AST_ALLOW_ROOT``; performs no network access.
 
 The module is import-safe: importing it (or running ``py_compile``) must not
 require the ``mcp`` package to be installed. Under standalone use the pure-Python
@@ -577,6 +578,9 @@ def _fallback_parse_file(
                     "returnType": ret,
                     "annotations": _annotations_from(mm.group("annos")),
                     "modifiers": [t for t in mods.split() if t],
+                    # Regex mode cannot see call expressions; plugin deployments
+                    # always use the JavaParser CLI (which populates this).
+                    "invokedMethods": [],
                 }
             )
 
@@ -658,6 +662,20 @@ def _failed_result(code: str, message: str, remediation: list[str]) -> dict[str,
 
 def _public_methods(cls: dict[str, Any]) -> list[str]:
     return [m["signature"] for m in cls.get("methods", []) if m.get("signature")]
+
+
+def _method_calls(cls: dict[str, Any]) -> dict[str, list[str]]:
+    """Map each method name to the simple names of methods its body invokes.
+
+    Names only — never arguments or bodies. Empty lists under the regex
+    fallback (only the JavaParser CLI extracts call expressions). Used by the
+    scenario target-call conformance gate (test-code-generator Stage 5 /
+    scenario-conformance-verifier Stage 10)."""
+    return {
+        m["name"]: list(m.get("invokedMethods") or [])
+        for m in cls.get("methods", [])
+        if m.get("name")
+    }
 
 
 def _risk_points_for(cls: dict[str, Any]) -> list[str]:
@@ -750,6 +768,7 @@ def _build_result(
                     "fqcn": fqcn,
                     "kind": kind,
                     "publicMethods": _public_methods(cls),
+                    "methodCalls": _method_calls(cls),
                     "annotations": cls.get("annotations", []),
                     "stereotype": next(
                         (
@@ -923,9 +942,11 @@ def _normalize_java_cli_output(
             cls["kind"] = _classify_kind(
                 annos, cls.get("extendsImplements", ""), custom_stereotypes
             )
-        # Defensive: strip any body field a CLI might have included.
+        # Defensive: strip any body field a CLI might have included; keep the
+        # invoked-method *names* (structure metadata, no arguments/bodies).
         for m in cls.get("methods", []):
             m.pop("body", None)
+            m["invokedMethods"] = [str(c) for c in (m.get("invokedMethods") or [])]
     return {
         "file": str(path),
         "package": package,
@@ -1003,7 +1024,11 @@ def build_server() -> Any:
         """Parse a single Java file, returning structure-only AST metadata.
 
         Emits class/method signatures, fields and annotations (never method
-        bodies). Conforms to AstAnalysisResult.
+        bodies or call arguments). Each testTarget additionally carries
+        ``methodCalls`` — a map of method name to the simple names of methods
+        invoked inside it (empty lists in regex-fallback mode) — used to verify
+        that a generated test's ``// when`` actually calls the scenario's
+        ``target`` method. Conforms to AstAnalysisResult.
         """
         return _analyze([path])
 

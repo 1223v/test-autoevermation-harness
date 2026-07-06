@@ -49,6 +49,8 @@ ORDER = [
 IDLE_STAGE_LABEL = "stage 0: configure-harness"
 REPAIR_ARTIFACT = "07_repair_result.json"
 REPAIR_BLOCKER = "08_coverage_result.json"  # 8단계 산출물이 생기면 7단계 표시 종료
+# 조건부 10.5단계(적합성 자동 보정): 10b 산출물이 있고 최종 결과가 아직 없으면 표시
+CONFORMANCE_REPAIR_ARTIFACT = "10b_conformance_repair.json"
 RESULT_ARTIFACT = "pipeline_result.json"
 
 
@@ -121,6 +123,9 @@ def harness_line(stdin_bytes):
         os.path.join(workspace, REPAIR_BLOCKER)
     ):
         stage = "stage 7: repair-tests"
+    # 조건부 10.5단계: 적합성 자동 보정 루프 진행 중(RESULT_ARTIFACT 부재는 위에서 보장)
+    if os.path.exists(os.path.join(workspace, CONFORMANCE_REPAIR_ARTIFACT)):
+        stage = "stage 10.5: conformance-repair"
 
     pct = round(100 * done / len(ORDER))
     return "%s %d%% | %s" % (prefix, pct, stage)

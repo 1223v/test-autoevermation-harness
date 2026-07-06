@@ -32,8 +32,9 @@
 ## 2. Java AST: JavaParser + Symbol Solver
 - 좌표: `com.github.javaparser:javaparser-symbol-solver-core:**3.28.2**` (AST + symbol resolution 통합). 공식: [javaparser.org](https://javaparser.org/), [mvnrepository](https://mvnrepository.com/artifact/com.github.javaparser/javaparser-symbol-solver-core)
 - Java 1–25 파싱 지원.
-- 전략: 번들 **JavaParser CLI(Java helper jar)** 를 `subprocess`로 호출해 JSON(AST 메타/심볼) 반환 → Python FastMCP 서버가 래핑. JDK/jar 미가용 시 **순수 Python 휴리스틱(정규식 기반 시그니처 추출)** 으로 degrade하고 `unresolvedSymbols`/`degraded:true` 표기.
-- 보안: 코드 본문 미반환(노드/시그니처/애노테이션 메타만), 프로젝트 루트 내부 경로 allowlist.
+- 전략: 번들 **JavaParser CLI(Java helper jar)** 를 `subprocess`로 호출해 JSON(AST 메타/심볼) 반환 → Python FastMCP 서버가 래핑.
+- **JavaParser 필수(v0.16.0~)**: 플러그인 배포는 `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1`을 기본 설정하므로 jar/JDK 미가용 시 `status:"failed"`(`JAVAPARSER_REQUIRED`)로 **하드 실패**한다(fallback-policy.md #2/#20). 정규식 기반 휴리스틱 경로(`degraded:true`)는 **standalone 서버 단독 사용**(플래그 미설정) 시 코드 기본값으로만 잔존하며, 파이프라인 경로에서는 쓰이지 않는다.
+- 보안: 코드 본문·호출 인자 미반환(노드/시그니처/애노테이션/호출 메서드 **이름** 메타만 — v0.17.0 `invokedMethods`/`methodCalls`), 프로젝트 루트 내부 경로 allowlist(`REPO_AST_ALLOW_ROOT`).
 
 ## 3. 커버리지: JaCoCo
 - 버전: **0.8.12** (Java 17+ 정상 동작). 공식: [JaCoCo Gradle Plugin](https://docs.gradle.org/current/userguide/jacoco_plugin.html), [DSL: JacocoCoverageVerification](https://docs.gradle.org/current/dsl/org.gradle.testing.jacoco.tasks.JacocoCoverageVerification.html)

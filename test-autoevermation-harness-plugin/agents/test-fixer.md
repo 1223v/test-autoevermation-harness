@@ -1,6 +1,6 @@
 ---
 name: test-fixer
-description: "Use this agent when test-runner reports one or more test failures and targeted repair is needed. Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when minimum-diff patches are needed to fix failing tests without full regeneration."
+description: "Use this agent when test-runner reports one or more test failures and targeted repair is needed, or when scenario-conformance-verifier reports unsatisfied scenarios that need conformance repair (SCENARIO_NONCONFORMANT). Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when full-pipeline stage 10.5 routes unsatisfied scenarios for minimum-diff conformance fixes, when minimum-diff patches are needed to fix failing tests without full regeneration."
 model: inherit
 isolation: worktree
 tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-test__run_targeted_tests, mcp__build-test__parse_junit_xml, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__extract_test_targets, mcp__spec-doc__search_requirements, mcp__spec-doc__extract_acceptance_criteria
@@ -16,10 +16,11 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 ## 호출 조건
 
-- `test-runner`가 `failed[]`에 1개 이상의 항목을 반환했을 때
+- `test-runner`가 `failed[]`에 1개 이상의 항목을 반환했을 때 (**모드 A — 실패 보정**)
+- `full-pipeline` 10.5단계가 `scenario-conformance-verifier`의 `unsatisfied` 시나리오를 라우팅할 때 (**모드 B — 적합성 보정**: 테스트는 통과하지만 시나리오와 불일치. 입력 `nonconformantItems[]` 존재 시 이 모드)
 - `/test-autoevermation-harness-plugin:repair-tests` skill이 직접 호출될 때
 - `full-pipeline` skill에서 `test-runner` 결과에 실패가 포함될 때
-- 재시도: **그린까지 계속**(고정 상한 없음, #12). 직전과 동일한 실패 집합이 3회 연속(무진전)이면 `status: partial`로 잔여 보고 후 수동 개입 요청
+- 재시도: **그린까지 계속**(고정 상한 없음, #12). 직전과 동일한 실패 집합이 3회 연속(무진전)이면 `status: partial`로 잔여 보고 후 수동 개입 요청. 모드 B의 라운드 상한은 파이프라인 10.5단계가 관리(#16 — 최대 3라운드)
 
 ---
 
@@ -46,13 +47,24 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
     "mockImport": "org.springframework.test.context.bean.override.mockito.MockitoBean"
   },
   "scenarioDocs": ["/absolute/path/to/test_docs/scenarios/SC-001.md"],
+  "nonconformantItems": [
+    {
+      "scenarioId": "SC-013",
+      "testClass": "com.example.metrics.MoMetricsServiceTest",
+      "testMethods": ["sc013_recordMoResult_incrementsCounterAndTimer"],
+      "verdict": "unsatisfied",
+      "nonconformanceClass": "WRONG_TARGET_CALL",
+      "notes": "when이 target recordMoResult가 아닌 startMtProcessing/recordMtResult를 호출"
+    }
+  ],
   "retryCount": 0
 }
 ```
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `failResult` | object | `test-runner` 출력의 `TestRunResult` 전체 |
+| `failResult` | object | `test-runner` 출력의 `TestRunResult` 전체. **`nonconformantItems`가 있으면 생략 가능(모드 B)** |
+| `nonconformantItems` | object[] | (모드 B) 10단계 `ConformanceResult.unmet` 중 `unsatisfied` 항목 — scenarioId·testClass·testMethods·verdict·`nonconformanceClass`(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH)·notes. 존재 시 적합성 보정 모드로 동작 |
 | `originalTests` | object[] | 실패한 테스트 파일 경로 및 현재 내용. `content` 생략 시 `path`를 Read로 로드 |
 | `relatedSources` | object[] | 실패와 관련된 프로덕션 소스 파일 경로·FQCN. 경로 문자열만 전달되면 `repo-ast-mcp`로 FQCN을 해석 |
 | `springProfile` | object\|null | 0단계 `configure-harness`가 확정한 버전 프로파일(스키마: [version-compatibility.md](../references/version-compatibility.md)). **미전달 시 기존 테스트·대상 소스의 실제 import를 정본으로 삼는다**(혼용 방어와 동일 규칙) |
@@ -102,7 +114,8 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
         "TEST_RUNTIME_FAILED",
         "FLAKY_SUSPECTED",
         "SPEC_MISMATCH",
-        "SYMBOL_UNRESOLVED"
+        "SYMBOL_UNRESOLVED",
+        "SCENARIO_NONCONFORMANT"
       ]
     },
     "patches": {
@@ -159,7 +172,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 ## 핵심 지시문
 
-실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안하라. 수정은 **생성 시점의 테스트 원칙을 유지**해야 한다 — BDD 3단 구조·BDDMockito 스타일·`scenarioRef` 메서드명/javadoc 보존(10단계 매핑 의존)·`springProfile` 관용구(「테스트 원칙 준수」 절). 진전이 있는 한(실패가 줄어드는 한) 고정 횟수 상한 없이 계속 보정하라(#12). 직전과 **동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`과 `retryExhausted: true`를 반환하고 수동 개입을 요청하라.
+실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안하라. **모드 B(`nonconformantItems` 입력)**: 통과 중인 테스트라도 시나리오와 불일치하면 `SCENARIO_NONCONFORMANT`로 보정하라 — `// when`을 시나리오 `target` 메서드로 교정하고 `methodCalls`로 재확인하라. **적합성 보정이 green 테스트를 red로 만들 수 있으며 이는 정상이다**(교정된 호출이 실제 결함·누락을 드러낸 것) — 그 실패는 통상의 실패 보정(모드 A) 절차로 이어서 처리한다. 수정은 **생성 시점의 테스트 원칙을 유지**해야 한다 — BDD 3단 구조·BDDMockito 스타일·`scenarioRef` 메서드명/javadoc 보존(10단계 매핑 의존)·`springProfile` 관용구(「테스트 원칙 준수」 절). 진전이 있는 한(실패가 줄어드는 한) 고정 횟수 상한 없이 계속 보정하라(#12). 직전과 **동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`과 `retryExhausted: true`를 반환하고 수동 개입을 요청하라.
 
 ---
 
@@ -172,6 +185,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 | `FLAKY_SUSPECTED` | 동일 실행 내 통과/실패 혼재, 타임아웃 패턴, 순서 의존 | `Thread.sleep` 제거 → `Awaitility.await()` 또는 `@TestMethodOrder` 도입 제안 |
 | `SPEC_MISMATCH` | 기대값이 스펙 acceptance criteria와 상이 | `spec-doc-mcp` 재조회 → 스펙 변경 여부 확인 → 테스트 기대값 또는 스펙 반영 수정 |
 | `SYMBOL_UNRESOLVED` | 클래스패스 미포함 타입, 생성자 시그니처 불일치 | `repo-ast-mcp` 재조회 → 빌드 의존성 추가 또는 생성자 호출 수정 |
+| `SCENARIO_NONCONFORMANT` | (모드 B) 10단계 verifier가 `unsatisfied` 판정 — **테스트는 통과하지만** 시나리오 given/when/then과 불일치(잘못된 target 호출·mock 설정 어긋남·then 단언 부족) | `scenarioDocs` + `repo-ast-mcp`의 `methodCalls` 대조 → `// when` 호출을 시나리오 `target` 메서드로 교정(예: `recordMtResult`→`recordMoResult`), `// given` stub·`// then` 단언을 시나리오에 맞게 최소 수정. **단언 강화만 허용, 완화 금지**. 수정 후 `parse_java_file`로 target 호출을 재확인하고 재실행 |
 
 ### 금지 수정 패턴
 - `Thread.sleep()` 추가 (flaky 고착)

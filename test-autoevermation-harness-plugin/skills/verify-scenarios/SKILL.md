@@ -70,10 +70,14 @@ description: 모든 단계(생성·실행·커버리지·뮤테이션)가 끝난
 
    지시:
    - 시나리오 → 테스트 메서드 매핑은 scenarioRef(메서드명 sc001_… + javadoc scenarioRef/criteriaRef)로 한다.
+   - target 호출 기계 대조: parse_java_file의 methodCalls로, unit/직접호출 시나리오는 시나리오 target(FQCN#method)의
+     메서드 단순명이 매핑 테스트 메서드의 호출 목록에 있는지 기계 판정하라(없으면 결정적 unsatisfied +
+     nonconformanceClass: WRONG_TARGET_CALL). slice는 when의 HTTP verb/경로 ↔ perform(...) 및 given stub 메서드명을 대조하라.
    - 각 시나리오를 satisfied/unsatisfied/missing으로 판정한다:
-     · satisfied = 매핑된 메서드가 통과 + // then 단언이 시나리오 then을 빠짐없이 반영.
-     · unsatisfied = 매핑되나 실패하거나 then 단언 부족(사유 기록).
-     · missing = 매핑되는 테스트 메서드 없음.
+     · satisfied = 매핑된 메서드가 통과 + target 호출 일치 + // then 단언이 시나리오 then을 빠짐없이 반영.
+     · unsatisfied = 매핑되나 실패·target 불일치·then 단언 부족(사유 + nonconformanceClass 기록:
+       WRONG_TARGET_CALL / THEN_GAP / GIVEN_MISMATCH).
+     · missing = 매핑되는 테스트 메서드 없음(nonconformanceClass: MAPPING_MISSING).
    - then 단언이 시나리오 then을 충족하는지 테스트 본문과 시나리오를 대조해 판정한다(thenCovered 충족/전체).
    - test_docs/scenarios/<id>.md의 "테스트 코드 매핑"·"검증 결과" 섹션과 INDEX.md를 references/scenario-docs.md §2 템플릿으로 갱신한다.
    - 테스트 코드를 새로 생성/수정하지 마라(검증·문서화 전용). 소스 원문·민감정보를 문서에 쓰지 마라.
@@ -84,8 +88,11 @@ description: 모든 단계(생성·실행·커버리지·뮤테이션)가 끝난
 
 3. **결과 검증·게이트** — `unmet`(unsatisfied/missing)이 있으면 `status: "partial"`로 잔여를 전량 보고한다.
    전부 satisfied면 `ok`. (fallback-policy.md #16)
-   - 대화형: 잔여가 있으면 `AskUserQuestion`("추가 보정 시도 / partial로 종료"). 보정 선택 시 호출자(full-pipeline)에
-     재보정(5→6→8·9 부분 재실행)을 요청한다. CI: `partial`로 종료.
+   - **full-pipeline에서 호출된 경우**: `unmet`과 `scenarioResults[].nonconformanceClass`를 그대로 호출자에 반환한다 —
+     호출자의 **10.5단계 적합성 자동 보정 루프**(unsatisfied→test-fixer 모드 B / missing→test-code-generator 부분 재생성,
+     최대 3라운드)가 자동으로 처리한다. 여기서 사용자에게 묻지 않는다.
+   - **단독 호출(standalone)인 경우**: 잔여가 있으면 `AskUserQuestion`("추가 보정 시도 / partial로 종료").
+     보정 선택 시 full-pipeline의 10.5단계 부분 실행을 안내한다. CI 단독 호출: `partial`로 종료.
 
 4. **결과 반환** — `ConformanceResult` JSON과 갱신된 `docPaths`를 반환한다.
 
@@ -103,7 +110,8 @@ description: 모든 단계(생성·실행·커버리지·뮤테이션)가 끝난
   "scenarioResults": [
     { "scenarioId": "SC-001", "testClass": "com.example.order.OrderServiceTest",
       "testMethods": ["sc001_재고부족시_주문생성_실패"], "mapped": true,
-      "executed": "passed", "thenCovered": "2/2", "verdict": "satisfied", "notes": "" }
+      "executed": "passed", "thenCovered": "2/2", "verdict": "satisfied",
+      "nonconformanceClass": null, "notes": "" }
   ],
   "unmet": ["SC-002"],
   "docPaths": ["test_docs/INDEX.md", "test_docs/scenarios/SC-001.md"],
@@ -120,7 +128,7 @@ description: 모든 단계(생성·실행·커버리지·뮤테이션)가 끝난
 | 오류 코드 | 발생 조건 | 처리 방식 |
 |---|---|---|
 | 입력 누락 | 승인 시나리오/생성 파일/실행 결과 중 누락 | `status: "failed"`, 선행 단계 실행 안내 |
-| unmet 존재 | unsatisfied/missing 시나리오 존재 | `status: "partial"`, `unmet[]` 전량 보고(임의 제외 금지) |
+| unmet 존재 | unsatisfied/missing 시나리오 존재 | `status: "partial"`, `unmet[]` 전량 보고(임의 제외 금지). 파이프라인 호출 시 10.5단계 자동 보정 루프 입력 |
 | 문서 쓰기 실패 | `test_docs/` 권한/경로 문제 | `warnings` 기록 후 판정 결과는 반환 |
 | subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 

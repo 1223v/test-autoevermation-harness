@@ -71,7 +71,7 @@ disallowedTools: Bash
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `files` | object[] | 생성된 테스트 파일 목록 (경로, 내용, 시나리오 참조) |
+| `files` | object[] | 생성된 테스트 파일 목록 (경로, 내용, 시나리오 참조, `targetCallCheck` 필수) |
 | `buildChanges` | string[] | 빌드 파일에 필요한 변경 사항 설명 목록 |
 | `rationale` | string[] | 각 파일의 설계 결정 근거 |
 
@@ -92,11 +92,15 @@ disallowedTools: Bash
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["path", "content", "scenarioRef"],
+        "required": ["path", "content", "scenarioRef", "targetCallCheck"],
         "properties": {
           "path": { "type": "string", "description": "테스트 파일 절대 경로" },
           "content": { "type": "string", "description": "컴파일 가능한 Java 소스 전체" },
           "scenarioRef": { "type": "string", "description": "매핑된 scenario ID" },
+          "targetCallCheck": {
+            "enum": ["matched", "manual-verified", "mismatch"],
+            "description": "시나리오 target 호출 자가 검증 결과 — matched(기계 대조 통과) / manual-verified(slice 체크리스트 통과) / mismatch(불일치, 파일 보류 대상)"
+          },
           "criteriaRefs": {
             "type": "array",
             "items": { "type": "string" },
@@ -130,7 +134,7 @@ disallowedTools: Bash
 ### repo-ast-mcp (필수)
 - **연결 이유**: 테스트 코드 생성 전 대상 클래스의 public 메서드 시그니처·파라미터 타입·반환 타입을 `repo-ast-mcp`로 정확히 확인해야 컴파일 가능한 코드를 생성할 수 있다. 시그니처를 추측하면 컴파일 에러가 발생한다.
 - **사용 도구**: `parse_java_file`, `resolve_symbol`, `extract_test_targets`
-- **사용 시점**: 각 시나리오 처리 전 대상 FQCN 시그니처 확인
+- **사용 시점**: ① 각 시나리오 처리 전 대상 FQCN 시그니처 확인, ② 각 테스트 파일 기록 후 `parse_java_file`의 `methodCalls`로 시나리오 target 호출 자가 검증(필수 게이트)
 
 ### build-test-mcp (필수)
 - **연결 이유**: 빌드 도구가 Gradle인지 Maven인지에 따라 테스트 의존성 선언 방식이 다르다. `detect_build_tool`로 자동 감지하고, `list_test_tasks`로 현재 빌드 파일의 테스트 설정을 확인한 후 `buildChanges`를 제안한다.
@@ -164,6 +168,18 @@ disallowedTools: Bash
   - `// then`: 반환·상태변화·예외에 대한 단언.
 - 예외 검증처럼 행위와 단언이 분리 불가한 경우 `// when & then`(`assertThrows`/`assertThatThrownBy`)으로 병합 허용.
 - 시나리오의 `given`/`when`/`then` 필드를 본문 각 섹션에 1:1로 반영한다.
+
+### 시나리오 target 호출 자가 검증 (필수 게이트)
+
+"1:1 반영"은 지시가 아니라 **검증되는 사후조건**이다. 유사 메서드명 혼동(예: `recordMoResult` 대신 `recordMtResult` 호출 — 실존 메서드라 컴파일·실행 모두 통과)을 파일 반환 전에 기계적으로 차단한다.
+
+각 테스트 파일을 기록한 **후**, 그 파일에 `parse_java_file`을 실행해 `testTargets[].methodCalls`(테스트 메서드명 → 호출된 메서드 단순명 배열)를 얻고 시나리오와 대조한다:
+
+1. **unit / 직접 호출 시나리오**: 시나리오 `target`(`FQCN#method`)의 메서드 단순명이 해당 `scNNN_` 테스트 메서드의 `methodCalls`에 **반드시 존재**해야 한다. 존재하면 `targetCallCheck: "matched"`.
+2. **slice / integration 시나리오**(MockMvc 등 간접 호출): target 메서드는 직접 호출되지 않으므로 기계 대조 대신 다음을 체크리스트로 수행하고 `evidence`에 대조 결과를 기록한다 — ① 시나리오 `when`의 HTTP verb/경로 문자열이 `perform(...)` 요청과 일치, ② 시나리오 `given`의 협력자 stub 메서드명이 `methodCalls`에 존재(예: `findActiveOrders`). 완료 시 `targetCallCheck: "manual-verified"`.
+3. **불일치 시**: 해당 테스트 메서드의 `// when`을 시나리오 `target`에 맞게 **1회 자가 수정**하고 재검증한다. 여전히 불일치면 그 파일을 결과 `files`에서 **제외**(이미 기록했다면 삭제)하고 `warnings`에 `SCENARIO_TARGET_MISMATCH`(scenarioId·기대 메서드·실제 호출 목록 포함)를 기록, `status: partial`. `targetCallCheck: "mismatch"`.
+
+`methodCalls`가 비어 있으면(regex 폴백 등) 기계 대조가 불가하므로 2번 체크리스트를 적용하고 `warnings`에 사유를 남긴다.
 
 ### 패키지 위치
 - 대상 클래스와 동일 패키지의 `src/test/java`
@@ -239,7 +255,7 @@ junit4 프로파일이면: 슬라이스/컨텍스트 테스트에 `@RunWith(Spri
 
 ## 핵심 지시문
 
-컨트롤러는 `@WebMvcTest` + `MockMvc`, 협력 객체는 **`springProfile.mockAnnotation`**(`@MockBean`/`@MockitoBean`)으로 작성하라. 네임스페이스(javax/jakarta)와 JUnit 엔진(junit4/jupiter)도 `springProfile`을 따른다 — 입력에 없으면 `detect_spring_profile`로 먼저 감지하라. **각 테스트 메서드명은 `<scenarioRefSlug>_<행위>` 형식으로 scenarioRef를 포함하고, 본문은 `// given`/`// when`/`// then` 3단 BDD 구조로 작성하라**(시나리오의 given/when/then 필드를 1:1 반영). Google Java Style을 따르고 import를 완결하라. 실제 네트워크 호출·`Thread.sleep`·broad catch를 금지한다. 파일 생성 전 `repo-ast-mcp`로 대상 클래스 시그니처를 반드시 확인하라. unresolved 시그니처가 있는 시나리오는 생성을 보류하고 `warnings`에 기록한다.
+컨트롤러는 `@WebMvcTest` + `MockMvc`, 협력 객체는 **`springProfile.mockAnnotation`**(`@MockBean`/`@MockitoBean`)으로 작성하라. 네임스페이스(javax/jakarta)와 JUnit 엔진(junit4/jupiter)도 `springProfile`을 따른다 — 입력에 없으면 `detect_spring_profile`로 먼저 감지하라. **각 테스트 메서드명은 `<scenarioRefSlug>_<행위>` 형식으로 scenarioRef를 포함하고, 본문은 `// given`/`// when`/`// then` 3단 BDD 구조로 작성하라**(시나리오의 given/when/then 필드를 1:1 반영). Google Java Style을 따르고 import를 완결하라. 실제 네트워크 호출·`Thread.sleep`·broad catch를 금지한다. 파일 생성 전 `repo-ast-mcp`로 대상 클래스 시그니처를 반드시 확인하라. unresolved 시그니처가 있는 시나리오는 생성을 보류하고 `warnings`에 기록한다. **파일 기록 후에는 `parse_java_file`의 `methodCalls`로 각 `scNNN_` 메서드가 시나리오 `target` 메서드를 실제 호출하는지 검증하라**(unit 직접호출은 기계 대조, slice는 when/given 문자열 대조). 불일치 파일은 1회 자가 수정 후에도 불일치면 반환하지 말고 `SCENARIO_TARGET_MISMATCH`로 보고하라. 모든 `files[]` 항목에 `targetCallCheck`를 기록하라.
 
 ---
 
@@ -248,6 +264,7 @@ junit4 프로파일이면: 슬라이스/컨텍스트 테스트에 `@RunWith(Spri
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
 | `SYMBOL_UNRESOLVED` | `repo-ast-mcp`로 대상 시그니처 확인 불가 | 해당 시나리오 생성 보류. `warnings`에 기록. 나머지 시나리오는 정상 생성. `status: partial` |
+| `SCENARIO_TARGET_MISMATCH` | 생성된 테스트의 `// when`이 시나리오 `target` 메서드를 호출하지 않음(`methodCalls` 대조 실패, 1회 자가 수정 후에도 불일치) | 해당 파일 결과에서 제외(기록했다면 삭제). `warnings`에 scenarioId·기대 메서드·실제 호출 목록 기록. 나머지는 정상 생성. `status: partial` |
 | 빌드 도구 미감지 | `detect_build_tool` 실패 | `buildChanges`를 Gradle/Maven 양쪽으로 병기. `warnings`에 수동 선택 요청 |
 | 테스트 소스 루트 없음 | `testSourceRoot` 경로 부재 | 디렉터리를 생성한 뒤 파일 기록. `evidence`에 생성 경로 기록 |
 | 전체 시나리오 실패 | 모든 시나리오가 `SYMBOL_UNRESOLVED` | `failed` 반환. `nextActions`에 AST 재분석 권고 |

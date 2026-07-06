@@ -57,13 +57,19 @@ disallowedTools: Bash
    매핑 메서드가 없으면 `verdict: "missing"`.
 2. **실행 결과** — 매핑된 메서드가 `runResult`(또는 `parse_junit_xml`)에서 `passed`인지 확인한다.
    `failed`/미실행이면 `verdict: "unsatisfied"`.
-3. **then 충족** — 테스트 본문의 `// then` 단언이 시나리오 `then` 항목을 빠짐없이 반영하는지 본다.
-   단언 누락/약화(예: 상태 검증 빠짐, 예외 타입 미확인, 호출 횟수 미검증)면 `unsatisfied` + 사유 기록.
-   given/when도 시나리오와 어긋나지 않는지 점검한다(mock 설정·호출 행위 일치).
-4. **판정** — `satisfied`(매핑+통과+then 충족) / `unsatisfied`(매핑되나 실패·단언 부족) / `missing`(매핑 없음).
-   `thenCovered`를 `충족/전체`(예: `2/3`)로 기록한다.
+3. **target 호출 기계 대조** — `parse_java_file`을 테스트 파일에 실행해 `testTargets[].methodCalls`(테스트 메서드 → 호출 메서드 단순명)를 얻는다.
+   - **unit/직접호출 시나리오**: 시나리오 `target`(`FQCN#method`)의 메서드 단순명이 매핑된 테스트 메서드의 `methodCalls`에 없으면
+     **결정적으로** `verdict: "unsatisfied"` + `nonconformanceClass: "WRONG_TARGET_CALL"`(예: target `recordMoResult`인데
+     `recordMtResult`만 호출 — 유사명 혼동). LLM 판단이 아닌 기계 대조다.
+   - **slice/integration 시나리오**: 시나리오 `when`의 HTTP verb/경로 문자열이 `perform(...)` 요청과 일치하는지,
+     `given`의 협력자 stub 메서드명이 `methodCalls`에 있는지 대조한다.
+4. **then 충족** — 테스트 본문의 `// then` 단언이 시나리오 `then` 항목을 빠짐없이 반영하는지 본다.
+   단언 누락/약화(예: 상태 검증 빠짐, 예외 타입 미확인, 호출 횟수 미검증)면 `unsatisfied` + 사유 기록(`nonconformanceClass: "THEN_GAP"`).
+   given도 시나리오와 어긋나지 않는지 점검한다(mock 설정 일치 — 어긋나면 `"GIVEN_MISMATCH"`).
+5. **판정** — `satisfied`(매핑+통과+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·target 불일치·단언 부족) / `missing`(매핑 없음, `nonconformanceClass: "MAPPING_MISSING"`).
+   `thenCovered`를 `충족/전체`(예: `2/3`)로 기록하고, `unsatisfied`/`missing`에는 `nonconformanceClass`를 반드시 기록한다(10.5단계 보정 라우팅 힌트).
 
-검증은 **읽기 기반 판단**이다. 단언이 시나리오 then을 충족하는지는 LLM이 테스트 본문과 시나리오를 대조해 판정한다.
+then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과 시나리오를 대조)이지만, **target 호출 대조(3단계)는 `methodCalls` 기반 기계 판정**이다. `methodCalls`가 비어 있으면(폴백 파스) 읽기 기반으로 대체하고 `warnings`에 기록한다.
 
 ---
 
@@ -94,7 +100,19 @@ disallowedTools: Bash
       "executed": "passed",
       "thenCovered": "2/2",
       "verdict": "satisfied",
+      "nonconformanceClass": null,
       "notes": ""
+    },
+    {
+      "scenarioId": "SC-002",
+      "testClass": "com.example.order.OrderServiceTest",
+      "testMethods": ["sc002_주문결과_기록"],
+      "mapped": true,
+      "executed": "passed",
+      "thenCovered": "0/2",
+      "verdict": "unsatisfied",
+      "nonconformanceClass": "WRONG_TARGET_CALL",
+      "notes": "when이 target recordMoResult가 아닌 recordMtResult를 호출(methodCalls 기계 대조)"
     }
   ],
   "unmet": ["SC-002"],
@@ -107,7 +125,9 @@ disallowedTools: Bash
 ```
 
 판정 → status: 전부 `satisfied`면 `ok`. `unsatisfied`/`missing`이 하나라도 있으면 `partial` + `unmet[]` 전량 보고
-(fallback-policy.md #16). 입력(승인 시나리오/생성 파일/실행 결과)이 비면 `failed`.
+(fallback-policy.md #16 — 파이프라인 호출 시 `unmet`은 10.5단계 자동 보정 루프의 입력이 된다). 입력(승인 시나리오/생성 파일/실행 결과)이 비면 `failed`.
+
+`nonconformanceClass` 값: `WRONG_TARGET_CALL`(when이 target 미호출) / `THEN_GAP`(then 단언 부족) / `GIVEN_MISMATCH`(mock·전제 불일치) / `MAPPING_MISSING`(매핑 테스트 없음). `satisfied`는 `null`.
 
 ---
 

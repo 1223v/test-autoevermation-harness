@@ -116,7 +116,14 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
    - junitPolicy가 strict-5x이면 빌드 파일에 명시적 version pin 추가(jupiter 프로파일 한정).
    - astResult에서 메서드 시그니처를 확인해 unresolved 시그니처는 생성 보류 + warnings 기록.
    - repo-ast-mcp로 시그니처를 재확인하고, build-test-mcp로 의존성/스타일을 검증하라.
-   - 결과를 아래 JSON 스키마에 맞게 반환하라.
+   - 시나리오 target 호출 자가 검증(필수 게이트): 각 파일 기록 후 parse_java_file의 methodCalls로
+     각 scNNN_ 메서드가 시나리오 target(FQCN#method) 메서드를 실제 호출하는지 대조하라.
+     · unit/직접호출: target 메서드 단순명 ∈ methodCalls → targetCallCheck: "matched".
+     · slice/integration(MockMvc 등): when의 HTTP verb/경로 ↔ perform(...) 요청, given의 협력자
+       stub 메서드명 ∈ methodCalls를 체크리스트로 대조, evidence 기록 → "manual-verified".
+     · 불일치: // when을 target에 맞게 1회 자가 수정 후 재검증. 여전히 불일치면 파일을 결과에서
+       제외(기록했다면 삭제)하고 warnings에 SCENARIO_TARGET_MISMATCH 기록, status: partial.
+   - 결과를 아래 JSON 스키마에 맞게 반환하라. files[] 모든 항목에 targetCallCheck는 필수다.
 
    출력 스키마:
    {
@@ -127,7 +134,8 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
          "path": string,
          "content": string,
          "scenarioRef": string,
-         "testClass": string
+         "testClass": string,
+         "targetCallCheck": "matched" | "manual-verified" | "mismatch"
        }
      ],
      "buildChanges": [string],
@@ -143,6 +151,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 
 3. **결과 검증**
    - `files`가 비어 있으면 `status: "failed"`.
+   - `files[]` 중 `targetCallCheck`가 없거나 `"mismatch"`인 항목은 Write 대상에서 제외하고 해당 시나리오를 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다 — 필드 누락은 게이트 미수행으로 간주한다.
    - `warnings`에 "UNRESOLVED_SIGNATURE" 항목이 있으면 해당 시나리오는 생성 보류로 표기하고 `nextActions`에 AST 보강 안내 추가.
    - `buildChanges`에 `strict-5x` pin이 포함된 경우 `warnings`에 버전 충돌 위험 문구 추가.
 
@@ -166,13 +175,15 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
       "path": "src/test/java/com/example/order/OrderServiceTest.java",
       "content": "...",
       "scenarioRef": "SC-001",
-      "testClass": "com.example.order.OrderServiceTest"
+      "testClass": "com.example.order.OrderServiceTest",
+      "targetCallCheck": "matched"
     },
     {
       "path": "src/test/java/com/example/order/OrderControllerTest.java",
       "content": "...",
       "scenarioRef": "SC-002",
-      "testClass": "com.example.order.OrderControllerTest"
+      "testClass": "com.example.order.OrderControllerTest",
+      "targetCallCheck": "manual-verified"
     }
   ],
   "buildChanges": [
@@ -196,6 +207,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 | 오류 코드 | 발생 조건 | 처리 방식 |
 |---|---|---|
 | `UNRESOLVED_SIGNATURE` | astResult에 미해석 시그니처 | 해당 시나리오 생성 보류 + `warnings` 기록 |
+| `SCENARIO_TARGET_MISMATCH` | 생성 테스트가 시나리오 `target` 메서드를 호출하지 않음(자가 수정 1회 후에도) | 해당 파일 제외 + `warnings` 기록, `status: "partial"` |
 | `scenarios` 비어 있음 | 입력 없음 | `status: "failed"`, `generate-scenarios` 실행 안내 |
 | `BUILD_TOOL_UNDETECTED` | buildTool auto-detect 실패 | `warnings` 기록 후 기본 Gradle 가정으로 진행 |
 | subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |

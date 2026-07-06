@@ -11,6 +11,67 @@ _(비어 있음)_
 
 ---
 
+## [0.18.0] - 2026-07-06
+
+### Added — 8·9단계 게이트 스킵 방지 (오케스트레이션 오류 차단)
+
+배경: 실제 실행에서 오케스트레이터가 8단계 커버리지 게이트 미달을 확인하고도 coverage-closer를
+호출하지 않고 "RA advisory 대상 — 구조적 커버리지 한계"라는 자체 판단으로 10단계로 건너뛴 사건.
+계약상 미달 분기는 coverage-closer 호출 단 하나이고 advisory는 4단계 입력 필터링에만 관여하지만
+(refactor-advisory), 이를 기계적으로 강제할 장치(Stage 5 `targetCallCheck`류)가 8·9단계에 없었다.
+
+- **fallback-policy #21 신설**: RA advisory 비면제 원칙 + 게이트 산출물 무효 조건 —
+  `gatePassed:false`∧(`iterations<1`∨`remainingGaps` 빈 배열) / `thresholdMet:false`∧
+  (`iterations<1`∨`survivingMutants` 빈 배열)이면 게이트 미수행 산출물로 무효, 해당 단계 재실행 의무.
+  "구조적 커버 불가" 판단은 coverage-closer/mutation-analyst가 루프 수행 후
+  `remainingGaps[].reason`/`survivingMutants[]`로만 성립하고, 스코프 제외는
+  `HarnessConfig.coverage.excludes`(사용자 승인)로만 — JaCoCo `classDirectories` excludes·
+  PIT `excludedClasses`와 동일한 선언적 제외 모델.
+- **`scripts/guard-gate-artifacts.py` 훅 신설** (PreToolUse `Write|Edit`): 무효
+  `08_coverage_result.json`/`09_mutation_result.json` 기록을 기계적으로 deny(사건 시나리오
+  재현 케이스 포함 12케이스 결정 테이블 검증). 게이트 산출물의 Edit 부분 수정 금지(Write 전체 기록),
+  `status:"failed"` 도구 고장 경로는 허용, 인프라 오류 시 fail-open.
+- **계약 명문화**: full-pipeline 8·9단계(스킵 금지+무효 조건+집계 유효성 교차검증), measure-coverage·
+  mutation-test 절차, refactor-advisory 공통 규칙 4(하류 효과 한계), orchestration-detail §6,
+  pipeline-flow §1, GUIDE §3.2 동기화.
+
+---
+
+## [0.17.0] - 2026-07-06
+
+### Added — 시나리오 target 호출 게이트 + 적합성 자동 보정 루프
+
+배경: 통과하지만 잘못된 메서드를 호출하는 테스트(예: 시나리오 target `recordMoResult` 대신 유사명
+`recordMtResult` 호출 — MO/MT 혼동)가 5→6→7→8→9단계를 전부 통과하고 10단계에서 발견돼도
+보고로만 끝나는 설계 결함이 확인됨. 생성 게이트(사전 차단)와 자동 보정 루프(사후 교정)를 추가.
+
+- **repo-ast `invokedMethods`/`methodCalls`**: JavaParser CLI(`AstCli`)가 각 메서드 본문이 호출하는
+  메서드 **단순명 목록**(`invokedMethods`)을 추출(인자·본문은 계속 미출력 — 보안 계약 유지).
+  `repo_ast_server.py`가 각 testTarget에 `methodCalls`(메서드명→호출 목록 맵)로 노출. 정규식 폴백은 빈 목록.
+- **5단계 target 호출 자가 검증 게이트** (`test-code-generator`, `generate-tests`): 파일 기록 후
+  `parse_java_file`의 `methodCalls`로 각 `scNNN_` 메서드가 시나리오 `target` 메서드를 실제 호출하는지
+  대조(unit=기계 대조 / slice=when·given 문자열 대조). `files[].targetCallCheck`
+  (`matched`/`manual-verified`/`mismatch`) 필수화 — 오케스트레이터는 필드 누락·mismatch 파일을 Write하지 않고
+  `SCENARIO_TARGET_MISMATCH`로 보고.
+- **10단계 기계 판정 강화** (`scenario-conformance-verifier`, `verify-scenarios`): target 호출을
+  `methodCalls` 기계 대조로 판정(LLM 판단 아님), `scenarioResults[].nonconformanceClass`
+  (`WRONG_TARGET_CALL`/`THEN_GAP`/`GIVEN_MISMATCH`/`MAPPING_MISSING`) 추가 — 10.5단계 라우팅 힌트.
+- **10.5단계 적합성 자동 보정 루프** (`full-pipeline`): `unmet` 존재 시 대화형·CI 동일하게 자동 보정 —
+  unsatisfied→`test-fixer` **모드 B**(신규 입력 `nonconformantItems[]`, `rootCauseClass`에
+  `SCENARIO_NONCONFORMANT` 추가, 최소 diff·단언 강화만 허용) / missing→`test-code-generator` 부분 재생성 →
+  6단계 재실행 → 10단계 재검증. **최대 3라운드, 동일 unmet 집합 즉시 무진전 중단**(#12의 명시적 예외 —
+  적합성 판정은 일부 LLM 판단이라 진동 위험). 라운드 로그 `_workspace/10b_conformance_repair.json`,
+  `PipelineResult.stages.conformanceRepair` 추가.
+
+### Changed
+- **fallback-policy #16 재작성**: "보고 후 종료(대화형만 선택적 재실행)" → "10.5 자동 보정 루프
+  (대화형·CI 동일) → 소진 후 잔여만 질문/partial". `verify-scenarios`의 `AskUserQuestion`은
+  단독 호출·루프 소진 후로 한정.
+- `docs/pipeline-flow.md`(§1·§5 다이어그램, §7 매핑표)·`orchestration-detail.md`(부분 재실행 매트릭스,
+  `_workspace` 트리, 에러 표)·`scenario-docs.md` §4·README·GUIDE 동기화.
+
+---
+
 ## [0.16.0] - 2026-07-06
 
 ### Changed — **Breaking: MCP 필수화 (silent degrade 전면 제거)**

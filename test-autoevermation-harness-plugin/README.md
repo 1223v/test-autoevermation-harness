@@ -85,7 +85,7 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 플러그인 버전·파이프라인 진행률·현재 단계가 표시된다(기존 상태줄 출력은 그대로 유지):
 
 ```text
-[Test-AutoEverMation#0.11.0] 43% | stage 4: generate-scenarios
+[Test-AutoEverMation#<version>] 43% | stage 4: generate-scenarios
 ```
 
 같은 스킬에 "제거"를 요청하면 원래 상태줄로 복원된다. 상세: [docs/GUIDE.md §5.5](./docs/GUIDE.md).
@@ -156,7 +156,8 @@ rm -rf ~/.claude/plugins/cache
 7. 실패 보정 (`repair-tests`) — 실패가 있을 때만
 8. 커버리지 게이트 (`measure-coverage`)
 9. 뮤테이션 강화 (`mutation-test`)
-10. **시나리오 적합성 검증 (`verify-scenarios`)** — 통과한 테스트가 시나리오를 실제로 만족하는지 검증 후 `test_docs/` 정리
+10. **시나리오 적합성 검증 (`verify-scenarios`)** — 통과한 테스트가 시나리오를 실제로 만족하는지 검증(target 호출은 `methodCalls` 기계 대조) 후 `test_docs/` 정리
+10.5. **적합성 자동 보정 루프** — `unmet`(unsatisfied/missing)이 있으면 자동 보정: unsatisfied→`test-fixer` 모드 B(`SCENARIO_NONCONFORMANT`) / missing→부분 재생성 → 재실행·재검증. 최대 3라운드, 대화형·CI 동일
 
 결과는 Markdown 보고서 + JSON 산출물 + 대상 프로젝트의 `test_docs/`(시나리오↔테스트코드↔결과 living documentation + `refactoring/` 리팩토링 권고)로 저장된다.
 
@@ -165,12 +166,7 @@ rm -rf ~/.claude/plugins/cache
 
 ---
 
-## Skills (13종)
-
-> v0.2 추가: `configure-harness`, `measure-coverage`, `mutation-test` (아래 "v0.2 신규" 절 참조)
-> v0.7 추가: `verify-scenarios` (시나리오 적합성 검증)
-> v0.9 추가: `refactor-advisory` (리팩토링 권고 게이트)
-
+## Skills (14종)
 
 | Skill | 호출 방법 | 역할 |
 |---|---|---|
@@ -187,15 +183,11 @@ rm -rf ~/.claude/plugins/cache
 | `measure-coverage` | `/test-autoevermation-harness-plugin:measure-coverage` | JaCoCo near-100% 커버리지 게이트 루프 |
 | `mutation-test` | `/test-autoevermation-harness-plugin:mutation-test` | PITest 뮤테이션 강화 루프 |
 | `verify-scenarios` | `/test-autoevermation-harness-plugin:verify-scenarios` | 시나리오 적합성 검증 + `test_docs/` 정리 |
+| `setup-statusline` | `/test-autoevermation-harness-plugin:setup-statusline` | Claude Code 상태줄에 플러그인 버전·진행률·현재 단계 표시(설치/제거) |
 
 ---
 
 ## Agents (11종)
-
-> v0.2 추가: `coverage-closer`, `mutation-analyst`
-> v0.7 추가: `scenario-conformance-verifier`
-> v0.9 추가: `refactor-advisor`
-
 
 | Agent | 역할 | 권한 |
 |---|---|---|

@@ -66,6 +66,8 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 4. **재실행 루프**: 강화된 테스트로 재실행한다. threshold 충족 시 중단. `maxIterations`는 고정 상한이 아니라 **진전 추적 단위**다 — 진전(생존 mutant 감소)이 있는 한 계속하고, **동일 survivor 집합이 3회 연속(무진전)**이면 `partial`로 `survivingMutants[]`(+동등 mutant 사유)를 전량 보고 후 중단한다(fallback-policy.md #12).
 5. **수렴 실패**: 잔여 survivor는 `partial`로 보고하고 `survivingMutants[]`에 사유(동등 mutant 가능성 포함) 명시. 동등(equivalent) mutant 의심은 임의 무시하지 말고 보고.
 
+**스킵 금지 (fallback-policy.md #21)**: survivors 존재 분기에서 mutation-analyst 호출은 **무조건**이다. RA advisory 대상이라는 이유로 강화 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 9단계 게이트와 무관하다. "강화 불가" 판단은 mutation-analyst가 루프를 실제 수행한 뒤 `survivingMutants[]` 사유(동등 mutant 등)로만 성립하고, 스코프 제외는 `mutation.targetClasses`/PIT `excludedClasses`(사용자 승인 설정)로만 가능하다. **무효 조건**: `thresholdMet:false`인데 `iterations<1` 또는 `survivingMutants`가 비어 있는 결과는 "게이트 미수행" 산출물로 무효 — 이 상태로 반환·저장하지 말고 루프를 수행하라(`guard-gate-artifacts.py` 훅이 무효 산출물 기록을 차단한다).
+
 ## 출력
 ```json
 {

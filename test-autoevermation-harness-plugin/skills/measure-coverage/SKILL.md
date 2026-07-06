@@ -65,6 +65,8 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
 5. **재측정 루프**: coverage-closer가 추가한 테스트를 포함해 재실행한다. 게이트 통과 시 중단. `maxIterations`는 고정 상한이 아니라 **진전 추적 단위**다 — 진전(미커버 집합 감소)이 있는 한 계속하고, **동일 미커버 집합이 3회 연속(무진전)**이면 `partial`로 `remainingGaps[]`를 전량 보고 후 중단한다(fallback-policy.md #12).
 6. **수렴 실패 처리**: 잔여 gap이 남으면 `partial` 상태로 `remainingGaps[]`와 사유(예: 도달 불가 코드, 제외 후보)를 보고하고 nextActions에 "exclude 검토" 제안.
 
+**스킵 금지 (fallback-policy.md #21)**: 미달 분기에서 coverage-closer 호출은 **무조건**이다. RA advisory(리팩토링 권고) 대상이라는 이유로 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 8단계 게이트와 무관하다. "구조적으로 커버 불가" 판단은 오케스트레이터가 아니라 **coverage-closer가 루프를 실제 수행한 뒤** `remainingGaps[].reason`으로만 내릴 수 있고, 스코프 제외는 `coverage.excludes`(사용자 승인)로만 가능하다. **무효 조건**: `gatePassed:false`인데 `iterations<1` 또는 `remainingGaps`가 비어 있는 결과는 "게이트 미수행" 산출물로 무효 — 이 상태로 반환·저장하지 말고 루프를 수행하라(`guard-gate-artifacts.py` 훅이 무효 산출물 기록을 차단한다).
+
 ## 출력
 ```json
 {

@@ -17,8 +17,8 @@
 ```mermaid
 flowchart TD
     A(["HarnessRequest 입력"]) --> B["전처리: 입력 정규화"]
-    B --> C["Phase E — 환경 세팅 (선행 필수, TodoWrite)<br/>E1~E7 + E10 점검"]
-    C --> D{"환경 통과?<br/>필수 E1·E2·E3+E10 completed<br/>(E8·E9는 0.5단계 · E4~E7 선택/degrade)"}
+    B --> C["Phase E — 환경 세팅 (선행 필수, TodoWrite)<br/>E1~E7 + E3b + E10 점검"]
+    C --> D{"환경 통과?<br/>필수 E1·E2·E3·E3b·E4·E5·E6·E7·E10 completed<br/>(E8·E9는 0.5단계 · degrade 없음)"}
     D -- "아니오" --> X1(["status: failed — 파이프라인 미시작<br/>+ remediation 안내"])
     D -- "예" --> E["0단계 — configure-harness<br/>0.5 프로파일 감지 → 인터뷰 → HarnessConfig"]
 
@@ -44,9 +44,12 @@ flowchart TD
     M -- "아니오 (그린)" --> O["8단계 — measure-coverage<br/>(coverage-closer) near-100% 게이트 루프"]
 
     O --> P["9단계 — mutation-test<br/>(mutation-analyst) PITest 강화 루프"]
-    P --> Q["10단계 — verify-scenarios<br/>(scenario-conformance-verifier)"]
+    P --> Q["10단계 — verify-scenarios<br/>(scenario-conformance-verifier)<br/>target 호출 methodCalls 기계 대조"]
     Q --> R{"승인 시나리오 전부 satisfied?<br/>given/when/then 충족"}
-    R -- "아니오 (unmet: unsatisfied/missing)" --> S(["status: partial<br/>잔여 전량 보고 + test_docs/ 갱신"])
+    R -- "아니오 (unmet)" --> S105["10.5단계 — 적합성 자동 보정 루프<br/>unsatisfied→test-fixer(모드 B) / missing→부분 재생성<br/>최대 3라운드 · 동일 unmet 즉시 무진전 중단"]
+    S105 -. "보정 → 6단계 재실행 → 10단계 재검증" .-> L
+    S105 -- "라운드 소진 후 잔여 unmet<br/>(대화형=수동 보정 질문 / CI=partial)" --> S(["status: partial<br/>잔여 전량 보고 + test_docs/ 갱신"])
+    S105 -- "unmet 해소" --> T
     R -- "예" --> T(["status: ok<br/>PipelineResult + 보고서 + test_docs/INDEX.md"])
 
     O -. "미달 시 추가 테스트 → 재측정" .-> O
@@ -56,6 +59,8 @@ flowchart TD
 > 1·2단계는 **병렬**(서브에이전트 팬아웃)이라 `E`에서 두 갈래로 갈라져 `G`(3단계)에서 합류한다.
 > 3.5단계는 플래그 0건이거나 `refactorAdvisory.enabled: false`면 게이트 없이 3→4로 직결된다(상세: §3).
 > 7·8·9단계는 **게이트 충족까지 반복**하며, 직전과 동일한 실패/gap/survivor가 3회 연속(무진전)이면 `partial`로 중단한다(fallback-policy.md #12).
+> 10.5단계 적합성 보정 루프는 #12의 **명시적 예외**로 **최대 3라운드 하드 캡**을 적용한다(적합성 판정은 일부 LLM 판단이라 진동 위험 — #16).
+> 8·9단계 루프는 **스킵 불가**(#21): RA advisory는 게이트 면제 사유가 아니며, 게이트 미달인데 루프 증거(`iterations≥1`+잔여 전량 보고)가 없는 산출물은 무효 — `guard-gate-artifacts.py` 훅이 기록을 차단한다.
 > 8·9단계에서 테스트가 **추가·수정**되면 각 단계 수렴 후 6단계(run-tests)로 **회귀 실행**해 그린을 확인하고(실패 시 7단계 보정 재진입), 최종 `runResult`를 재할당해 10단계에 전달한다 — 10단계가 stale 실행 결과로 판정하는 것을 방지.
 
 ---
@@ -69,12 +74,12 @@ flowchart TD
 
     Detect --> Auto{"자동 가능 항목?<br/>E2 MCP SDK · E6 JavaParser jar"}
     Auto -- "대화형" --> AskA["AskUserQuestion<br/>'지금 함께 세팅할까요?'"]
-    AskA -- "예" --> RunA["pip install -r mcp/requirements.txt<br/>mvn -q -DskipTests package"]
+    AskA -- "예" --> RunA["node launch.cjs --ensure-only (E1·E2 자동 bootstrap)<br/>./mvnw -q -DskipTests package (E6 jar)"]
     AskA -- "아니오" --> FailE(["status: failed + remediation"])
     Auto -- "CI/비대화형" --> RunA
     RunA --> Verify["재감지(verify)"]
 
-    Detect --> Assist{"시스템/비결정 항목?<br/>E1 Python · E4 JDK17 · E5 Maven · E7 JDT LS+Java21 · E10 실행JDK↔Mockito"}
+    Detect --> Assist{"시스템/비결정 항목?<br/>E1 Python · E3b MCP 라이브검증 · E4 JDK21+ · E5 mvnw · E7 JDT LS+Java21 · E10 실행JDK↔Mockito"}
     Assist -- "대화형" --> AskB["AskUserQuestion<br/>설치/런타임 경로 안내"]
     Assist -- "CI/비대화형" --> CIstop{"충족됨?"}
     CIstop -- "아니오" --> FailE
@@ -82,7 +87,7 @@ flowchart TD
     AskB -- "갖춤" --> Verify
     CIstop -- "예" --> Verify
 
-    Gate{"필수 E1·E2·E3 + E10 completed?<br/>(E8·E9는 0.5단계 · E4~E7 선택/degrade)"}
+    Gate{"필수 E1·E2·E3·E3b·E4·E5·E6·E7·E10 completed?<br/>(E8·E9는 0.5단계 · E6 JavaParser·E7 JDT LS 필수, degrade 없음)"}
     Verify --> Gate
     Gate -- "아니오" --> FailE
     Gate -- "예" --> Ok(["0단계 configure-harness로 진행"])
@@ -156,20 +161,24 @@ flowchart TD
 flowchart TD
     In(["승인 시나리오 + 생성 테스트 + 최종 실행결과"]) --> Map["scenarioRef로 매핑<br/>메서드명 sc001_… + javadoc scenarioRef/criteriaRef"]
     Map --> M1{"매핑되는 테스트 메서드 있음?"}
-    M1 -- "아니오" --> Missing["verdict: missing"]
+    M1 -- "아니오" --> Missing["verdict: missing<br/>(MAPPING_MISSING)"]
     M1 -- "예" --> M2{"매핑 메서드 통과(passed)?"}
-    M2 -- "아니오" --> Unsat["verdict: unsatisfied (실패/미실행)"]
-    M2 -- "예" --> M3{"// then 단언이 시나리오 then 전부 반영?<br/>thenCovered 충족/전체"}
-    M3 -- "아니오 (단언 부족)" --> Unsat
+    M2 -- "아니오" --> Unsat["verdict: unsatisfied"]
+    M2 -- "예" --> M25{"target 호출 기계 대조<br/>시나리오 target 메서드 ∈ methodCalls?<br/>(unit 직접호출 — slice는 when/given 대조)"}
+    M25 -- "아니오 (WRONG_TARGET_CALL)" --> Unsat
+    M25 -- "예" --> M3{"// then 단언이 시나리오 then 전부 반영?<br/>thenCovered 충족/전체"}
+    M3 -- "아니오 (THEN_GAP)" --> Unsat
     M3 -- "예" --> Sat["verdict: satisfied"]
 
     Missing --> Doc
     Unsat --> Doc
     Sat --> Doc["test_docs/scenarios/&lt;id&gt;.md '테스트 코드 매핑'·'검증 결과' 갱신<br/>+ INDEX.md 매핑표 갱신"]
     Doc --> Gate{"unmet (unsatisfied/missing) 존재?"}
-    Gate -- "예" --> P{"실행 모드"}
-    P -- "대화형" --> Ask["AskUserQuestion<br/>추가 보정 시도 / partial 종료"]
-    Ask -. "보정 시도" .-> Rerun(["5→6→(8·9) 부분 재실행"])
+    Gate -- "예" --> Loop["10.5단계 — 적합성 자동 보정 루프 (대화형·CI 동일)<br/>unsatisfied→test-fixer 모드 B(SCENARIO_NONCONFORMANT)<br/>missing→test-code-generator 부분 재생성<br/>→ 6단계 재실행 → 10단계 재검증"]
+    Loop -. "최대 3라운드<br/>동일 unmet 집합 즉시 무진전 중단" .-> Map
+    Loop -- "unmet 해소" --> Ok
+    Loop -- "라운드 소진" --> P{"실행 모드"}
+    P -- "대화형" --> Ask["AskUserQuestion<br/>수동 보정 계속 / partial 종료"]
     Ask -- "partial 종료" --> Partial(["status: partial — unmet 전량 보고"])
     P -- "CI" --> Partial
     Gate -- "아니오 (전부 satisfied)" --> Ok(["status: ok"])
@@ -218,6 +227,7 @@ flowchart LR
 | 8 | measure-coverage | coverage-closer | build-test(JaCoCo) | `08_coverage_result.json` |
 | 9 | mutation-test | mutation-analyst | build-test(PITest) | `09_mutation_result.json` |
 | 10 | verify-scenarios | scenario-conformance-verifier | repo-ast, build-test | `test_docs/` 갱신, `10_conformance.json` |
+| 10.5 | full-pipeline(적합성 보정 루프) | test-fixer(모드 B) / test-code-generator | all | `10b_conformance_repair.json` |
 
 ---
 
@@ -232,7 +242,7 @@ flowchart TD
     Docs --> Scn["scenarios/&lt;SC-ID&gt;.md — 시나리오별 (BDD + 매핑 + 검증결과)"]
     Docs --> Ra["refactoring/RA-&lt;ID&gt;.md + INDEX.md — 리팩토링 권고 (근거·수정법·결정)"]
     Root --> Ws["_workspace/ — 중간 JSON (감사용, ignore 대상)"]
-    Ws --> Wsj["00~10_*.json · timing.json · pipeline_result.json"]
+    Ws --> Wsj["00~10_*.json · 10b_conformance_repair.json · timing.json · pipeline_result.json"]
 ```
 
 `test_docs/`는 사람이 읽는 영속 산출물이라 대상 프로젝트에 커밋될 수 있고, `_workspace/`는 운영 중간 산출물이라 ignore 대상이다.
