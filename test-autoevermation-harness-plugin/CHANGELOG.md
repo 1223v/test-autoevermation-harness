@@ -11,6 +11,33 @@ _(비어 있음)_
 
 ---
 
+## [0.19.0] - 2026-07-08
+
+### Added — 상태줄 자동 설치·자동 제거(수동 스킬 호출 불필요)
+
+배경: 상태줄(`[Test-AutoEverMation#x.y.z] … | stage …`)은 지금까지 사용자가 직접
+`setup-statusline` 스킬을 불러야 설치되고, 제거도 수동이었다. 게다가 Claude Code 플러그인은
+**install/uninstall 라이프사이클 훅이 없어**(공식 문서 확인) `/plugin uninstall`이 전역
+`settings.json`의 `statusLine` 수정을 되돌리지 못한다 → 제거 후에도 상태줄 줄이 남았다.
+또한 플러그인 settings로는 main statusLine을 설정할 수 없어(공식: `agent`/`subagentStatusLine`만
+적용) OMC HUD 등이 상태줄 슬롯을 되가져가면 TAM 줄이 사라지곤 했다.
+
+- **전역 자가 완결 런처 도입**: `${CLAUDE_CONFIG_DIR:-~/.claude}/`에 wrapper(`test-autoevermation-statusline.py`)와
+  독립 런처(`test-autoevermation-statusline-launch.cjs`)를 설치하고 `statusLine.command`가 런처를
+  가리키게 한다. 플러그인 캐시가 삭제돼도 이 전역 사본은 살아남는다.
+- **자동 제거(self-heal)**: 전역 wrapper가 렌더마다 플러그인 설치 여부(installPath 존재 +
+  `installed_plugins.json` 등록)를 확인해, uninstall을 감지하면 1회 한정으로 `settings.json`을
+  원래 상태줄(delegate)로 원복하고 전역 사본을 정리한다. uninstall 후 첫 상태줄 렌더에서 반영.
+- **자동 설치(SessionStart 훅 `statusline-autosetup.py`)**: consent=granted면 매 세션 시작에
+  조용히·멱등하게 전역 파일을 갱신하고 statusLine 슬롯을 재점유한다(OMC 되가져감 복구 포함,
+  이중 래핑 금지). 최초 설치 직후 consent 미결정이면 `additionalContext`로 어시스턴트에게
+  1회 확인(AskUserQuestion)을 요청한다. 기존 상태줄(OMC HUD 등)은 delegate로 보존.
+- **kill switch**: 환경변수 `TAM_STATUSLINE_AUTO=0`으로 자동 설치를 비활성화(CI 권장).
+- `setup-statusline` 스킬은 이제 `statusline-autosetup.py`(`--install`/`--uninstall`)에 위임한다.
+- 표시 범위: 모든 세션(파이프라인 없는 프로젝트에선 버전만 표시).
+
+---
+
 ## [0.18.0] - 2026-07-06
 
 ### Added — 8·9단계 게이트 스킵 방지 (오케스트레이션 오류 차단)

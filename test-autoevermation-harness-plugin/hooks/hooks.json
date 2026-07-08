@@ -8,6 +8,12 @@
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "--ensure-only"],
             "timeout": 600
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "script", "${CLAUDE_PLUGIN_ROOT}/hooks/statusline-autosetup.py"],
+            "timeout": 30
           }
         ]
       }

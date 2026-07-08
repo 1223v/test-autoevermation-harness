@@ -53,6 +53,10 @@ cd test-autoevermation-harness-plugin/mcp/javaparser-cli && ./mvnw -q -DskipTest
 - 로컬 설치(복사/심볼릭 링크)를 사용한 경우에는 `~/.claude/plugins/test-autoevermation-harness-plugin`을
   삭제한 뒤 Claude Code를 재시작한다.
 - 변경 사항은 `/reload-plugins` 또는 세션 재시작으로 반영된다.
+- **상태줄 자동 원복**: 상태줄을 설치했다면 uninstall 후 Claude Code를 재시작할 때 첫 상태줄
+  렌더에서 원래 상태줄로 자동 복구된다(전역 사본의 self-heal — Claude Code에 uninstall 훅이
+  없어 이 방식으로 정리한다). 즉시 원복하려면 uninstall 전에
+  `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청한다.
 
 ---
 
@@ -77,9 +81,9 @@ rm -rf ~/.claude/plugins/cache
 **하네스 실행 상태 재설정:** 파이프라인 중간 산출물은 대상 프로젝트 루트의 `_workspace/`에 저장된다
 (부분 재실행용). 이 디렉터리를 삭제하면 다음 실행이 처음부터(0단계 `configure-harness` 인터뷰 포함)
 시작된다 — 새 입력으로 다시 돌리면 기존 산출물은 자동으로 `_workspace_{timestamp}/`로 보존되므로
-수동 삭제는 선택이다. `test_docs/`는 사람이 읽는 영속 산출물이므로 유지한다. 상태줄을 설치했다면
-`/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청해 원복한다.
-상세: [docs/GUIDE.md](test-autoevermation-harness-plugin/docs/GUIDE.md).
+수동 삭제는 선택이다. `test_docs/`는 사람이 읽는 영속 산출물이므로 유지한다. 상태줄은 자동으로
+설치·원복된다(설치 후 1회 확인, uninstall 시 self-heal) — 자세한 동작과 끄는 법(`TAM_STATUSLINE_AUTO=0`)은
+[docs/GUIDE.md](test-autoevermation-harness-plugin/docs/GUIDE.md) §5.5를 참조한다.
 
 ---
 

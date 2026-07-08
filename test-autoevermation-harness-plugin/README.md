@@ -79,16 +79,26 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 - `jdtls`는 v0.16.0부터 **필수**다 — 감지 실패 시 `scripts/setup_jdtls.py`가 자동 설치를 시도하고,
   그래도 실패하면 (E7) 하드 중단한다.
 
-### 상태줄 진행률 표시 (선택)
+### 상태줄 진행률 표시 (자동)
 
-`/test-autoevermation-harness-plugin:setup-statusline`을 실행하면 Claude Code 상태줄 하단에
-플러그인 버전·파이프라인 진행률·현재 단계가 표시된다(기존 상태줄 출력은 그대로 유지):
+플러그인 버전·파이프라인 진행률·현재 단계가 Claude Code 상태줄 하단에 표시된다(기존 상태줄
+출력은 그대로 유지):
 
 ```text
 [Test-AutoEverMation#<version>] 43% | stage 4: generate-scenarios
 ```
 
-같은 스킬에 "제거"를 요청하면 원래 상태줄로 복원된다. 상세: [docs/GUIDE.md §5.5](./docs/GUIDE.md).
+- **자동 설치**: 설치 후 첫 세션에서 "상태줄을 설치할까요?"를 **한 번** 물은 뒤, 승인하면
+  이후 세션부터 자동으로 유지된다(모든 세션에 표시; 파이프라인 없는 프로젝트에선 버전만).
+  기존 상태줄(예: OMC HUD)은 delegate로 보존되어 계속 실행되고, 다른 도구가 상태줄을
+  되가져가도 다음 세션 시작에 자동으로 재점유한다.
+- **자동 제거**: 플러그인을 uninstall하면, 재시작 후 첫 상태줄 렌더에서 원래 상태줄로 자동
+  원복된다(Claude Code에 uninstall 훅이 없어 전역 사본이 스스로 정리하는 방식).
+- **끄기**: 자동 설치를 원치 않으면 최초 확인에서 "설치 안 함"을 고르거나, 환경변수
+  `TAM_STATUSLINE_AUTO=0`으로 비활성화한다. 이미 설치했다면
+  `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청해 즉시 원복할 수 있다.
+
+상세: [docs/GUIDE.md §5.5](./docs/GUIDE.md).
 
 ---
 
@@ -107,6 +117,9 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 - [로컬 설치](#2-로컬-설치-대안)를 사용한 경우에는 `~/.claude/plugins/test-autoevermation-harness-plugin`을
   삭제한 뒤 Claude Code를 재시작한다.
 - 변경 사항은 `/reload-plugins` 또는 세션 재시작으로 반영된다.
+- **상태줄은 자동 원복된다**: uninstall 후 Claude Code를 재시작하면 첫 상태줄 렌더에서 원래
+  상태줄로 되돌아간다(전역 사본의 self-heal). 즉시 원복하려면 uninstall 전에
+  `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청한다.
 
 ---
 
@@ -131,9 +144,9 @@ rm -rf ~/.claude/plugins/cache
 **하네스 실행 상태 재설정:** 파이프라인 중간 산출물은 대상 프로젝트 루트의 `_workspace/`에 저장된다
 (부분 재실행용). 이 디렉터리를 삭제하면 다음 실행이 처음부터(0단계 `configure-harness` 인터뷰 포함)
 시작된다 — 새 입력으로 다시 돌리면 기존 산출물은 자동으로 `_workspace_{timestamp}/`로 보존되므로
-수동 삭제는 선택이다. `test_docs/`는 사람이 읽는 영속 산출물이므로 유지한다. 상태줄을 설치했다면
-위 상태줄 절의 안내대로 `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청해 원복한다.
-상세: [docs/GUIDE.md §4.5~4.6](./docs/GUIDE.md).
+수동 삭제는 선택이다. `test_docs/`는 사람이 읽는 영속 산출물이므로 유지한다. 상태줄은 uninstall 시
+자동 원복되며(위 [제거](#제거) 절), 즉시 끄려면 `/test-autoevermation-harness-plugin:setup-statusline`에
+"제거"를 요청한다. 상세: [docs/GUIDE.md §4.5~4.6](./docs/GUIDE.md).
 
 ---
 
