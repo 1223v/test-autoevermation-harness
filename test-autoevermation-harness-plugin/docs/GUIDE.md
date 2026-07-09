@@ -237,8 +237,10 @@ Phase 0는 **세 신호**로 실행 범위를 정한다(정본: [SKILL.md](../sk
 1. **`_workspace/` 존재 + 부분 요청** → 요청 유형별 영향 단계만 재실행, 나머지는 기존 JSON을 Read로 재사용(아래 표).
 2. **`_workspace/` 부재/불완전**(fresh clone·checkout·새 세션·워크스페이스 로테이션) → `detect_pipeline_state`가
    **영속 증거**(생성 테스트 `src/test/java`, 승인 시나리오 `test_docs/scenarios/*.md`, JaCoCo/JUnit/PITest 리포트)를
-   물리 판정한다. 증거 없으면(`resumable:false`) 0단계부터 초기 실행, 증거 있으면(`resumable:true`) `_workspace/` stub +
-   `_resume.json`을 복원한 뒤 **알맞은 단계부터 재개**(대화형=`AskUserQuestion` 선택, CI=`recommendedEntryStage`).
+   물리 판정하되 **출처(provenance)를 구분**한다. **하네스가 생성한** 테스트/시나리오면(`harnessProvenance:true`)
+   `_workspace/` stub + `_resume.json`을 복원해 **알맞은 단계부터 재개**(대화형=`AskUserQuestion`, CI=`recommendedEntryStage`).
+   **기존 손수 짠 테스트만**이면(`foreignTestsPresent:true`, `test_docs/` 없음) 5단계 완료로 보지 않고 **0단계부터 정식
+   생성**하되 기존 테스트를 `existingTestPaths`로 넘겨 공존 보완. 아무 증거도 없으면 0단계 초기 실행.
 3. **`_workspace/` 존재 + 새 입력** → 기존 `_workspace/`를 `_workspace_{timestamp}/`로 옮겨 보존 후 초기 실행.
 
 | 요청 예 | 재실행 | 재사용 |
@@ -248,7 +250,8 @@ Phase 0는 **세 신호**로 실행 범위를 정한다(정본: [SKILL.md](../sk
 | "뮤테이션만 다시" | 9→10 | `01~08`, `04b` |
 | "테스트 실패 고쳐" | 7→6→10 | `01~05`, `04b` |
 | "시나리오 만족하는지만 확인" | 10 | `01~09`, `04b` |
-| `_workspace/` 없음 + 테스트 존재("보완") | 6→8→9→10 (CI 기본; 대화형은 6/8/9/4 선택) | `detect_pipeline_state`로 복원한 stub `01~05`·`04b` |
+| `_workspace/` 없음 + **하네스 생성** 테스트("보완") | 6→8→9→10 (CI 기본; 대화형은 6/8/9/4 선택) | `detect_pipeline_state`로 복원한 stub `01~05`·`04b` |
+| `_workspace/` 없음 + **기존 손수 짠** 테스트만 | 0(정식 생성 전체) | 없음 — `testFiles[]`를 5·8단계 `existingTestPaths`로 공존 보완 |
 
 전체 매트릭스(11종)와 stub 복원 표는 §5.6 FAQ ·
 [orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1·§3.
@@ -475,18 +478,21 @@ settings로는 main statusLine을 설정할 수 없다(공식: `agent`/`subagent
 
 **Q. 이미 테스트가 있는 프로젝트에서 "보완/수정/업데이트"를 요청하면 어떻게 되나?**
 
-`_workspace/`가 없어도(fresh clone·`git checkout`·새 세션·워크스페이스 로테이션) 처음부터 다시 돌지 않는다.
-Phase 0가 `mcp__build-test__detect_pipeline_state(root)`로 **영속 증거**를 물리 판정한다 — 생성 테스트
-`src/test/java`, 승인 시나리오 `test_docs/scenarios/*.md`, JaCoCo/JUnit/PITest 리포트. 증거가 있으면
-(`resumable:true`) `_workspace/` stub과 `_resume.json`을 복원하고 **재진입 단계를 확정**한다:
+Phase 0가 `mcp__build-test__detect_pipeline_state(root)`로 영속 증거를 물리 판정하되, **테스트의 출처(provenance)를
+구분**한다 — 그 테스트가 *이 하네스가 생성한 것*(=`test_docs/` 존재, `harnessProvenance:true`)인지, *원래 프로젝트에
+손으로 짠 것*(`foreignTestsPresent:true`, `test_docs/` 없음)인지:
 
-- **대화형**: 복원 요약을 제시하고 `AskUserQuestion`으로 4지선다 — `[6 run-tests] [8 measure-coverage]
-  [9 mutation-test] [4 시나리오 재설계]`.
-- **CI/비대화형**(`claude -p`·`CI=true` 등): 질문 없이 `recommendedEntryStage` 사용 — 기본은 기존 테스트를
-  5단계 완료로 간주해 **6(run)→8(coverage)→9(mutation)→10(conformance)**(재생성 없이 측정·강화·보정).
-  승인 시나리오만 있고 테스트가 없으면 5단계부터.
-
-증거가 없으면(`resumable:false`) 0단계부터 초기 실행이다. 상태줄에는 `↩ resumed @ stage N`이 표시된다(§5.5).
+- **하네스가 생성한 테스트/승인 시나리오가 있으면**(`resumable:true`): `_workspace/`가 없어도(fresh clone·`git
+  checkout`·새 세션) 처음부터 다시 돌지 않는다. stub과 `_resume.json`을 복원하고 재진입 단계를 확정한다 —
+  대화형은 `AskUserQuestion` 4지선다 `[6 run-tests] [8 measure-coverage] [9 mutation-test] [4 시나리오 재설계]`,
+  CI/비대화형은 `recommendedEntryStage`(기본 **6→8→9→10**, 재생성 없이 측정·강화·보정; 승인 시나리오만 있고 테스트가
+  없으면 5단계부터). 상태줄에 `↩ resumed @ stage N` 표시(§5.5).
+- **기존(손수 짠) 테스트만 있으면**(`foreignTestsPresent:true`, `test_docs/` 없음): 이건 "5단계 완료"가 아니다.
+  하네스는 **0단계부터 정식으로** 스펙·AST·소스 분석 → 시나리오 설계 → 테스트 생성을 진행한다. 단, 감지된
+  `testFiles[]`를 **8단계 coverage-closer의 `existingTestPaths`**로 넘겨 **커버리지 갭만 채우며 공존**하고, 5단계
+  generate-tests는 기존 파일 덮어쓰기 확인·동일 경로 충돌 시 내용 비교로 손수 짠 테스트를 보존한다. (파일명만
+  `*Test.java`라고 해서 하네스가 만든 것으로 오인해 생성을 건너뛰지 않는다.)
+- **아무 증거도 없으면**(`resumable:false`, `foreignTestsPresent:false`): 0단계부터 초기 실행.
 
 **Q. 파이프라인 결과물이 마음에 안 들면 어떻게 요청하나?**
 

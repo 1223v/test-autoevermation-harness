@@ -11,6 +11,32 @@ _(비어 있음)_
 
 ---
 
+## [0.20.1] - 2026-07-10
+
+### Fixed — durable resume의 test 출처(provenance) 구분: 손수 짠 기존 테스트를 "생성 완료"로 오인하지 않음
+
+배경: v0.20.0 `detect_pipeline_state`는 `src/test/java`에 `*Test*.java`가 있으면 **파일명만 보고**
+`hasTests=true`로 판정해 그 테스트를 "5단계(테스트 생성) 완료"로 간주했다. 문제는 그 테스트가 *이
+하네스가 생성한 것*인지 *원래 프로젝트에 손으로 짠 것*인지 구분하지 않았다는 점이다. 결과적으로
+기존 손수 짠 테스트만 있는(하네스를 처음 돌리는) 프로젝트에서도 1~5단계(스펙·AST·소스 분석 →
+시나리오 설계 → 테스트 생성)를 건너뛰고 6단계(실행)부터 시작해, **정작 커버리지 갭을 메우는 새
+테스트를 전혀 생성하지 않는** 오작동이 있었다.
+
+- **provenance 게이트 추가**(`mcp/build_test_server.py` `detect_pipeline_state`): 하네스가 생성한
+  테스트는 `test_docs/`(시나리오 문서·`INDEX.md`)로 증명된다. 이 흔적이 없으면 기존 테스트는 FOREIGN
+  으로 판정한다 — 새 필드 `harnessProvenance`(bool)·`foreignTestsPresent`(bool)를 반환하고,
+  foreign 테스트는 `highestCompletedStage`를 5단계로 올리지 않으며 `recommendedEntryStage`를 0(초기
+  실행)으로 둔다. `resumable`은 "하네스 파이프라인이 중간 상태를 남겼는가"를 뜻하므로 foreign-only는
+  `false`다.
+- **Phase 0 분기 추가**(`skills/full-pipeline/SKILL.md` · `references/orchestration-detail.md` §2-1·§3):
+  `foreignTestsPresent:true`(손수 짠 테스트만)면 0단계부터 **정식으로** 시나리오 설계·테스트 생성을
+  진행하되, 감지된 `testFiles[]`를 5단계 generate-tests·8단계 coverage-closer의 `existingTestPaths`로
+  전달해 **기존 테스트를 덮어쓰지 않고 커버리지 갭만 공존 보완**한다. foreign 테스트에는 `05` stub을
+  복원하지 않는다.
+- 문서 반영: `README.md`·`docs/GUIDE.md`(§3.5·§5.6 FAQ)에 하네스 생성 vs 손수 짠 테스트 구분을 명시.
+
+---
+
 ## [0.20.0] - 2026-07-09
 
 ### Added — 영속 증거 기반 상태 복원(durable resume): 테스트가 이미 있어도 알맞은 단계부터 재개

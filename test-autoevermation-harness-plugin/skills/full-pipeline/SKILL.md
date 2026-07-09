@@ -26,11 +26,12 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 **Phase 0 컨텍스트 확인(부분 재실행 · 상태 복원).** 시작 시 `_workspace/` 존재와 요청 유형으로 실행 범위를 정한다. `_workspace/`는 `.gitignore` 대상(휘발성)이지만 **영속 증거**(생성 테스트 `src/test/java`, 승인 시나리오 `test_docs/scenarios/*.md`, JaCoCo/JUnit/PITest 리포트)는 커밋되어 살아남으므로, `_workspace/`가 없거나 불완전해도 **결정적으로 상태를 복원**해 알맞은 단계부터 재개한다:
 
 - `_workspace/` **존재** + 부분 요청(예: "이 패키지만", "커버리지만 다시", "뮤테이션만") → **부분 재실행**: 영향 단계만 재호출하고 나머지는 `_workspace/`의 기존 산출물을 Read로 재사용 → 전체 재실행 회피(매트릭스: [references/orchestration-detail.md](references/orchestration-detail.md) §3).
-- `_workspace/` **부재 또는 불완전** → **`mcp__build-test__detect_pipeline_state(root=projectRoot)` 호출**로 영속 증거를 물리 판정한다(LLM 눈대중 금지):
-  - `resumable:false`(영속 증거 없음) → **초기 실행**(0단계부터 전체).
-  - `resumable:true`(테스트/승인 시나리오 존재) → **상태 복원**: 감지 결과로 `_workspace/`에 최소 stub 산출물을 재구성하고([orchestration-detail.md](references/orchestration-detail.md) §2 "영속 증거 → stub 복원 표"), `_workspace/_resume.json`(`{entryStage, entryLabel, ts}`)을 기록한 뒤 **재진입 단계를 확정**:
+- `_workspace/` **부재 또는 불완전** → **`mcp__build-test__detect_pipeline_state(root=projectRoot)` 호출**로 영속 증거를 물리 판정한다(LLM 눈대중 금지). **핵심 구분: `harnessProvenance`** — 테스트 파일이 있어도 그게 *이 하네스가 생성한 것*(=`test_docs/` 존재)인지, *원래 프로젝트에 손으로 짠 것*(foreign)인지를 판정한다(도구가 `harnessProvenance`·`foreignTestsPresent`로 반환):
+  - `resumable:false` + `foreignTestsPresent:false`(영속 증거 없음) → **초기 실행**(0단계부터 전체).
+  - `resumable:false` + `foreignTestsPresent:true`(**기존 손수 짠 테스트만 있고 하네스 흔적 없음**) → **초기 실행(0단계부터)** — 단, 기존 테스트를 "5단계 완료"로 보지 않고 정식으로 시나리오 설계·테스트 생성을 진행한다. 감지된 `testFiles[]`를 **8단계 coverage-closer의 `existingTestPaths` 입력**으로 전달해 기존 테스트와 **공존하며 커버리지 갭만 보완**하고, 5단계 generate-tests는 자체 규칙(기존 파일 덮어쓰기 전 확인·동일 경로 충돌 시 내용 비교, generate-tests/SKILL.md·test-code-generator)으로 손수 짠 테스트를 덮어쓰지 않는다. `_resume.json`·`05` stub은 쓰지 않는다(재개가 아님). 대화형은 "신규 생성(기존 공존)"임을 안내한다.
+  - `resumable:true`(**하네스가 생성한** 테스트/승인 시나리오 존재 = `harnessProvenance:true`) → **상태 복원**: 감지 결과로 `_workspace/`에 최소 stub 산출물을 재구성하고([orchestration-detail.md](references/orchestration-detail.md) §2 "영속 증거 → stub 복원 표"), `_workspace/_resume.json`(`{entryStage, entryLabel, ts}`)을 기록한 뒤 **재진입 단계를 확정**:
     - **대화형**: 복원 요약(`hasTests`·`scenarios.approved`·`jacocoReport`·`pitestReport`)을 제시하고 `AskUserQuestion`으로 재진입 단계를 `[6 run-tests] [8 measure-coverage] [9 mutation-test] [4 시나리오 재설계]` 중 선택하게 한다.
-    - **비대화형·CI**: 질문 없이 `recommendedEntryStage`를 사용한다 — 기본값은 기존 테스트를 5단계 완료로 간주해 **6(run)→8(coverage)→9(mutation)→10(conformance)**(재생성 없이 측정·강화·보정). 승인 시나리오만 있고 테스트가 없으면 5단계부터. fallback-policy CI 자동 원칙 준수.
+    - **비대화형·CI**: 질문 없이 `recommendedEntryStage`를 사용한다 — 기본값은 기존 하네스 테스트를 5단계 완료로 간주해 **6(run)→8(coverage)→9(mutation)→10(conformance)**(재생성 없이 측정·강화·보정). 승인 시나리오만 있고 테스트가 없으면 5단계부터. fallback-policy CI 자동 원칙 준수.
   - 재진입 후에는 해당 stub 경로를 하위 스킬 프롬프트에 전달해 "기존 결과를 읽고 변경분만 반영"하게 한다(전량 재생성 금지). 최종 집계 전까지 `pipeline_result.json`을 쓰지 않는다(복원은 "완료"가 아니라 "재개").
 - `_workspace/` **존재** + 새 입력 → **새 실행**: 기존 `_workspace/`를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동 후 초기 실행.
 

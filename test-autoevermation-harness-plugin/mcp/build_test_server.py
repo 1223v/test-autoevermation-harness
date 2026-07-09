@@ -936,10 +936,19 @@ def detect_pipeline_state(root: str = ".") -> dict:
     Evidence -> stage:
       test_docs/refactoring/RA-*.md        -> stage 3.5 (refactor advisory)
       test_docs/scenarios/*.md (approved)  -> stages 4 / 4.5 (scenarios designed + approved)
-      src/test/java/**/*Test(s).java       -> stage 5 (tests generated)
+      src/test/java/**/*Test(s).java       -> stage 5 (tests generated) — ONLY with provenance
       JUnit XML report                     -> stage 6 (tests run)
       JaCoCo XML report                    -> stage 8 (coverage measured)
       PITest mutations.xml report          -> stage 9 (mutation measured)
+
+    PROVENANCE GATE: a bare *Test*.java proves a test exists, not that THIS harness wrote
+    it. Harness-authored tests are evidenced by test_docs/ (scenario docs / INDEX.md). When
+    tests exist WITHOUT that provenance they are FOREIGN (hand-written / pre-existing):
+    `foreignTestsPresent=true`, `harnessProvenance=false`, they do NOT count as stage 5, and
+    `recommendedEntryStage` stays 0 (initial run) so the harness still designs+generates
+    tests — the pipeline threads foreign tests as existingTestPaths to augment coverage gaps
+    without overwriting them. `resumable` means "a harness pipeline left mid-stream state";
+    foreign-tests-only is not resumable.
 
     Every probe is fail-safe: any error yields a null/empty field (detection must never
     break the pipeline — same posture as guard-gate-artifacts fail-open). Returns
@@ -1017,38 +1026,57 @@ def detect_pipeline_state(root: str = ".") -> dict:
         for p in (_safe(lambda: glob.glob(os.path.join(ws_dir, "*.json")), []) or [])
     )
 
+    # --- provenance: did THIS harness author the tests here? ---
+    # A bare *Test*.java under src/test/java proves a test exists, NOT that the harness
+    # generated it. The harness's own tests are evidenced by test_docs/ (scenario docs or
+    # INDEX.md; generated test methods also carry a scenarioRef). Without that provenance,
+    # existing tests are FOREIGN (hand-written / pre-existing) and must NOT be treated as
+    # "stage 5 complete" — otherwise the harness would skip design+generation and never
+    # add tests for uncovered code. Foreign tests are surfaced so generate-tests/coverage
+    # can coexist with them (passed as existingTestPaths, no overwrite).
+    test_provenance = has_index or bool(scen_paths)
+    foreign_tests_present = has_tests and not test_provenance
+
     # --- stage inference (highest completed) ---
+    # Only harness-authored progress advances the stage; foreign tests/reports do not.
+    harness_tests = has_tests and test_provenance
     highest = "none"
     if ra_paths:
         highest = "3.5"
     if approved_scen > 0:
         highest = "4.5"
-    if has_tests:
+    if harness_tests:
         highest = "5"
-    if junit_ok:
+    if harness_tests and junit_ok:
         highest = "6"
-    if jacoco_ok:
+    if harness_tests and jacoco_ok:
         highest = "8"
-    if pitest_ok:
+    if harness_tests and pitest_ok:
         highest = "9"
 
-    # recommended entry stage (deterministic CI default): treat existing tests as
-    # stage-5 complete and supplement via 6(run)->8(coverage)->9(mutation)->10(conformance),
-    # never regenerating. If scenarios are approved but no tests exist yet, enter at 5.
-    # With no durable evidence at all, fall back to an initial full run (stage 0).
-    if not has_tests and approved_scen == 0:
-        recommended = 0
-    elif not has_tests:
+    # recommended entry stage (deterministic CI default):
+    #  - harness-authored tests exist -> durable resume from 6(run)->8->9->10, no regen.
+    #  - scenarios approved but tests missing -> enter at 5(generate).
+    #  - foreign-tests-only OR nothing durable -> initial full run (stage 0). When foreign
+    #    tests are present, the pipeline threads them as existingTestPaths so generate-tests
+    #    augments coverage gaps instead of clobbering the hand-written tests.
+    if harness_tests:
+        recommended = 6
+    elif not has_tests and approved_scen > 0:
         recommended = 5
     else:
-        recommended = 6
+        recommended = 0
 
-    resumable = has_tests or approved_scen > 0 or bool(ra_paths)
+    # resumable = a harness pipeline actually left mid-stream state to resume from.
+    # Foreign-tests-only is NOT resumable (there is no harness stage to resume).
+    resumable = harness_tests or approved_scen > 0 or bool(ra_paths)
 
     return {
         "status": "ok",
         "root": root,
         "resumable": resumable,
+        "harnessProvenance": test_provenance,
+        "foreignTestsPresent": foreign_tests_present,
         "hasTests": has_tests,
         "testFileCount": len(test_files),
         "testFiles": sorted(test_files)[:200],

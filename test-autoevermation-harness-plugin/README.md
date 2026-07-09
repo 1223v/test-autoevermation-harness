@@ -89,9 +89,11 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 [Test-AutoEverMation#<version>] 79% | ↩ resumed @ stage 8: measure-coverage
 ```
 
-- **상태 복원 재개(v0.20.0+)**: 이미 테스트가 있는 프로젝트에서 `_workspace/`가 휘발(fresh clone·
-  checkout·새 세션)해도, full-pipeline이 `detect_pipeline_state`로 영속 증거를 판정해 알맞은 단계부터
-  재개하고 상태줄은 `↩ resumed @ <단계>`로 표시한다(전체 재실행 회피).
+- **상태 복원 재개(v0.20.0+)**: **하네스가 생성한** 테스트가 있는 프로젝트에서 `_workspace/`가 휘발(fresh
+  clone·checkout·새 세션)해도, full-pipeline이 `detect_pipeline_state`로 영속 증거를 판정해 알맞은 단계부터
+  재개하고 상태줄은 `↩ resumed @ <단계>`로 표시한다(전체 재실행 회피). **기존에 손으로 짠 테스트만** 있고
+  하네스 흔적(`test_docs/`)이 없으면 이를 "생성 완료"로 오인하지 않고 정식으로 시나리오 설계·테스트 생성을
+  진행하되, 기존 테스트는 덮어쓰지 않고 커버리지 갭만 보완한다(v0.20.1+).
 - **자동 설치**: 설치 후 첫 세션에서 "상태줄을 설치할까요?"를 **한 번** 물은 뒤, 승인하면
   이후 세션부터 자동으로 유지된다(모든 세션에 표시; 파이프라인 없는 프로젝트에선 버전만).
   기존 상태줄(예: OMC HUD)은 delegate로 보존되어 계속 실행되고, 다른 도구가 상태줄을
