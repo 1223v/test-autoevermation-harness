@@ -146,9 +146,12 @@ rm -rf ~/.claude/plugins/cache
 이후 Claude Code를 재시작하고 위 [설치](#설치) 절차를 다시 실행한다.
 
 **하네스 실행 상태 재설정:** 파이프라인 중간 산출물은 대상 프로젝트 루트의 `_workspace/`에 저장된다
-(부분 재실행용). 이 디렉터리를 삭제하면 다음 실행이 처음부터(0단계 `configure-harness` 인터뷰 포함)
-시작된다 — 새 입력으로 다시 돌리면 기존 산출물은 자동으로 `_workspace_{timestamp}/`로 보존되므로
-수동 삭제는 선택이다. `test_docs/`는 사람이 읽는 영속 산출물이므로 유지한다. 상태줄은 uninstall 시
+(부분 재실행용). 이 디렉터리를 삭제해도 **무조건 처음부터 다시 시작하지는 않는다** — 생성된 테스트·
+승인 시나리오·커버리지/뮤테이션 리포트 같은 영속 증거가 남아 있으면 `detect_pipeline_state`가 이를
+판정해 알맞은 단계부터 재개한다(위 "상태 복원 재개(v0.20.0+)" 참고). 영속 증거가 전혀 없는 프로젝트만
+0단계(`configure-harness` 인터뷰 포함)부터 시작한다. 새 입력으로 다시 돌리면 기존 산출물은 자동으로
+`_workspace_{timestamp}/`로 보존되므로 수동 삭제는 선택이다. `test_docs/`는 사람이 읽는 영속 산출물이므로
+유지한다. 부분 재실행/재개 방법 상세는 docs/GUIDE.md 참고. 상태줄은 uninstall 시
 자동 원복되며(위 [제거](#제거) 절), 즉시 끄려면 `/test-autoevermation-harness-plugin:setup-statusline`에
 "제거"를 요청한다. 상세: [docs/GUIDE.md §4.5~4.6](./docs/GUIDE.md).
 

@@ -236,6 +236,8 @@ flowchart LR
 | 10 | verify-scenarios | scenario-conformance-verifier | repo-ast, build-test | `test_docs/` 갱신, `10_conformance.json` |
 | 10.5 | full-pipeline(적합성 보정 루프) | test-fixer(모드 B) / test-code-generator | all | `10b_conformance_repair.json` |
 
+> durable resume(상태 복원) 시 5·6·8·9단계 산출물(`05_test-gen_files.json`·`06_run_result.json`·`08_coverage_result.json`·`09_mutation_result.json`)은 라이브 실행이 아니라 영속 증거로부터 stub 재구성될 수 있다 — 재구성 규칙: [orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1.
+
 ---
 
 ## 8. 산출물 위치
@@ -249,10 +251,11 @@ flowchart TD
     Docs --> Scn["scenarios/&lt;SC-ID&gt;.md — 시나리오별 (BDD + 매핑 + 검증결과)"]
     Docs --> Ra["refactoring/RA-&lt;ID&gt;.md + INDEX.md — 리팩토링 권고 (근거·수정법·결정)"]
     Root --> Ws["_workspace/ — 중간 JSON (감사용, ignore 대상)"]
-    Ws --> Wsj["00~10_*.json · 10b_conformance_repair.json · timing.json · pipeline_result.json"]
+    Ws --> Wsj["00~10_*.json · 10b_conformance_repair.json · timing.json · pipeline_result.json · _resume.json"]
 ```
 
 `test_docs/`는 사람이 읽는 영속 산출물이라 대상 프로젝트에 커밋될 수 있고, `_workspace/`는 운영 중간 산출물이라 ignore 대상이다.
+`_resume.json`(`{entryStage, entryLabel, ts}`, durable resume 재진입 단계의 SSOT — statusline이 읽어 clamp에 사용)의 스키마·소비 규칙은 [orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1 참조.
 
 ---
 
