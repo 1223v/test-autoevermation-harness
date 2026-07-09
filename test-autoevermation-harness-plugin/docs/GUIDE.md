@@ -137,7 +137,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 |---|---|---|
 | `repo-ast` | `parse_java_file` · `resolve_symbol` · `list_spring_components` · `extract_test_targets` · `health` | 구조 전용 Java AST/심볼 분석. **메서드 본문은 절대 반환하지 않음**(시그니처·애노테이션·메타만). JavaParser jar(`mcp/javaparser-cli`, v0.16.0부터 **필수**) — 미가용 시 정규식 fallback 없이 하드실패(`JAVAPARSER_REQUIRED`). `health`가 jar/JDK 상태를 반환. 커스텀 스테레오타입(`@Component` 메타 애노테이션)을 전이적으로 해석 |
 | `spec-doc` | `index_docs` · `search_requirements` · `extract_acceptance_criteria` · `health` | 스펙 문서 청크 인덱싱·요구사항 검색·Given/When/Then criteria 추출. 경로 allowlist(`SPEC_DOC_ALLOWLIST`) + 민감정보 redaction |
-| `build-test` | `detect_build_tool` · `detect_spring_profile` · `detect_build_capabilities` · `check_dependency_cache` · `list_test_tasks` · `run_targeted_tests` · `parse_junit_xml` · `parse_jacoco_report` · `parse_pitest_report` · `coverage_gate` · `health` | Gradle/Maven 감지, Boot 버전 프로파일 감지, 빌드 능력(JaCoCo XML·PITest) 감지, 캐시 상태 신호, 대상 한정 테스트 실행(기본 오프라인, `online=True` 1회 프라이밍 경로), 리포트 파싱, 커버리지 게이트 판정 |
+| `build-test` | `detect_build_tool` · `detect_spring_profile` · `detect_build_capabilities` · `check_dependency_cache` · `list_test_tasks` · `run_targeted_tests` · `parse_junit_xml` · `parse_jacoco_report` · `parse_pitest_report` · `coverage_gate` · `detect_pipeline_state` · `health` | Gradle/Maven 감지, Boot 버전 프로파일 감지, 빌드 능력(JaCoCo XML·PITest) 감지, 캐시 상태 신호, 대상 한정 테스트 실행(기본 오프라인, `online=True` 1회 프라이밍 경로), 리포트 파싱, 커버리지 게이트 판정, **영속 증거 기반 파이프라인 상태 복원**(`detect_pipeline_state` — `_workspace/` 휘발 시 재개 단계 판정) |
 
 파이프라인 시작 전 Phase E `E3b`가 `health` 3종을 실호출해 세션에 실제로 연결됐는지 검증한다
 (실패 시 하드 중단 — [environment-setup.md](../references/environment-setup.md)).

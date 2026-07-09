@@ -11,6 +11,35 @@ _(비어 있음)_
 
 ---
 
+## [0.20.0] - 2026-07-09
+
+### Added — 영속 증거 기반 상태 복원(durable resume): 테스트가 이미 있어도 알맞은 단계부터 재개
+
+배경: `full-pipeline`의 재개 로직은 지금까지 **오직 `_workspace/` 디렉터리 존재 여부**로만
+분기했다(`skills/full-pipeline/SKILL.md` Phase 0). 그런데 `_workspace/`는 `.gitignore` 대상
+휘발성 산출물이라, fresh clone·`git checkout`·새 세션·workspace 로테이션 후에는 **생성 테스트
+(`src/test/java`)·승인 시나리오(`test_docs/scenarios/`)·JaCoCo/JUnit/PITest 리포트가 그대로
+남아 있어도** `_workspace/`만 사라져 Phase 0가 "없음 → 초기 실행(0단계부터 전체)"으로 오분류했다.
+결과적으로 "이미 테스트가 있는 상태에서 보완/수정"을 요청해도 설정·분석·시나리오 재설계·테스트
+재생성을 전부 다시 돌리며(매 파일 overwrite 확인), 알맞은 중간 단계부터 재개하지 못했다.
+
+- **`detect_pipeline_state` MCP 도구 추가**(`mcp/build_test_server.py`): 영속 증거를 **결정적으로**
+  스캔해 완료 단계를 물리 판정한다(LLM 눈대중 아님). `src/test/java`·`test_docs/scenarios`(approval
+  카운트)·`test_docs/refactoring`·JUnit/JaCoCo/PITest 리포트(기존 파서 재사용)를 읽어
+  `highestCompletedStage`·`recommendedEntryStage`·`resumable`·증거 경로를 반환한다. 파서 부재/에러는
+  fail-safe(null)로 처리해 감지가 파이프라인을 깨지 않는다.
+- **Phase 0 재개 로직 재작성**(`skills/full-pipeline/SKILL.md`): 2분기(`_workspace/` 유무)를
+  3신호 해석으로 교체. `_workspace/` 부재·불완전 시 `detect_pipeline_state`로 판정 → 최소 stub
+  산출물 재구성 + `_workspace/_resume.json` 기록 후 **재진입 단계 확정**(대화형=`AskUserQuestion`으로
+  6/8/9/4 선택 · CI=`recommendedEntryStage`, 기본 6→8→9→10 재생성 없이 보정). 규약 정본:
+  `references/orchestration-detail.md` §2-1(영속 증거→stub 복원 표) + §3(durable 매트릭스 행).
+- **상태줄 재개 표시**(`scripts/test-autoevermation-statusline.py`): `_workspace/_resume.json`이
+  있으면 표시 단계를 재진입 지점으로 **clamp**하고 `↩ resumed @ <단계>`로 표기 —
+  재개 지점보다 뒤의 stale 산출물이 있어도 진행률을 과대표시하지 않는다.
+  `pipeline_result.json`이 생기면 `100% | done`이 우선한다.
+
+---
+
 ## [0.19.0] - 2026-07-08
 
 ### Added — 상태줄 자동 설치·자동 제거(수동 스킬 호출 불필요)

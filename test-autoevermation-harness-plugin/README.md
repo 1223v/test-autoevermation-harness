@@ -86,8 +86,12 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 
 ```text
 [Test-AutoEverMation#<version>] 43% | stage 4: generate-scenarios
+[Test-AutoEverMation#<version>] 79% | ↩ resumed @ stage 8: measure-coverage
 ```
 
+- **상태 복원 재개(v0.20.0+)**: 이미 테스트가 있는 프로젝트에서 `_workspace/`가 휘발(fresh clone·
+  checkout·새 세션)해도, full-pipeline이 `detect_pipeline_state`로 영속 증거를 판정해 알맞은 단계부터
+  재개하고 상태줄은 `↩ resumed @ <단계>`로 표시한다(전체 재실행 회피).
 - **자동 설치**: 설치 후 첫 세션에서 "상태줄을 설치할까요?"를 **한 번** 물은 뒤, 승인하면
   이후 세션부터 자동으로 유지된다(모든 세션에 표시; 파이프라인 없는 프로젝트에선 버전만).
   기존 상태줄(예: OMC HUD)은 delegate로 보존되어 계속 실행되고, 다른 도구가 상태줄을
@@ -229,7 +233,7 @@ plugin-shipped subagent는 `hooks`/`mcpServers`/`permissionMode` frontmatter를 
 |---|---|---|
 | `repo-ast` | `mcp/repo_ast_server.py` (+ JavaParser jar, 필수) | `parse_java_file`, `resolve_symbol`, `list_spring_components`, `extract_test_targets`, `health`. 코드 본문 미반환 |
 | `spec-doc` | `mcp/spec_doc_server.py` | `index_docs`, `search_requirements`, `extract_acceptance_criteria`, `health`. 경로 allowlist + redaction |
-| `build-test` | `mcp/build_test_server.py` | `detect_build_tool`, `detect_spring_profile`, `detect_build_capabilities`(v0.8), `check_dependency_cache`(v0.8), `run_targeted_tests`(`online=` 프라이밍), `parse_junit_xml`, `parse_jacoco_report`, `parse_pitest_report`, `coverage_gate`, `health` |
+| `build-test` | `mcp/build_test_server.py` | `detect_build_tool`, `detect_spring_profile`, `detect_build_capabilities`(v0.8), `check_dependency_cache`(v0.8), `list_test_tasks`, `run_targeted_tests`(`online=` 프라이밍), `parse_junit_xml`, `parse_jacoco_report`, `parse_pitest_report`, `coverage_gate`, `detect_pipeline_state`(v0.20 — 영속 증거 기반 상태 복원), `health` |
 
 MCP 연결은 `.mcp.json`(Python으로 연결)이며, 파이프라인 시작 전 Phase E `E3b`가 `health` 3종을 실호출해
 연결을 검증한다(실패 시 하드 중단). LSP(JDT LS)는 `plugin.json`의 `lspServers`로 `.lsp.json`을 등록하며

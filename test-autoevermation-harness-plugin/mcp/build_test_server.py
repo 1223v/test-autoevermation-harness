@@ -923,6 +923,161 @@ def parse_pitest_report(root: str = ".") -> dict:
 
 
 @mcp.tool()
+def detect_pipeline_state(root: str = ".") -> dict:
+    """Reconstruct full-pipeline progress from DURABLE on-disk evidence (not _workspace/).
+
+    `_workspace/` intermediate artifacts are .gitignored and ephemeral, so after a fresh
+    clone / git checkout / new session / workspace rotation the pipeline cannot tell that
+    tests, approved scenarios, and coverage/mutation reports already exist — full-pipeline
+    Phase 0 would then misclassify the project as a first run and restart from stage 0.
+    This tool scans the durable, committable evidence and maps it to the highest completed
+    pipeline stage so Phase 0 can resume at the right stage.
+
+    Evidence -> stage:
+      test_docs/refactoring/RA-*.md        -> stage 3.5 (refactor advisory)
+      test_docs/scenarios/*.md (approved)  -> stages 4 / 4.5 (scenarios designed + approved)
+      src/test/java/**/*Test(s).java       -> stage 5 (tests generated)
+      JUnit XML report                     -> stage 6 (tests run)
+      JaCoCo XML report                    -> stage 8 (coverage measured)
+      PITest mutations.xml report          -> stage 9 (mutation measured)
+
+    Every probe is fail-safe: any error yields a null/empty field (detection must never
+    break the pipeline — same posture as guard-gate-artifacts fail-open). Returns
+    `highestCompletedStage` + `recommendedEntryStage` so CI has a deterministic default;
+    interactive mode may still ask the user which stage to resume from.
+    """
+    root = os.path.abspath(root)
+
+    def _safe(fn, default=None):
+        try:
+            return fn()
+        except Exception:
+            return default
+
+    # --- durable test files (stage 5) ---
+    test_files: list[str] = []
+    test_base = os.path.join(root, "src", "test", "java")
+    if os.path.isdir(test_base):
+        for dirpath, _dirs, files in os.walk(test_base):
+            for fn in files:
+                if fn.endswith(".java") and ("Test" in fn or "Tests" in fn):
+                    test_files.append(os.path.join(dirpath, fn))
+    has_tests = bool(test_files)
+
+    # --- scenarios (stages 4 / 4.5): count test_docs/scenarios/*.md by `approval:` ---
+    scen_dir = os.path.join(root, "test_docs", "scenarios")
+    scen_paths = _safe(lambda: glob.glob(os.path.join(scen_dir, "*.md")), []) or []
+    approved_scen = pending_scen = excluded_scen = 0
+    for sp in scen_paths:
+        txt = _safe(lambda p=sp: _read_text(p, limit=8000), "") or ""
+        m = re.search(r"(?m)^\s*approval:\s*([A-Za-z]+)", txt)
+        state = m.group(1).lower() if m else ""
+        if state == "approved":
+            approved_scen += 1
+        elif state == "excluded":
+            excluded_scen += 1
+        else:
+            pending_scen += 1
+
+    # --- refactor advisories (stage 3.5) ---
+    ra_dir = os.path.join(root, "test_docs", "refactoring")
+    ra_paths = _safe(lambda: glob.glob(os.path.join(ra_dir, "RA-*.md")), []) or []
+    has_index = os.path.isfile(os.path.join(root, "test_docs", "INDEX.md"))
+
+    # --- reports (stages 6 / 8 / 9), reusing existing parsers, fail-safe ---
+    junit = _safe(lambda: parse_junit_xml(root), None)
+    jacoco = _safe(lambda: parse_jacoco_report(root), None)
+    pitest = _safe(lambda: parse_pitest_report(root), None)
+
+    def _report_ok(r):
+        return bool(r) and r.get("status") in ("ok", "partial")
+
+    junit_ok = _report_ok(junit)
+    jacoco_ok = _report_ok(jacoco)
+    pitest_ok = _report_ok(pitest)
+
+    junit_summary = {"present": False}
+    if junit_ok:
+        junit_summary = {"present": True, "passed": junit.get("passed", 0),
+                         "failed": len(junit.get("failed", []))}
+    jacoco_summary = {"present": False}
+    if jacoco_ok:
+        overall = (jacoco.get("overall") or {})
+        jacoco_summary = {"present": True,
+                          "line": (overall.get("LINE") or {}).get("ratio"),
+                          "branch": (overall.get("BRANCH") or {}).get("ratio")}
+    pitest_summary = {"present": False}
+    if pitest_ok:
+        pitest_summary = {"present": True, "mutationScore": pitest.get("mutationScore")}
+
+    # --- existing _workspace/ artifacts (partial-restore hint) ---
+    ws_dir = os.path.join(root, "_workspace")
+    ws_artifacts = sorted(
+        os.path.basename(p)
+        for p in (_safe(lambda: glob.glob(os.path.join(ws_dir, "*.json")), []) or [])
+    )
+
+    # --- stage inference (highest completed) ---
+    highest = "none"
+    if ra_paths:
+        highest = "3.5"
+    if approved_scen > 0:
+        highest = "4.5"
+    if has_tests:
+        highest = "5"
+    if junit_ok:
+        highest = "6"
+    if jacoco_ok:
+        highest = "8"
+    if pitest_ok:
+        highest = "9"
+
+    # recommended entry stage (deterministic CI default): treat existing tests as
+    # stage-5 complete and supplement via 6(run)->8(coverage)->9(mutation)->10(conformance),
+    # never regenerating. If scenarios are approved but no tests exist yet, enter at 5.
+    # With no durable evidence at all, fall back to an initial full run (stage 0).
+    if not has_tests and approved_scen == 0:
+        recommended = 0
+    elif not has_tests:
+        recommended = 5
+    else:
+        recommended = 6
+
+    resumable = has_tests or approved_scen > 0 or bool(ra_paths)
+
+    return {
+        "status": "ok",
+        "root": root,
+        "resumable": resumable,
+        "hasTests": has_tests,
+        "testFileCount": len(test_files),
+        "testFiles": sorted(test_files)[:200],
+        "hasTestDocsIndex": has_index,
+        "scenarios": {
+            "approved": approved_scen,
+            "pending": pending_scen,
+            "excluded": excluded_scen,
+            "total": len(scen_paths),
+        },
+        "refactorAdvisories": len(ra_paths),
+        "junitReport": junit_summary,
+        "jacocoReport": jacoco_summary,
+        "pitestReport": pitest_summary,
+        "workspaceArtifacts": ws_artifacts,
+        "highestCompletedStage": highest,
+        "recommendedEntryStage": recommended,
+        "evidence": {
+            "testDir": test_base if has_tests else None,
+            "scenarioDir": scen_dir if scen_paths else None,
+            "refactorDir": ra_dir if ra_paths else None,
+            "junitReportPaths": (junit.get("reportPaths") if junit_ok else []) or [],
+            "jacocoPath": _safe(lambda: _find_jacoco_xml(root), None),
+            "pitestPath": _safe(lambda: _find_pitest_xml(root), None),
+        },
+    }
+
+
+@mcp.tool()
 def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = DEFAULT_BRANCH,
                   method: float = DEFAULT_METHOD, klass: float = DEFAULT_CLASS,
                   mutation: float = DEFAULT_MUTATION) -> dict:

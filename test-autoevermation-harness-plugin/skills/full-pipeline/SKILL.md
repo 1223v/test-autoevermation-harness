@@ -23,10 +23,16 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 **`_workspace/` 파일 기반 전달.** 각 단계 산출물(JSON)을 메인 컨텍스트로 통째로 옮기지 말고 `_workspace/{단계}_{에이전트}_{산출물}.json`에 저장하고, 다음 단계에는 **경로만** 전달한다. 메인 컨텍스트에는 `{status, 핵심수치, 경로}` 요약만 환원한다 → 컨텍스트 토큰 절감.
 
-**Phase 0 컨텍스트 확인(부분 재실행).** 시작 시 `_workspace/` 존재와 요청 유형으로 실행 범위를 정한다:
-- `_workspace/` 없음 → **초기 실행**(0단계부터 전체).
-- 있음 + 부분 요청(예: "이 패키지만", "커버리지만 다시", "뮤테이션만") → **부분 재실행**: 영향 단계만 재호출하고 나머지는 `_workspace/`의 기존 산출물을 Read로 재사용 → 전체 재실행 회피.
-- 있음 + 새 입력 → **새 실행**: 기존 `_workspace/`를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동 후 초기 실행.
+**Phase 0 컨텍스트 확인(부분 재실행 · 상태 복원).** 시작 시 `_workspace/` 존재와 요청 유형으로 실행 범위를 정한다. `_workspace/`는 `.gitignore` 대상(휘발성)이지만 **영속 증거**(생성 테스트 `src/test/java`, 승인 시나리오 `test_docs/scenarios/*.md`, JaCoCo/JUnit/PITest 리포트)는 커밋되어 살아남으므로, `_workspace/`가 없거나 불완전해도 **결정적으로 상태를 복원**해 알맞은 단계부터 재개한다:
+
+- `_workspace/` **존재** + 부분 요청(예: "이 패키지만", "커버리지만 다시", "뮤테이션만") → **부분 재실행**: 영향 단계만 재호출하고 나머지는 `_workspace/`의 기존 산출물을 Read로 재사용 → 전체 재실행 회피(매트릭스: [references/orchestration-detail.md](references/orchestration-detail.md) §3).
+- `_workspace/` **부재 또는 불완전** → **`mcp__build-test__detect_pipeline_state(root=projectRoot)` 호출**로 영속 증거를 물리 판정한다(LLM 눈대중 금지):
+  - `resumable:false`(영속 증거 없음) → **초기 실행**(0단계부터 전체).
+  - `resumable:true`(테스트/승인 시나리오 존재) → **상태 복원**: 감지 결과로 `_workspace/`에 최소 stub 산출물을 재구성하고([orchestration-detail.md](references/orchestration-detail.md) §2 "영속 증거 → stub 복원 표"), `_workspace/_resume.json`(`{entryStage, entryLabel, ts}`)을 기록한 뒤 **재진입 단계를 확정**:
+    - **대화형**: 복원 요약(`hasTests`·`scenarios.approved`·`jacocoReport`·`pitestReport`)을 제시하고 `AskUserQuestion`으로 재진입 단계를 `[6 run-tests] [8 measure-coverage] [9 mutation-test] [4 시나리오 재설계]` 중 선택하게 한다.
+    - **비대화형·CI**: 질문 없이 `recommendedEntryStage`를 사용한다 — 기본값은 기존 테스트를 5단계 완료로 간주해 **6(run)→8(coverage)→9(mutation)→10(conformance)**(재생성 없이 측정·강화·보정). 승인 시나리오만 있고 테스트가 없으면 5단계부터. fallback-policy CI 자동 원칙 준수.
+  - 재진입 후에는 해당 stub 경로를 하위 스킬 프롬프트에 전달해 "기존 결과를 읽고 변경분만 반영"하게 한다(전량 재생성 금지). 최종 집계 전까지 `pipeline_result.json`을 쓰지 않는다(복원은 "완료"가 아니라 "재개").
+- `_workspace/` **존재** + 새 입력 → **새 실행**: 기존 `_workspace/`를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동 후 초기 실행.
 
 **단계별 계측(timing.json).** 각 서브에이전트 완료 알림의 `total_tokens`/`duration_ms`는 **그 시점에만** 접근 가능하므로 즉시 `_workspace/timing.json`에 누적 저장한다(느린·비싼 단계 식별용). 헬퍼: `scripts/record-timing.py`.
 

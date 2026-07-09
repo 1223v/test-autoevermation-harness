@@ -16,7 +16,14 @@
 
 ```mermaid
 flowchart TD
-    A(["HarnessRequest 입력"]) --> B["전처리: 입력 정규화"]
+    A(["HarnessRequest 입력"]) --> P0{"Phase 0 — 컨텍스트 확인<br/>_workspace/ 존재? 요청 유형?"}
+    P0 -- "있음 + 부분 요청" --> PR["부분 재실행<br/>영향 단계만 재호출 · 나머지 Read 재사용 (§부분 재실행 매트릭스)"]
+    P0 -- "없음/불완전 → detect_pipeline_state" --> P0R{"영속 증거(테스트·시나리오·리포트)<br/>resumable?"}
+    P0R -- "예 (상태 복원)" --> PRES["stub 재구성 + _resume.json 기록<br/>대화형=AskUserQuestion(6/8/9/4) · CI=recommendedEntryStage<br/>기본 6→8→9→10 (재생성 없이 보정)"]
+    PRES -. "재진입(대표: run-tests)" .-> L
+    PR -. "재진입(영향 단계)" .-> L
+    P0R -- "아니오 (초기 실행)" --> B["전처리: 입력 정규화"]
+    P0 -- "있음 + 새 입력 → 로테이션" --> B
     B --> C["Phase E — 환경 세팅 (선행 필수, TodoWrite)<br/>E1~E7 + E3b + E10 점검"]
     C --> D{"환경 통과?<br/>필수 E1·E2·E3·E3b·E4·E5·E6·E7·E10 completed<br/>(E8·E9는 0.5단계 · degrade 없음)"}
     D -- "아니오" --> X1(["status: failed — 파이프라인 미시작<br/>+ remediation 안내"])
