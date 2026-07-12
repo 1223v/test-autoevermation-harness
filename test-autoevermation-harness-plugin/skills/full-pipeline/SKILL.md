@@ -26,7 +26,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 **Phase 0 컨텍스트 확인(부분 재실행 · 상태 복원).** 시작 시 `_workspace/` 존재와 요청 유형으로 실행 범위를 정한다. `_workspace/`는 `.gitignore` 대상(휘발성)이지만 **영속 증거**(생성 테스트 `src/test/java`, 승인 시나리오 `test_docs/scenarios/*.md`, JaCoCo/JUnit/PITest 리포트)는 커밋되어 살아남으므로, `_workspace/`가 없거나 불완전해도 **결정적으로 상태를 복원**해 알맞은 단계부터 재개한다:
 
 - `_workspace/` **존재** + 부분 요청(예: "이 패키지만", "커버리지만 다시", "뮤테이션만") → **부분 재실행**: 영향 단계만 재호출하고 나머지는 `_workspace/`의 기존 산출물을 Read로 재사용 → 전체 재실행 회피(매트릭스: [references/orchestration-detail.md](references/orchestration-detail.md) §3).
-- `_workspace/` **부재 또는 불완전** → **`mcp__build-test__detect_pipeline_state(root=projectRoot)` 호출**로 영속 증거를 물리 판정한다(LLM 눈대중 금지). **핵심 구분: `harnessProvenance`** — 테스트 파일이 있어도 그게 *이 하네스가 생성한 것*(=`test_docs/` 존재)인지, *원래 프로젝트에 손으로 짠 것*(foreign)인지를 판정한다(도구가 `harnessProvenance`·`foreignTestsPresent`로 반환):
+- `_workspace/` **부재 또는 불완전** → **`mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pipeline_state(root=projectRoot)` 호출**로 영속 증거를 물리 판정한다(LLM 눈대중 금지). **이 도구가 세션에 노출되어 있지 않으면 설치본이 v0.20.0 미만(구버전)이라는 신호다** — Grep/Read 눈대중 복원으로 대체하지 말고 #20 준용으로 중단하고, remediation으로 플러그인 업데이트(`/plugin` 재설치 후 재시작) 후 재시도를 안내한다. **핵심 구분: `harnessProvenance`** — 테스트 파일이 있어도 그게 *이 하네스가 생성한 것*(=`test_docs/` 존재)인지, *원래 프로젝트에 손으로 짠 것*(foreign)인지를 판정한다(도구가 `harnessProvenance`·`foreignTestsPresent`로 반환):
   - `resumable:false` + `foreignTestsPresent:false`(영속 증거 없음) → **초기 실행**(0단계부터 전체).
   - `resumable:false` + `foreignTestsPresent:true`(**기존 손수 짠 테스트만 있고 하네스 흔적 없음**) → **초기 실행(0단계부터)** — 단, 기존 테스트를 "5단계 완료"로 보지 않고 정식으로 시나리오 설계·테스트 생성을 진행한다. 감지된 `testFiles[]`를 **8단계 coverage-closer의 `existingTestPaths` 입력**으로 전달해 기존 테스트와 **공존하며 커버리지 갭만 보완**하고, 5단계 generate-tests는 자체 규칙(기존 파일 덮어쓰기 전 확인·동일 경로 충돌 시 내용 비교, generate-tests/SKILL.md·test-code-generator)으로 손수 짠 테스트를 덮어쓰지 않는다. `_resume.json`·`05` stub은 쓰지 않는다(재개가 아님). 대화형은 "신규 생성(기존 공존)"임을 안내한다.
   - `resumable:true`(**하네스가 생성한** 테스트/승인 시나리오 존재 = `harnessProvenance:true`) → **상태 복원**: 감지 결과로 `_workspace/`에 최소 stub 산출물을 재구성하고([orchestration-detail.md](references/orchestration-detail.md) §2 "영속 증거 → stub 복원 표"), `_workspace/_resume.json`(`{entryStage, entryLabel, ts}`)을 기록한 뒤 **재진입 단계를 확정**:
@@ -67,7 +67,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
   "springVersion": "미지정",
   "stylePolicy": "google-java",
   "lspAvailable": true,
-  "maxRepairRetries": 2
+  "maxRepairRetries": 3
 }
 ```
 
@@ -77,18 +77,18 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 | 필드 | 타입 | 필수 | 기본값 | 설명 |
 |---|---|---|---|---|
-| `projectRoot` | `string` | 아니오 | `"미지정"` → 현재 작업 디렉터리 | Spring 프로젝트 루트 경로 |
-| `specDocPaths` | `string[]` | 아니오 | `[]` → `"미지정"` | 스펙 문서 경로 목록 |
-| `targets` | `string[]` | 아니오 | `[]` → auto-detect | 분석 대상 패키지 또는 FQCN |
-| `targetModules` | `string[]` | 아니오 | `[]` → auto-detect | 멀티 모듈 대상 |
-| `buildTool` | `string` | 아니오 | `"미지정"` → auto-detect | `gradle` 또는 `maven` |
+| `projectRoot` | `string` | 아니오 | `"미지정"` → 0단계 #13 질문/중단 (자동 cwd 금지) | Spring 프로젝트 루트 경로 |
+| `specDocPaths` | `string[]` | 아니오 | `[]` → 계속 여부 질문(#10)/중단 | 스펙 문서 경로 목록 |
+| `targets` | `string[]` | 아니오 | `[]` → 0단계 #13 확정 (detect는 후보 제시용) | 분석 대상 패키지 또는 FQCN |
+| `targetModules` | `string[]` | 아니오 | `[]` → 0단계 #13 확정 (detect는 후보 제시용) | 멀티 모듈 대상 |
+| `buildTool` | `string` | 아니오 | `"미지정"` → 0단계 #5·#13 확정 | `gradle` 또는 `maven` |
 | `junitPolicy` | `string` | 아니오 | `"jupiter-style"` | `jupiter-style`(BOM 위임) 또는 `strict-5x` |
 | `testScope` | `string` | 아니오 | `"mixed"` | `unit` / `slice` / `integration` / `mixed` |
-| `javaVersion` | `string` | 아니오 | `"미지정"` → auto-detect | `17`–`26` |
-| `springVersion` | `string` | 아니오 | `"미지정"` → auto-detect | Spring Boot 버전 (예: `4.1.0`) |
+| `javaVersion` | `string` | 아니오 | `"미지정"` → 0단계 #13 확정 | `17`–`26` |
+| `springVersion` | `string` | 아니오 | `"미지정"` → 0단계 #4·#13 확정 | Spring Boot 버전 (예: `3.4.5`) |
 | `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
 | `lspAvailable` | `boolean` | 아니오 | `true` | JDT LS 연결 여부. E7(JDT LS)은 Phase E 필수 항목이므로 통과 시 항상 `true` — 미가용이면 Phase E에서 하드 중단 |
-| `maxRepairRetries` | `integer` | 아니오 | `2` | repair-tests 최대 재시도 횟수 |
+| `maxRepairRetries` | `integer` | 아니오 | `3` | repair-tests **진전 추적 단위**(고정 상한 아님 — #12 무진전 판정 기준 "동일 실패 3회 연속"과 정렬) |
 | `domainKeywords` | `string[]` | 아니오 | `[]` | 스펙 검색 힌트 |
 | `refactorAdvisory` | `object` | 아니오 | `{ "enabled": true }` | 3.5단계 제어. `enabled`·`thresholds{cyclomatic,constructorArgs}` — 정본: [refactor-advisory.md](../../references/refactor-advisory.md) §5 |
 
@@ -110,10 +110,10 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 ### 전처리: 입력 정규화
 
-미지정 필드를 아래 기본값으로 채운다.
+**설계 기본값이 있는 필드만** 아래 값으로 채운다. `"미지정"`/`[]` 플레이스홀더는 값을 "채운" 것이 아니라 **0단계 configure-harness가 #13(질문/중단)으로 확정해야 하는 미확정 신호**다 — 전처리에서 cwd·auto-detect로 대신 채우지 않는다.
 
 ```
-projectRoot       = 입력값 또는 현재 작업 디렉터리
+projectRoot       = 입력값 또는 "미지정"   # 자동 cwd 채움 금지(#13) — 0단계에서 질문/중단으로 확정
 specDocPaths      = 입력값 또는 []
 targets           = 입력값 또는 []
 targetModules     = 입력값 또는 []
@@ -124,7 +124,7 @@ javaVersion       = 입력값 또는 "미지정"
 springVersion     = 입력값 또는 "미지정"
 stylePolicy       = 입력값 또는 "google-java"
 lspAvailable      = 입력값 또는 configure-harness E7 통과값(Phase E 통과 시 항상 true — E7은 필수 항목이며, 미가용이면 Phase E에서 하드 중단하므로 false로 이 단계에 도달하지 않는다)
-maxRepairRetries  = 입력값 또는 2
+maxRepairRetries  = 입력값 또는 3   # 진전 추적 단위(#12 무진전 3회 연속과 정렬)
 domainKeywords    = 입력값 또는 []
 refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 시 refactor-advisory.md §2 기본값;
                     병합 순서: HarnessConfig.refactorAdvisory(0단계 산출) > HarnessRequest 입력값 > 기본값)
@@ -136,12 +136,11 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 
 ### Phase E: 환경 세팅 (0단계 이전 — 선행 필수)
 
-전처리 직후, 0단계 진입 **전에** [references/environment-setup.md](../../references/environment-setup.md) 체크리스트를 **TodoWrite로 만들어 전부 통과**시킨다. 이 단계는 `configure-harness`의 Preflight(Phase E)와 동일 절차이며, `configure-harness`를 호출하면 그 안에서 수행된다(중복 실행 금지 — 이미 통과한 `_workspace/00_config-harness.json`이 있으면 재사용).
+전처리 직후, 0단계 진입 **전에** `configure-harness`를 호출해 Phase E 체크리스트(E1~E10)를 통과시킨다. **수행 주체는 configure-harness다** — 항목별 감지·세팅 명령·대화형/CI 분기의 실행 절차는 그 스킬의 Preflight 절이, 항목 정의·통과 기준·degrade 금지 원칙은 [references/environment-setup.md](../../references/environment-setup.md)(SSOT)와 fallback-policy #2·#3·#20이 정본이다(여기 재열거하지 않는다).
 
-- **대상 항목**: E1 Python 3.10+ · E2 MCP SDK · E3 MCP 서버 등록 · **E3b MCP 라이브 연결 검증(`health` 3종 호출)** · E4 JDK 21+ · E5 mvnw 동봉 · E6 JavaParser jar · E7 JDT LS+Java21 · E10 테스트 실행 JDK 호환. (E8 빌드도구·E9 Spring 프로파일은 0단계 configure-harness 0.5단계에서, **E11 빌드 능력(JaCoCo XML·PITest)·E12 의존성 캐시 프라이밍은 0.6단계**에서 확정 — 6단계 run-tests 이전 필수. 정본: [references/build-provisioning.md](../../references/build-provisioning.md).)
-- **세팅 방식**: 자동 가능 항목(E1·E2·E6·E7)은 **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / CI=자동 실행**(E1+E2는 v0.15.0+ `node <pluginRoot>/mcp/launch.cjs --ensure-only`로 질문 없이 자동(전 OS) — Python 없으면 uv 무-sudo 설치 + venv 의존성, 실패 시에만 수동 폴백 질문, E6은 `cd mcp/javaparser-cli && ./mvnw -q -DskipTests package`, E7은 `python3 <pluginRoot>/scripts/setup_jdtls.py`). assist 항목(E4 JDK 21+·E10)은 대화형=설치/런타임 안내 질문, CI=미충족 시 하드 중단. **E3b·E6·E7은 필수** — 미가용이면 자동 세팅을 시도하고, 실패 시 하드 중단한다(degrade 진행 없음).
-- **검증 후 체크**: 각 세팅 뒤 재감지로 통과 확인 후 `completed` 표시.
-- **게이트** (정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」): 필수 항목 **E1·E2·E3·E3b(런타임·MCP 라이브 연결) + E4(JDK 21+)·E5(mvnw)·E6(JavaParser jar)·E7(JDT LS) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 통과하지 못하면 0단계로 진행하지 않고 `status:"failed"` + remediation으로 중단한다. **E4·E5·E6·E7·E3b는 모두 필수** — 미가용 시 자동 세팅을 시도하고, 실패하면 하드 중단한다(정규식·AST-only degrade로 진행하지 않는다).
+이 오케스트레이터는 절차를 재수행하지 않고 **산출물로만 판정**한다: 이미 통과한 `_workspace/00_config-harness.json`이 있으면 재사용(중복 실행 금지), 없으면 configure-harness 호출, 필수 항목 미충족이면 0단계로 진행하지 않고 `status:"failed"` + remediation으로 중단.
+
+- E8 빌드도구·E9 Spring 프로파일은 0.5단계, **E11 빌드 능력(JaCoCo XML·PITest)·E12 의존성 캐시 프라이밍은 0.6단계**에서 확정 — 6단계 run-tests 이전 필수([references/build-provisioning.md](../../references/build-provisioning.md)).
 
 ---
 
@@ -301,9 +300,9 @@ Task(
   prompt="""
 입력:
 {
-  "astResult": <astResult>,
-  "sourceResult": <sourceResult>,
-  "specResult": <specResult>,
+  "astResult": <astResult의 {testTargets, riskPoints} 서브셋 — 시나리오 설계가 참조하는 필드만 전달(전체 객체 전달 금지, 토큰 절감)>,
+  "sourceResult": <sourceResult의 {testSeams, collaborators, exceptionFlows, externalDependencies} 서브셋>,
+  "specResult": <specResult의 {acceptanceCriteria} 서브셋>,
   "testScope": <testScope>
 }
 
@@ -359,35 +358,20 @@ Task(
 }
 
 지시:
-- springProfile(Boot 2.0–4.x) 우선 적용: namespace(javax/jakarta), junitEngine(junit4/jupiter), mockAnnotation(@MockBean/@MockitoBean)+정확한 import. springProfile이 없으면 detect_spring_profile로 감지. 전체 템플릿: references/version-compatibility.md.
-- 클래스 네이밍: <Target>Test (단위/슬라이스), <Target>IT (통합).
-- 메서드 네이밍(필수): <scenarioRefSlug>_<행위> 로 scenarioRef 포함 (SC-001→sc001_...).
-- BDD 본문(필수): // given → // when(단일 행위, 결과 캡처) → // then 3단 섹션. 시나리오 given/when/then 1:1 반영. 예외는 // when & then 병합 허용. stub은 BDDMockito given().willReturn()/willThrow().
-- 패키지: 대상과 동일 패키지의 src/test/java.
-- 컨트롤러 → @WebMvcTest + MockMvc + 협력 빈은 springProfile.mockAnnotation.
-- JPA 레포 → @DataJpaTest (junit4면 @RunWith(SpringRunner.class)).
-- 서비스/순수 로직 → 스프링 컨텍스트 없는 단위 테스트 (jupiter @ExtendWith(MockitoExtension) / junit4 @RunWith(MockitoJUnitRunner)).
-- 다계층 통합 → @SpringBootTest (최소화).
-- 협력 빈: springProfile.mockAnnotation을 정확한 import와 함께 사용(임의 고정 금지).
-- fixture: <Type>Fixtures/<Type>Builder, 매직값 금지.
-- @ParameterizedTest: isParameterized=true인 시나리오 (jupiter). junit4면 Parameterized 또는 데이터 루프.
-- @DisplayName: 한국어 행위 서술 (jupiter 한정; junit4는 서술적 메서드명).
-- 각 메서드 javadoc에 scenarioRef/criteriaRef 기록.
-- Google Java Style, import 완결.
-- 실제 네트워크/Thread.sleep/broad catch 금지.
+- 생성 규칙 전체(클래스·메서드 네이밍, BDD 3단 본문, slice 선택 기준, Mockito/MockMvc, fixture, 스타일, 금지 패턴)는
+  **네 자신의 에이전트 정의(agents/test-code-generator.md)와 references/test-code-invariants.md가 정본**이다 — 그대로 따르라(여기 재서술하지 않음).
+- springProfile(Boot 2.0–4.x) 우선 적용 — 입력에 없으면 detect_spring_profile로 감지(references/version-compatibility.md).
 - junitPolicy=strict-5x이면 빌드 파일에 version pin + CHANGELOG 경고 (jupiter 한정).
 - unresolved 시그니처는 생성 보류 + warnings 기록.
-- 시나리오 target 호출 자가 검증(필수 게이트): 각 파일 기록 후 parse_java_file의 methodCalls로 각 scNNN_ 메서드가
-  시나리오 target(FQCN#method) 메서드를 실제 호출하는지 대조하라(unit 직접호출은 기계 대조 → "matched",
-  slice는 when HTTP verb/경로 ↔ perform(...) 및 given stub 메서드명 대조 → "manual-verified").
-  불일치는 1회 자가 수정 후에도 불일치면 파일 제외 + warnings에 SCENARIO_TARGET_MISMATCH 기록.
-  모든 files[] 항목에 targetCallCheck를 기록하라.
-- TestGenResult JSON으로 반환하라.
+- 시나리오 target 호출 자가 검증(필수 게이트): 각 파일 기록 후 parse_java_file의 methodCalls로 대조해
+  모든 files[] 항목에 targetCallCheck를 기록하라 — unit 기계 대조 → "matched" / slice 체크리스트 → "manual-verified" /
+  1회 자가 수정 후에도 불일치 → 파일 제외(기록했다면 삭제) + warnings에 SCENARIO_TARGET_MISMATCH.
+- TestGenResult JSON으로 반환하라(files[].testClass 필수 — 6단계 실행 스코프 입력).
 """
 )
 ```
 
-결과를 `genResult`로 저장. `genResult.files[]`를 각 경로에 Write. **단, `targetCallCheck`가 없거나 `"mismatch"`인 항목은 Write하지 않고 해당 시나리오를 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다** — 필드 누락은 게이트 미수행으로 간주한다(별도 5.5단계 없이 이 필드 검사로 게이트를 강제한다).
+결과를 `genResult`로 저장. **파일 기록은 test-code-generator가 자가 검증 게이트(기록→parse→대조) 수행 과정에서 이미 완료했다 — 오케스트레이터가 `files[].content`로 다시 Write하지 않는다(이중 기록 금지, 소유권은 에이전트).** 오케스트레이터는 `files[]`의 `targetCallCheck`만 검사한다: 없거나 `"mismatch"`인 항목은 디스크에서 삭제·결과에서 제외하고 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다 — 필드 누락은 게이트 미수행으로 간주한다(별도 5.5단계 없이 이 필드 검사로 게이트를 강제한다).
 
 ---
 
@@ -439,7 +423,7 @@ Task(
 {
   "failResult": <runResult>,
   "originalTests": <genResult.files[].path>,
-  "relatedSources": <sourceResult에서 실패 테스트의 대상 FQCN에 해당하는 프로덕션 소스 경로·FQCN 목록>,
+  "relatedSources": <astResult.testTargets[]에서 실패 테스트의 대상 FQCN에 해당하는 {path: <testTargets[].file>, fqcn} 목록 — 경로 출처는 repo-ast가 반환한 file 필드(AstAnalysisResult.testTargets[].file)다. sourceResult(collaborators)는 fqcn만 있고 경로 필드가 없으므로 경로 출처로 쓰지 않는다>,
   "springProfile": <springProfile (0단계 configure-harness 산출)>,
   "scenarioDocs": <실패 테스트의 scenarioRef에 해당하는 test_docs/scenarios/<id>.md 경로 목록>,
   "retryCount": <retryCount>
@@ -448,7 +432,7 @@ Task(
 지시:
 - 실패를 유형(TEST_COMPILE_FAILED/TEST_RUNTIME_FAILED/FLAKY_SUSPECTED/SPEC_MISMATCH/SYMBOL_UNRESOLVED)으로 분류하라.
 - 최소 diff 수정만 적용하라. 전체 재생성 금지.
-- 수정 시 5단계 생성 원칙을 유지하라: BDD 3단(// given → // when → // then) 구조·BDDMockito 스타일·메서드명 <scenarioRefSlug>_<행위>와 javadoc scenarioRef/criteriaRef 보존(10단계 verify-scenarios 매핑 의존)·springProfile 관용구(references/version-compatibility.md). then 단언 완화 금지.
+- 수정 시 생성 불변식(BDD 3단 구조·BDDMockito 스타일·scenarioRef 보존·springProfile 관용구·단언 완화 금지)은 references/test-code-invariants.md를 그대로 따르라.
 - FLAKY_SUSPECTED: Thread.sleep 대신 await/clock 주입 등 결정적 방식 제안.
 - SPEC_MISMATCH: spec-doc-mcp로 criteria 재확인 후 assertion 수정(scenarioDocs의 given/when/then 대조).
 - SYMBOL_UNRESOLVED: repo-ast-mcp로 시그니처 재확인.
@@ -459,7 +443,7 @@ Task(
 )
 ```
 
-**패치 반영**: `test-fixer`는 `isolation: worktree`로 격리 실행되므로 worktree 안의 수정은 메인 작업 트리에 반영되지 않는다. 반환된 `patches[]`의 각 unified diff를 **메인 트리의 대응 파일에 적용**한다 — `path`가 worktree 절대경로면 프로젝트 상대경로로 재매핑하고, diff의 변경 hunk를 Edit(old→new 치환)으로 옮긴다. 적용 결과를 `_workspace/07_repair_result.json`에 저장한 뒤, `run-tests`를 `rerunTargets`로 재실행한다. **그린이 될 때까지 재시도**한다(fallback-policy.md #12). `retryCount`/`maxRepairRetries`는 **진전 추적 단위**일 뿐 상한이 아니다 — 실패가 줄어드는 한 계속하고, **직전과 동일한 실패가 3회 연속(무진전)**이면 `partial`로 잔여 실패를 전량 보고하고 중단한다.
+**패치 반영**: `test-fixer`는 `isolation: worktree`로 격리 실행되므로 worktree 안의 수정은 메인 작업 트리에 반영되지 않는다. 반환된 `patches[]`의 각 unified diff를 **메인 트리의 대응 파일에 적용**한다 — `path`가 worktree 절대경로면 프로젝트 상대경로로 재매핑하고, diff의 변경 hunk를 Edit(old→new 치환)으로 옮긴다. 적용 결과를 `_workspace/07_repair_result.json`에 저장한 뒤, `run-tests`를 `rerunTargets`로 재실행한다. 반복·무진전 중단 규칙은 7단계 서두와 동일하다(#12 — 여기 재정의하지 않음).
 
 ---
 
@@ -480,15 +464,17 @@ Task(
   "maxIterations": <HarnessConfig.coverageMaxIterations>,
   "targetScope": <HarnessConfig.targets + targetModules 매핑>,
   "springProfile": <springProfile>,
+  "junitPolicy": <junitPolicy>,
+  "stylePolicy": <stylePolicy>,
   "existingTestPaths": <genResult.files[].path>
 }
 ```
 
-- build-test-mcp로 JaCoCo 리포트 생성 → `parse_jacoco_report` → `coverage_gate(root, line, branch, method, klass, mutation)`(서버 파라미터명은 `klass` — `class`는 파이썬 예약어).
+- build-test-mcp로 JaCoCo 리포트 생성 → `parse_jacoco_report` → `coverage_gate(root, line, branch, method, klass, mutation)`(서버 파라미터명은 `klass` — `class`는 파이썬 예약어). 8단계는 `require_pitest`를 생략(기본 False — 뮤테이션 이전이라 PITest 리포트 부재가 정상, 부재를 partial 사유로 삼지 않음). 9단계 이후 종합 확인만 `require_pitest=True`.
 - 미달 시 `coverage-closer` 에이전트가 `uncovered[]`를 받아 추가 테스트 생성 → 게이트 충족까지 재측정(fallback-policy.md #12: 진전 있는 한 계속, 동일 미커버 집합 3회 연속이면 무진전으로 보고 후 중단).
 - 임계값 기본(RESEARCH_NOTES §6): LINE≥0.95 / BRANCH≥0.90 / METHOD≥0.95 / CLASS=1.00, 제외 allowlist 적용.
 - **회귀 실행 + runResult 재할당**: 게이트 수렴 후 `coverageResult.addedTests`가 있으면 6단계(run-tests)를 생성+추가 테스트 전체로 회귀 실행해 그린 상태를 확인하고(실패 시 7단계 보정 루프 재진입), 그 결과를 **`runResult`로 재할당**한다 — 10단계는 이 최신 값을 받는다.
-- **스킵 금지 + 산출물 유효성 (#21)**: RA advisory 대상이라는 이유로 coverage-closer 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 이 게이트와 무관하다. "구조적으로 커버 불가" 판단은 coverage-closer가 루프를 실제 수행한 뒤 `remainingGaps[].reason`으로만 성립하고, 제외는 `coverage.excludes`(사용자 승인)로만 가능하다. `gatePassed:false`인데 `iterations<1` 또는 `remainingGaps`가 빈 `coverageResult`는 **게이트 미수행 산출물로 무효** — 9단계로 진행하지 말고 8단계를 다시 실행하라(`guard-gate-artifacts.py` 훅이 무효 `08_coverage_result.json` 기록을 차단한다).
+- **스킵 금지 + 산출물 유효성 (#21)**: [fallback-policy.md #21](../../references/fallback-policy.md)을 그대로 따른다 — RA advisory는 스킵 사유가 아니며, 무효 산출물(`gatePassed:false`∧루프 증거 없음)이면 9단계로 진행하지 말고 8단계를 재실행한다(`guard-gate-artifacts.py` 훅이 무효 기록을 차단).
 
 결과를 `coverageResult`로 저장.
 
@@ -510,6 +496,8 @@ Task(
   "mutation": <HarnessConfig.mutation (targetClasses/targetTests/mutators/mutationThreshold/threads)>,
   "maxIterations": <HarnessConfig.mutationMaxIterations>,
   "springProfile": <springProfile>,
+  "junitPolicy": <junitPolicy>,
+  "stylePolicy": <stylePolicy>,
   "existingTestPaths": <genResult.files[].path + coverageResult.addedTests 병합>
 }
 ```
@@ -518,7 +506,7 @@ Task(
 - score < `mutationThreshold`(기본 0.80) 또는 survivor 존재 시 `mutation-analyst`가 단언을 강화해 mutant 제거 → 재실행.
 - 금지: Thread.sleep / broad catch / over-mock / 의미 없는 assert. 동등(equivalent) mutant 의심은 보고.
 - **회귀 실행 + runResult 재할당**: 뮤테이션 루프 수렴 후(단언 강화·테스트 추가가 1회라도 있었으면) 6단계(run-tests)를 전체 대상(생성+추가 테스트)으로 회귀 실행한다. 강화된 단언이 실패하면 7단계 보정 루프로 재진입하고, 최종 그린 결과를 **`runResult`로 재할당**한다 — 이것이 10단계에 전달되는 최종 실행 결과다. 이 회귀가 없으면 9단계에서 바뀐 테스트의 실행 상태가 10단계에 stale로 전달된다.
-- **스킵 금지 + 산출물 유효성 (#21)**: RA advisory 대상이라는 이유로 mutation-analyst 강화 루프를 건너뛸 수 없다. `thresholdMet:false`인데 `iterations<1` 또는 `survivingMutants`가 빈 `mutationResult`는 **게이트 미수행 산출물로 무효** — 10단계로 진행하지 말고 9단계를 다시 실행하라(`guard-gate-artifacts.py` 훅이 무효 `09_mutation_result.json` 기록을 차단한다).
+- **스킵 금지 + 산출물 유효성 (#21)**: [fallback-policy.md #21](../../references/fallback-policy.md)을 그대로 따른다 — RA advisory는 스킵 사유가 아니며, 무효 산출물(`thresholdMet:false`∧루프 증거 없음)이면 10단계로 진행하지 말고 9단계를 재실행한다(훅이 무효 기록을 차단).
 
 결과를 `mutationResult`로 저장.
 
@@ -615,7 +603,7 @@ round = 1..3 (하드 캡):
 
 모든 단계 결과(`coverageResult`, `mutationResult`, `conformanceResult` 포함)를 수렴해 `PipelineResult` JSON과 Markdown 보고서를 생성한다.
 
-**집계 유효성 교차검증 (#21)**: `stages.measureCoverage`/`stages.mutationTest`는 무효 조건 검사를 통과한 결과만 집계한다 — `gatePassed:false`∧(`iterations<1`∨`remainingGaps` 빈 배열) 또는 `thresholdMet:false`∧(`iterations<1`∨`survivingMutants` 빈 배열)이면 게이트 미수행이므로 집계하지 말고 해당 단계를 재실행한다.
+**집계 유효성 교차검증 (#21)**: `stages.measureCoverage`/`stages.mutationTest`는 무효 조건 검사(정의: fallback-policy #21)를 통과한 결과만 집계한다 — 게이트 미수행 산출물이면 집계하지 말고 해당 단계를 재실행한다.
 
 **집계 매핑(중첩 필드 주의)**: `stages.measureCoverage`의 `line/branch/method/class`는 `coverageResult.coverage.*`(중첩)에서, `gatePassed`/`iterations`는 top-level에서 읽는다. `stages.verifyScenarios`의 `approved/satisfied/unsatisfied/missing`은 **최종**(10.5단계 이후 재검증된) `conformanceResult.totals.*`(중첩)에서 읽는다. `stages.conformanceRepair`는 `conformanceRepairResult`에서 읽는다(10.5단계 미진입 시 `"skipped"`). `stages.mutationTest`는 `mutationResult`의 top-level(`mutationScore`/`thresholdMet`/`iterations`)과 1:1.
 
@@ -712,7 +700,7 @@ Markdown 보고서는 아래 구조로 출력한다.
 
 | 상황 | 처리 방식 |
 |---|---|
-| **Phase E·E3b MCP 연결 검증 실패 (#20)** | 대화형·CI 양 모드 `status:"failed"` + remediation(플러그인 활성화 확인 → `node <pluginRoot>/mcp/launch.cjs --ensure-only` → `/reload-plugins`/재시작). **파이프라인을 시작하지 않는다.** Grep/Read 대체 금지 |
+| **Phase E·E3b MCP 연결 검증 실패 (#20)** | 대화형·CI 양 모드 `status:"failed"` + remediation(플러그인 활성화 확인 → `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` → `/reload-plugins`/재시작). **파이프라인을 시작하지 않는다.** Grep/Read 대체 금지 |
 | **파이프라인 도중 MCP 도구 호출 실패 또는 `JAVAPARSER_REQUIRED`/`degraded:true` 수신 (#20/#2)** | 즉시 중단(`status:"failed"` + remediation). **Grep/Read/직접 파싱으로 대체 생성 금지** — MCP 도구는 필수 경로다 |
 | 1·2단계(병렬) 모두 `failed` | 3단계 이후 중단, `status: "failed"` 반환 |
 | 1단계만 `failed` | specResult 없이 진행, `status: "partial"` |
@@ -730,8 +718,8 @@ Markdown 보고서는 아래 구조로 출력한다.
 | 0.6단계 빌드 능력 미비 (#17) | JaCoCo XML/PITest 미적용 → 대화형=승인 후 스니펫 주입(`buildChanges[]`)·재감지 / 거부 시 8·9단계 `skipped` / CI=자동 주입 금지·remediation 중단 |
 | 0.6단계 콜드 캐시 (#18) | `primed:false` → 대화형=승인 후 6단계 1회 `online=True` 프라이밍 / CI=`BUILD_TEST_ALLOW_NETWORK=1` 옵트인·워밍업 안내 |
 | 7단계 보정 루프 (#12) | **그린 될 때까지 재시도**(진전 있는 한 계속). 동일 실패 시그니처 **3회 연속(무진전)**이면 `partial`로 잔여 전량 보고 후 종료 |
-| 8단계 커버리지 게이트 (#12/#21) | 게이트 충족까지 재측정/보정. 동일 미커버 집합 **3회 연속(무진전)**이면 `partial` + `remainingGaps[]` 전량 보고(임의 제외 금지). **RA advisory는 스킵 사유 아님** — `gatePassed:false`∧`iterations<1`(또는 `remainingGaps` 빈 배열)인 결과는 게이트 미수행으로 무효, 8단계 재실행(훅이 기록 차단) |
-| 9단계 뮤테이션 (#12/#21) | score 도달까지 강화. 동일 survivor 집합 **3회 연속(무진전)**이면 `partial` + `survivingMutants[]` + 동등 mutant 사유 보고. **RA advisory는 스킵 사유 아님** — `thresholdMet:false`∧`iterations<1`(또는 `survivingMutants` 빈 배열)인 결과는 게이트 미수행으로 무효, 9단계 재실행(훅이 기록 차단) |
+| 8단계 커버리지 게이트 (#12/#21) | 게이트 충족까지 재측정/보정. 동일 미커버 집합 **3회 연속(무진전)**이면 `partial` + `remainingGaps[]` 전량 보고(임의 제외 금지). 무효 산출물·advisory 비면제는 #21을 따름(8단계 재실행, 훅이 기록 차단) |
+| 9단계 뮤테이션 (#12/#21) | score 도달까지 강화. 동일 survivor 집합 **3회 연속(무진전)**이면 `partial` + `survivingMutants[]` + 동등 mutant 사유 보고. 무효 산출물·advisory 비면제는 #21을 따름(9단계 재실행, 훅이 기록 차단) |
 | 10단계 적합성 (#16) | `unmet` 존재 시 **10.5단계 자동 보정 루프**(unsatisfied→test-fixer 모드 B / missing→부분 재생성, 최대 3라운드·동일 unmet 집합 즉시 무진전 중단, 대화형·CI 동일 자동 수행) → 소진 후 잔여: 대화형=`AskUserQuestion`(수동 보정 계속/partial 종료), CI=`status: "partial"` + 잔여 전량 보고. 임의 제외 금지 |
 | junitPolicy `strict-5x` | `warnings`에 버전 충돌 경고 추가 후 진행 |
 

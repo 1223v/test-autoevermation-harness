@@ -29,9 +29,9 @@ TAM이 top-level `statusLine`을 **소유**하고 기존 커맨드(예: OMC HUD)
 ## 플러그인 루트 확인 (모든 절차 공통)
 
 - `~/.claude/plugins/installed_plugins.json`에서 `test-autoevermation-harness-plugin@`으로 시작하는 키의
-  `installPath`를 `<pluginRoot>`로 취한다. 미등록(로컬 dev)이면 이 SKILL.md가 로드된 경로의 2단계 상위.
+  `installPath`를 `${CLAUDE_PLUGIN_ROOT}`로 취한다. 미등록(로컬 dev)이면 이 SKILL.md가 로드된 경로의 2단계 상위.
 - **주의**: Bash에서 `${CLAUDE_PLUGIN_ROOT}`에 의존하지 않는다 — 훅/MCP 프로세스에만 주입되는 변수다.
-- 아래 명령의 정본 진입점은 `node "<pluginRoot>/mcp/launch.cjs" script "<pluginRoot>/hooks/statusline-autosetup.py"`
+- 아래 명령의 정본 진입점은 `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/statusline-autosetup.py"`
   이다(크로스플랫폼 — launch.cjs가 파이썬을 해석). 이를 `<AUTOSETUP>`으로 줄여 표기한다.
 
 ---

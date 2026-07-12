@@ -11,7 +11,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `repo-ast` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 AST-only degrade로 진행하지 말고 즉시 중단한다(fallback-policy #3 개정: Phase E·E7 설치/검증 실패 시 하드 중단).
+이 스킬은 `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 AST-only degrade로 진행하지 말고 즉시 중단한다(fallback-policy #3 개정: Phase E·E7 설치/검증 실패 시 하드 중단).
 
 ---
 
@@ -56,7 +56,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
 1. **입력 정규화**
    - `targetSymbols`가 비어 있으면 `astResult.testTargets[].fqcn`을 사용한다.
-   - `lspAvailable`이 `false`이면 즉시 `status:"failed"`로 중단한다(AST-only degrade 금지, fallback-policy #3 개정).
+   - `lspAvailable` 게이트: 상단 「MCP 필수」 절의 규칙(#3)을 여기서 1회만 적용한다 — `false`면 즉시 `status:"failed"` 중단. (이 게이트는 이 단계에서 단 한 번 판정하며 아래 절차·검증에서 재판정하지 않는다.)
 
 2. **subagent 호출**
 
@@ -77,7 +77,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
    지시:
    - repo-ast-mcp의 `resolve_symbol`, `parse_java_file` 도구를 사용해 각 대상의 호출 그래프를 탐색하라.
-   - JDT LS는 **필수**다([fallback-policy.md](../../references/fallback-policy.md) #3). `lspAvailable`이 true면 정의이동·참조탐색에 활용하고, **미가용이면 즉시 `status:"failed"`로 중단**한다. AST-only degrade로 진행하지 않는다.
+   - `lspAvailable=true` 전제(Phase E·E7이 보장, #3 — 게이트 판정은 호출자가 이미 수행)로 JDT LS 결과를 정의이동·참조탐색 보강에 활용하라.
    - 각 대상의 외부 의존(DB/HTTP/clock/random)을 식별해 testSeams에 기록하라.
    - 동작 흐름과 예외 경로(checked/unchecked exception, 롤백 조건)를 분리해 기술하라.
    - DI 패턴(@Autowired, 생성자 주입, @Value)과 트랜잭션 경계(@Transactional)를 명시하라.
@@ -117,7 +117,6 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
 3. **결과 검증**
    - `testSeams`가 비어 있으면 `warnings`에 "seam 미식별 — 순수 로직 또는 분석 범위 확인 필요"를 추가한다.
-   - LSP 미가용이면 AST-only로 진행하지 말고 즉시 `status:"failed"`로 중단한다(degrade 금지, fallback-policy.md #3 개정).
 
 4. **결과 반환**
    - `SourceAnalysisResult` JSON을 메인 세션으로 반환한다. 코드 본문은 포함하지 않는다.
@@ -131,8 +130,8 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
   "status": "ok",
   "summary": "OrderService 분석 완료 — 2개 협력 객체, 3개 testSeam 식별",
   "collaborators": [
-    { "symbol": "com.example.order.OrderRepository", "injectionType": "constructor", "isExternal": false },
-    { "symbol": "com.example.payment.PaymentClient", "injectionType": "constructor", "isExternal": true }
+    { "fqcn": "com.example.order.OrderRepository", "role": "저장소", "injectionType": "constructor", "mockable": true },
+    { "fqcn": "com.example.payment.PaymentClient", "role": "외부 결제 HTTP 클라이언트", "injectionType": "constructor", "mockable": true }
   ],
   "sideEffects": ["OrderRepository.save: DB 쓰기", "PaymentClient.charge: 외부 HTTP 호출"],
   "testSeams": [
@@ -141,10 +140,13 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
     "Clock — LocalDateTime.now() 직접 호출, clock 주입 권장"
   ],
   "transactionBoundaries": [
-    { "method": "createOrder", "propagation": "REQUIRED", "rollbackOn": ["RuntimeException"] }
+    "createOrder — @Transactional(REQUIRED), rollbackFor=RuntimeException"
   ],
   "exceptionFlows": [
-    { "method": "createOrder", "throws": ["InsufficientStockException"], "caught": [] }
+    { "exceptionType": "InsufficientStockException", "handledIn": "GlobalExceptionHandler", "responseMapping": "409 CONFLICT" }
+  ],
+  "externalDependencies": [
+    { "kind": "http", "symbol": "com.example.payment.PaymentClient", "seamSuggestion": "mock 필수 (@MockitoBean/@MockBean 프로파일)" }
   ],
   "evidence": ["OrderService.java 분석 완료"],
   "warnings": [],

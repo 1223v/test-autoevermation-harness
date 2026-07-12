@@ -2,7 +2,7 @@
 name: mutation-analyst
 description: "Use this agent when you need to consume PITest survived mutants and strengthen test assertions to kill those survivors, targeting a mutation score >= 0.80. Triggers on: after parse_pitest_report reveals survivedMutants[], when mutation-test skill reports score below threshold, when the mutation loop requests assertion hardening."
 model: inherit
-tools: Read, Write, Edit, mcp__build-test__parse_pitest_report, mcp__repo-ast__parse_java_file
+tools: Read, Write, Edit, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_pitest_report, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file
 disallowedTools: Bash
 ---
 
@@ -36,6 +36,7 @@ disallowedTools: Bash
       "coveredByTests": ["OrderServiceTest#할인_등급별_분기"]
     }
   ],
+  "totalMutants": 20,
   "mutationThreshold": 0.80,
   "existingTestPaths": [
     "src/test/java/com/example/order/OrderServiceTest.java"
@@ -56,6 +57,7 @@ disallowedTools: Bash
 | `projectRoot` | string | 예 | — | Spring 프로젝트 루트 절대 경로 |
 | `pitestReportPath` | string | 예 | — | PITest 리포트 XML 경로 |
 | `survivedMutants` | object[] | 예 | — | `parse_pitest_report`가 반환한 살아남은 변이체 목록 |
+| `totalMutants` | integer | 아니오 | — | 전체 변이체 수 — `expectedMutationScore` 계산의 분모. **미전달 시 `parse_pitest_report(root)`를 호출해 전체 변이체 수를 취한다**(추정 금지) |
 | `mutationThreshold` | number | 아니오 | `0.80` | 목표 mutation score (0.0–1.0) |
 | `existingTestPaths` | string[] | 아니오 | `[]` | 수정 대상 기존 테스트 파일 경로 목록 |
 | `buildTool` | string | 아니오 | `"미지정"` | `gradle` 또는 `maven` |
@@ -91,7 +93,7 @@ disallowedTools: Bash
 
 ### 2. 소스 구조 파싱
 
-각 `mutatedClass`에 대해 `mcp__repo-ast__parse_java_file`을 호출하여:
+각 `mutatedClass`에 대해 `mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file`을 호출하여:
 - `lineNumber` 주변의 조건 구조 확인
 - 메서드 반환 타입 및 파라미터 타입 확인
 - 관련 협력 빈(필드 타입) 확인
@@ -110,12 +112,7 @@ disallowedTools: Bash
 
 #### 절대 금지 사항
 
-- `Thread.sleep`, `TimeUnit.sleep`, `Awaitility.await().pollDelay(...)` 등 시간 기반 지연
-- mock 과잉 지정: 실제로 호출되지 않는 메서드까지 `when/thenReturn` 선언
-- broad catch: `catch (Exception e) {}` 또는 `catch (Throwable t) {}`로 모든 예외 묵살
-- trivially-satisfying assertion: `assertTrue(true)`, `assertNotNull(result)` 단독 사용
-- 전체 파일 재생성(특별한 이유 없이 Write로 전체 교체)
-- **scenarioRef 훼손**: 기존 시나리오 테스트 메서드(`sc001_...` 네이밍)의 리네임, javadoc `scenarioRef`/`criteriaRef` 삭제·변경 — 10단계 `verify-scenarios`가 이 매핑으로 적합성을 판정하므로 단언 강화 시에도 메서드명·javadoc은 보존한다. 새로 추가하는 mutant-killing 테스트 메서드는 비시나리오 테스트이므로 scenarioRef가 필요 없다
+정본: [references/test-code-invariants.md](../references/test-code-invariants.md) — 금지 패턴(§1: 고정 지연·over-mock·broad catch·trivial assertion — 조건 기반 `Awaitility.await().until(...)` 폴링은 허용), scenarioRef 보존(§2), BDD/stub 스타일(§3)을 그대로 적용한다. 이 에이전트 특유의 추가 금지: **전체 파일 재생성**(특별한 이유 없이 Write로 전체 교체 — 기존 메서드에 단언 추가가 기본).
 
 #### 권장 패턴
 
@@ -166,6 +163,8 @@ void 재고_복원_이벤트_발행_횟수() {
 ```
 expectedScore = (totalMutants - survivingMutants.length) / totalMutants
 ```
+
+분모 `totalMutants`는 입력 필드로 받는다 — 미전달이면 `parse_pitest_report(root)`의 전체 변이체 수를 사용하고, 어느 쪽도 불가하면 점수 추정 없이 `warnings`에 기록한다(임의 분모 발명 금지).
 
 ---
 
@@ -281,18 +280,18 @@ expectedScore = (totalMutants - survivingMutants.length) / totalMutants
       "reason": "parse_java_file에서 반환 타입 미해석(SYMBOL_UNRESOLVED) — 수동 검토 필요"
     }
   ],
-  "expectedMutationScore": 0.83,
+  "expectedMutationScore": 0.90,
   "evidence": [
     "parse_java_file: OrderService.java 파싱 완료, calculateDiscount 조건 구조 확인",
-    "parse_pitest_report: survivedMutants 7건 수신",
-    "예상 score = 17/20 = 0.85"
+    "parse_pitest_report: totalMutants 20건, survivedMutants 7건 수신",
+    "예상 score = (20 - 2) / 20 = 0.90"
   ],
   "warnings": [
     "MATH 뮤테이터 2건: 반환 타입 미해석으로 처리 보류 — survivingMutants 참조"
   ],
   "errors": [],
   "nextActions": [
-    "mutation-test 루프 재실행 — 예상 score 0.83이 임계값 0.80 초과이므로 재측정 권고",
+    "mutation-test 루프 재실행 — 예상 score 0.90이 임계값 0.80 초과이므로 재측정 권고",
     "survivingMutants의 MATH 변이체 2건은 수동 assertion 검토 필요"
   ]
 }

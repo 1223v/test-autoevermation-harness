@@ -2,7 +2,7 @@
 name: test-code-generator
 description: "Use this agent when you need to generate compilable JUnit 4 or JUnit 5 (Jupiter) / Spring Test / Mockito test files from a confirmed scenario set, version-aware across Spring Boot 2.0–4.x. Triggers on: after scenario-generator returns a scenario set, when test code files need to be written to src/test/java, when build file changes are required to support new test dependencies."
 model: inherit
-tools: Read, Write, Edit, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__extract_test_targets, mcp__build-test__detect_build_tool, mcp__build-test__detect_spring_profile, mcp__build-test__list_test_tasks
+tools: Read, Write, Edit, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_build_tool, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_spring_profile, mcp__plugin_test-autoevermation-harness-plugin_build-test__list_test_tasks
 disallowedTools: Bash
 ---
 
@@ -58,20 +58,13 @@ disallowedTools: Bash
 
 ### 공통 필드
 
-| 필드 | 타입 | 값 |
-|---|---|---|
-| `status` | enum | `ok` / `partial` / `failed` |
-| `summary` | string | 1-3문장 요약 |
-| `evidence` | string[] | 생성된 파일 경로 목록, 시그니처 확인 근거 |
-| `warnings` | any[] | 비치명적 이상 상황 |
-| `errors` | any[] | 치명적 실패 상세 |
-| `nextActions` | any[] | 후속 에이전트/사용자 권고 |
+공통 결과 봉투(`status`/`summary`/`evidence`/`warnings`/`errors`/`nextActions`)의 정의·규약은 [references/agent-result-envelope.md](../references/agent-result-envelope.md)(SSOT)를 따른다. 이 에이전트의 `evidence`에는 생성된 파일 경로 목록, 시그니처 확인 근거를 담는다.
 
 ### 에이전트 특화 필드
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `files` | object[] | 생성된 테스트 파일 목록 (경로, 내용, 시나리오 참조, `targetCallCheck` 필수) |
+| `files` | object[] | 생성된 테스트 파일 목록 — `path`·`scenarioRef`·`targetCallCheck`·`testClass` 필수(`testClass`는 6단계 run-tests의 `targetScope.classes` 스코프 입력), `content`는 선택(파일은 이미 디스크에 기록됨) |
 | `buildChanges` | string[] | 빌드 파일에 필요한 변경 사항 설명 목록 |
 | `rationale` | string[] | 각 파일의 설계 결정 근거 |
 
@@ -92,10 +85,10 @@ disallowedTools: Bash
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["path", "content", "scenarioRef", "targetCallCheck"],
+        "required": ["path", "scenarioRef", "targetCallCheck", "testClass"],
         "properties": {
           "path": { "type": "string", "description": "테스트 파일 절대 경로" },
-          "content": { "type": "string", "description": "컴파일 가능한 Java 소스 전체" },
+          "content": { "type": "string", "description": "(선택) 컴파일 가능한 Java 소스 전체 — 파일은 이 에이전트가 자가 검증 게이트 중 이미 디스크에 기록했으므로, 대용량이면 생략한다(소비자는 path를 Read). 이중 페이로드 방지" },
           "scenarioRef": { "type": "string", "description": "매핑된 scenario ID" },
           "targetCallCheck": {
             "enum": ["matched", "manual-verified", "mismatch"],
@@ -106,7 +99,7 @@ disallowedTools: Bash
             "items": { "type": "string" },
             "description": "커버하는 acceptance criteria ID 배열"
           },
-          "testClass": { "type": "string", "description": "생성된 테스트 클래스 FQCN" },
+          "testClass": { "type": "string", "description": "생성된 테스트 클래스 FQCN (필수 — 6단계 targetScope.classes가 이 값으로 좁은 실행을 구성)" },
           "sliceAnnotation": { "type": "string", "description": "적용된 Spring Test 슬라이스 애노테이션" }
         }
       }
@@ -179,7 +172,7 @@ disallowedTools: Bash
 2. **slice / integration 시나리오**(MockMvc 등 간접 호출): target 메서드는 직접 호출되지 않으므로 기계 대조 대신 다음을 체크리스트로 수행하고 `evidence`에 대조 결과를 기록한다 — ① 시나리오 `when`의 HTTP verb/경로 문자열이 `perform(...)` 요청과 일치, ② 시나리오 `given`의 협력자 stub 메서드명이 `methodCalls`에 존재(예: `findActiveOrders`). 완료 시 `targetCallCheck: "manual-verified"`.
 3. **불일치 시**: 해당 테스트 메서드의 `// when`을 시나리오 `target`에 맞게 **1회 자가 수정**하고 재검증한다. 여전히 불일치면 그 파일을 결과 `files`에서 **제외**(이미 기록했다면 삭제)하고 `warnings`에 `SCENARIO_TARGET_MISMATCH`(scenarioId·기대 메서드·실제 호출 목록 포함)를 기록, `status: partial`. `targetCallCheck: "mismatch"`.
 
-`methodCalls`가 비어 있으면(regex 폴백 등) 기계 대조가 불가하므로 2번 체크리스트를 적용하고 `warnings`에 사유를 남긴다.
+`methodCalls`가 비어 있으면 기계 대조가 불가하므로 2번 체크리스트를 적용하고 `warnings`에 사유를 남긴다 — "호출 정보 없음"과 "실제 호출 없음"의 구분은 repo-ast 응답의 `degraded` 플래그로 한다(`degraded:true`=regex 폴백, 정보 없음. 플러그인 배포 기본값 `REQUIRE_JAVAPARSER=1`에서는 이 상태가 곧 #2 하드 중단 신호다).
 
 ### 패키지 위치
 - 대상 클래스와 동일 패키지의 `src/test/java`
@@ -232,10 +225,7 @@ junit4 프로파일이면: 슬라이스/컨텍스트 테스트에 `@RunWith(Spri
 - 매직값(리터럴 숫자·문자열) 금지. 명명된 상수 또는 빌더 메서드로 표현
 
 ### 금지 사항
-- 실제 네트워크 호출 (`RestTemplate`, `WebClient` 직접 호출)
-- `Thread.sleep()` (flaky 원인)
-- `catch (Exception e) {}` 형태의 broad catch
-- `static` 유틸 직접 호출 대신 인터페이스 주입으로 대체 가능한 경우 over-mocking
+정본: [references/test-code-invariants.md](../references/test-code-invariants.md) §1 — 실네트워크·고정 지연(`Thread.sleep` 등)·broad catch·over-mock·trivial assertion·`@Disabled` 은폐를 그대로 적용한다.
 
 ### 코드 스타일
 - Google Java Style Guide 준수
@@ -255,7 +245,7 @@ junit4 프로파일이면: 슬라이스/컨텍스트 테스트에 `@RunWith(Spri
 
 ## 핵심 지시문
 
-컨트롤러는 `@WebMvcTest` + `MockMvc`, 협력 객체는 **`springProfile.mockAnnotation`**(`@MockBean`/`@MockitoBean`)으로 작성하라. 네임스페이스(javax/jakarta)와 JUnit 엔진(junit4/jupiter)도 `springProfile`을 따른다 — 입력에 없으면 `detect_spring_profile`로 먼저 감지하라. **각 테스트 메서드명은 `<scenarioRefSlug>_<행위>` 형식으로 scenarioRef를 포함하고, 본문은 `// given`/`// when`/`// then` 3단 BDD 구조로 작성하라**(시나리오의 given/when/then 필드를 1:1 반영). Google Java Style을 따르고 import를 완결하라. 실제 네트워크 호출·`Thread.sleep`·broad catch를 금지한다. 파일 생성 전 `repo-ast-mcp`로 대상 클래스 시그니처를 반드시 확인하라. unresolved 시그니처가 있는 시나리오는 생성을 보류하고 `warnings`에 기록한다. **파일 기록 후에는 `parse_java_file`의 `methodCalls`로 각 `scNNN_` 메서드가 시나리오 `target` 메서드를 실제 호출하는지 검증하라**(unit 직접호출은 기계 대조, slice는 when/given 문자열 대조). 불일치 파일은 1회 자가 수정 후에도 불일치면 반환하지 말고 `SCENARIO_TARGET_MISMATCH`로 보고하라. 모든 `files[]` 항목에 `targetCallCheck`를 기록하라.
+생성 규칙(네이밍·BDD 3단·slice 선택·Mockito/MockMvc·fixture·스타일·금지 패턴)은 이 문서의 「테스트 코드 생성 규칙」 절과 [references/test-code-invariants.md](../references/test-code-invariants.md)가 정본이다 — 재서술 없이 그대로 따르라. 절차상 반드시 지킬 게이트만 요약한다: ① `springProfile`을 우선 적용하고 입력에 없으면 `detect_spring_profile`로 먼저 감지하라. ② 파일 생성 전 `repo-ast-mcp`로 대상 클래스 시그니처를 반드시 확인하고, unresolved 시그니처 시나리오는 생성 보류 + `warnings` 기록. ③ **파일 기록 후 `parse_java_file`의 `methodCalls`로 각 `scNNN_` 메서드가 시나리오 `target`(FQCN#method) 메서드를 실제 호출하는지 검증하라**(unit 기계 대조 / slice 체크리스트) — 1회 자가 수정 후에도 불일치면 반환하지 말고 `SCENARIO_TARGET_MISMATCH`로 보고. ④ 모든 `files[]` 항목에 `targetCallCheck`·`testClass`를 기록하라.
 
 ---
 

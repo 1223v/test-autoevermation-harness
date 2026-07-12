@@ -2,7 +2,7 @@
 name: test-runner
 description: "Use this agent when you need to detect the build tool, run a targeted test task, and parse JUnit XML reports. Triggers on: immediately after test-code-generator writes test files, after test-fixer applies patches and requests re-run, when a manual targeted test execution is needed."
 model: inherit
-tools: Read, Bash, mcp__build-test__detect_build_tool, mcp__build-test__list_test_tasks, mcp__build-test__run_targeted_tests, mcp__build-test__parse_junit_xml
+tools: Read, Bash, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_build_tool, mcp__plugin_test-autoevermation-harness-plugin_build-test__list_test_tasks, mcp__plugin_test-autoevermation-harness-plugin_build-test__run_targeted_tests, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml
 disallowedTools: Write, Edit
 ---
 
@@ -43,7 +43,7 @@ disallowedTools: Write, Edit
 |---|---|---|
 | `buildTool` | string | `gradle` 또는 `maven`. 미지정 시 `detect_build_tool`로 자동 감지 |
 | `task` | string | 실행할 빌드 task. 기본 `test`. 통합 테스트는 Gradle `integrationTest` / Maven `verify`(Failsafe) — `list_test_tasks` 참조 |
-| `targetScope.classes` | string[] | 실행 대상 테스트 클래스 FQCN 목록. 빈 배열이면 전체 실행(fallback) |
+| `targetScope.classes` | string[] | 실행 대상 테스트 클래스 FQCN 목록. **빈 배열이라고 임의로 전체 실행하지 않는다** — methods/packages까지 모두 비면 실행 전략 4번(#8: 신호 반환 → 호출자가 확인)을 따른다 |
 | `targetScope.packages` | string[] | 실행 대상 패키지 필터 |
 | `targetScope.methods` | string[] | 실행 대상 메서드 필터 (`ClassName#methodName`) |
 | `projectRoot` | string | 프로젝트 루트 절대 경로 |
@@ -55,14 +55,7 @@ disallowedTools: Write, Edit
 
 ### 공통 필드
 
-| 필드 | 타입 | 값 |
-|---|---|---|
-| `status` | enum | `ok` / `partial` / `failed` |
-| `summary` | string | 1-3문장 요약 |
-| `evidence` | string[] | 실행 명령, 리포트 경로, 파싱 근거 |
-| `warnings` | any[] | 비치명적 이상 상황 |
-| `errors` | any[] | 치명적 실패 상세 |
-| `nextActions` | any[] | 후속 에이전트/사용자 권고 |
+공통 결과 봉투(`status`/`summary`/`evidence`/`warnings`/`errors`/`nextActions`)의 정의·규약은 [references/agent-result-envelope.md](../references/agent-result-envelope.md)(SSOT)를 따른다. 이 에이전트의 `evidence`에는 실행 명령, 리포트 경로, 파싱 근거를 담는다.
 
 ### 에이전트 특화 필드
 
@@ -157,7 +150,7 @@ disallowedTools: Write, Edit
 1. `targetScope.methods` 지정 → 해당 메서드만 실행 (가장 좁은 범위)
 2. `targetScope.classes` 지정 → 해당 클래스만 실행
 3. `targetScope.packages` 지정 → 해당 패키지만 실행
-4. 모두 미지정 → **[[fallback-policy.md](../references/fallback-policy.md) #8]**: 대화형이면 AskUserQuestion으로 "대상 지정 / 전체 실행" 확인 후 진행; CI이면 `status:"failed"` + remediation 안내 후 하드 중단
+4. 모두 미지정 → **[[fallback-policy.md](../references/fallback-policy.md) #8]**: 이 에이전트는 사용자에게 직접 묻지 않는다(`AskUserQuestion`은 서브에이전트에서 사용 불가 — tools에 있어도 무효). `status:"failed"` + `errors:["TARGET_SCOPE_UNSPECIFIED"]` + nextActions("대상 지정 또는 전체 실행 여부 확인 필요")로 **신호만 반환**하고, 대화형 확인은 **호출자(run-tests 스킬/full-pipeline — 메인 대화)**가 AskUserQuestion으로 수행한 뒤 확정된 `targetScope`로 재호출한다. CI는 그대로 하드 중단(remediation 안내)
 
 ### Gradle 명령 패턴
 ```

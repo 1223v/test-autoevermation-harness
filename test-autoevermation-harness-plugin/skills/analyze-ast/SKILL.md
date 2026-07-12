@@ -11,7 +11,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `repo-ast` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다. 추가로 JavaParser 백엔드가 **필수**다 — `.mcp.json` 기본값 `REPO_AST_REQUIRE_JAVAPARSER=1`이며, 응답에 `degraded:true`가 포함되면 수용 불가하다. 수신 시 즉시 중단하고 `nextActions`에 `cd mcp/javaparser-cli && ./mvnw -q -DskipTests package` 실행 후 Phase E6 재수행을 안내한다(fallback-policy #2).
+이 스킬은 `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다. 추가로 JavaParser 백엔드가 **필수**다 — `.mcp.json` 기본값 `REPO_AST_REQUIRE_JAVAPARSER=1`이며, 응답에 `degraded:true`가 포함되면 수용 불가하다. 수신 시 즉시 중단하고 `nextActions`에 `cd mcp/javaparser-cli && ./mvnw -q -DskipTests package` 실행 후 Phase E6 재수행을 안내한다(fallback-policy #2).
 
 ---
 

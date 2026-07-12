@@ -17,9 +17,15 @@ plugin is a hook, so this mirrors the intended denies via the hook contract:
 Hook JSON input (Claude Code PreToolUse contract):
   { "tool_name": "Read"|"WebFetch", "tool_input": { "file_path": "..." }, ... }
 
-Hook JSON output (decision contract):
-  Allow:  {}
-  Deny:   {"permissionDecision": "deny", "message": "<reason>"}
+Hook JSON output (Claude Code PreToolUse decision contract — the decision MUST be
+nested under ``hookSpecificOutput``; a top-level ``permissionDecision`` key is not
+part of the hook schema and is silently ignored, i.e. fails open):
+  Allow:  {} (no opinion) or
+          {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                  "permissionDecision": "allow"}}
+  Deny:   {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                  "permissionDecision": "deny",
+                                  "permissionDecisionReason": "<reason>"}}
 
 Stdlib only (json, sys, os, re, fnmatch). Fails open on malformed input.
 """
@@ -37,10 +43,12 @@ _READ_DENY_GLOBS = [
     ".env",
     "*.pem",
     "*/secrets/*",
-    "*/build/*",
-    "*/target/*",
     "*/node_modules/*",
 ]
+# NOTE: build/target are NOT plain globs — "build"/"target" are legal Java package
+# directory names under src/ (e.g. src/main/java/com/example/build/Foo.java).
+# They are denied only as build-OUTPUT roots, i.e. when no "src" segment precedes
+# them in the path. See _read_denied().
 
 
 def _network_allowed() -> bool:
@@ -61,14 +69,32 @@ def _read_denied(path: str) -> bool:
             if fnmatch.fnmatch(cand, glob):
                 return True
     # Segment-based fallback (handles paths without leading "*/").
-    segments = norm.split("/")
-    if any(seg in ("secrets", "build", "target", "node_modules") for seg in segments):
+    segments = [seg for seg in norm.split("/") if seg]
+    if any(seg in ("secrets", "node_modules") for seg in segments):
         return True
+    # build/target: deny only as build-OUTPUT roots. A build/target segment that
+    # sits below a src/ tree is a legal Java package directory, not build output.
+    for idx, seg in enumerate(segments):
+        if seg in ("build", "target") and "src" not in segments[:idx]:
+            return True
     return False
 
 
+def _decision(decision: str, reason: str = "") -> None:
+    """Emit a PreToolUse decision in the schema Claude Code actually honors."""
+    out = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": decision,
+        }
+    }
+    if reason:
+        out["hookSpecificOutput"]["permissionDecisionReason"] = reason
+    print(json.dumps(out, ensure_ascii=False))
+
+
 def _deny(message: str) -> None:
-    print(json.dumps({"permissionDecision": "deny", "message": message}))
+    _decision("deny", message)
 
 
 def main() -> None:
@@ -84,7 +110,7 @@ def main() -> None:
 
     if tool_name == "WebFetch":
         if _network_allowed():
-            print(json.dumps({"permissionDecision": "allow"}))
+            _decision("allow")
             return
         _deny(
             "test-autoevermation-harness-plugin: WebFetch is disabled by default (network OFF). "

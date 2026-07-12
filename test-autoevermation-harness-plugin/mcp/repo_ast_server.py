@@ -814,7 +814,9 @@ def _build_result(
             )
         if result["unresolvedSymbols"]:
             result["nextActions"].append(
-                "Augment with the JDT LS LSP to resolve remaining symbols."
+                "Narrow `targets`/add the defining sources so remaining symbols "
+                "resolve, or rely on the pipeline's JDT LS stage (analyze-source) "
+                "for semantic augmentation — this server itself has no LSP backend."
             )
     else:
         result["status"] = "ok"
@@ -1039,6 +1041,11 @@ def build_server() -> Any:
         Returns an AstAnalysisResult whose testTargets are filtered to types
         whose FQCN or simple name matches ``symbol``; unmatched references are
         reported in ``unresolvedSymbols``.
+
+        SCOPE NOTE: only ``testTargets`` is filtered to the match —
+        ``dependencyGraph``/``riskPoints``/``unresolvedSymbols``/``evidence``
+        remain scoped to the ENTIRE analyzed path set. Narrow ``paths`` if you
+        need those fields scoped to the symbol as well.
         """
         full = _analyze(paths)
         needle = symbol.strip()

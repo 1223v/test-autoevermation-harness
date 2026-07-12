@@ -11,6 +11,80 @@ _(비어 있음)_
 
 ---
 
+## [0.21.0] - 2026-07-12
+
+### Fixed — 전수 감사(오케스트레이션 신뢰성): 도구명 해석·가드 fail-open·핸드오프 계약 정합
+
+배경: 에이전트·스킬 전수 감사(병렬 판독 + 공식문서 팩트체크 + 라이브 세션 실증)에서, 프롬프트가
+약속한 계약과 런타임 실제 동작이 어긋나는 지점들을 확인했다. 세 가지가 치명적이었다: ① 플러그인
+MCP 도구는 런타임에 `mcp__plugin_<plugin>_<server>__<tool>` 스코프드 네임으로만 노출되는데
+(공식 plugins-reference; 하네스 에이전트 실측 프로브로 재확인) 에이전트 frontmatter `tools:`가
+전부 축약명(`mcp__repo-ast__*`)이라 **allowlist가 아무 MCP 도구도 부여하지 못했다**. ② PreToolUse
+훅의 거부는 `hookSpecificOutput.permissionDecision` 중첩 스키마만 유효한데 가드 3종이 top-level
+형식을 써서 **전부 fail-open**이었다(네트워크 OFF인데 WebFetch가 통과하는 것을 라이브로 실증 —
+v0.18.0 "물리 강제" 게이트 차단 포함 무효 상태였음). ③ 생산자가 만들지 않는 필드를 소비자가
+기대하는 핸드오프 불일치 다수(모델이 그 자리에서 지어내게 만드는 1급 할루시네이션 유발원).
+
+- **P0-1 MCP 도구명 스코프드 정합**: 11개 에이전트 frontmatter + 본문 리터럴 6곳
+  (full-pipeline·measure-coverage·mutation-test·orchestration-detail·GUIDE)을 스코프드 네임으로 교체.
+- **P0-2 가드 훅 스키마 수정 + 과차단 정밀화**(`scripts/guard-network.py`·`guard-read.py`·
+  `guard-gate-artifacts.py`): deny/allow를 `hookSpecificOutput` 중첩 형식으로 교체(20케이스 파이프
+  단위검증 통과). 켜지는 순간 과차단할 패턴 2건 정밀화 — `\bhost\b` 단어 매칭 제거(JDBC·datasource
+  인자 오차단), bare `https?://` 매칭을 fetch 동사 결합으로 대체(git clone/fetch/pull/push·urlopen 등),
+  guard-read의 build/target 세그먼트를 빌드 산출 루트로 앵커(`src/**/build` 자바 패키지 오차단 방지).
+- **P0-3 서브에이전트 질문 라우팅 정정**: AskUserQuestion은 서브에이전트에서 사용 불가(공식 명시)
+  — test-runner·spec-reviewer의 직접 호출 지시를 "신호 반환 → 오케스트레이터(스킬)가 질문" 패턴으로
+  교정하고, test-runner의 "빈 스코프=전체 실행" 자기모순을 #8 정합으로 수정.
+- **P0-4 핸드오프 계약 정밀화 6건**: (a) `ConformanceResult.unmet`(string[])에서 객체 필드를 꺼낸다는
+  서술 2곳을 "scenarioResults 조인" 규약으로 정정 (b) scenario `target`을 `FQCN#method` 형식으로 명시
+  (5·10단계 게이트 전제) (c) `AstAnalysisResult.testTargets[]`에 `file` 경로 패스스루 추가 + 7단계
+  `relatedSources`를 astResult 기반으로 정정(존재하지 않는 sourceResult 경로 참조 제거)
+  (d) `TestGenResult.files[].testClass` 필수 승격(6단계 스코프 입력) (e) verify-scenarios의 메서드
+  단위 판정 추론 규칙 명문화(run-tests는 집계+failed[]만 반환) (f) full-pipeline 전처리의
+  `projectRoot=cwd`·auto-detect 기본값을 #13(자동 채움 금지)과 정합.
+- **P0-5 `coverage_gate`에 `require_pitest` 파라미터 추가**(`mcp/build_test_server.py`): 8단계
+  (뮤테이션 이전)에서 PITest 리포트 부재가 무조건 `status:"partial"`을 만들던 구조 결합 해제
+  (기본 False — 부재 시 MUTATION 카운터만 생략, 리포트가 있으면 항상 평가; 3케이스 단위검증 통과).
+
+### Changed — 중복 통합·토큰 절감·문구 신선도 (P1)
+
+- **SSOT 통합**: MCP-필수 상용구 ×11스킬 → fallback-policy #20 포인터 1줄로; 신규
+  `references/test-code-invariants.md`(생성 테스트 불변식 SSOT — 금지 패턴·scenarioRef 보존·BDD/stub·
+  프로파일 관용구·스타일)를 만들고 test-code-generator·test-fixer·coverage-closer·mutation-analyst의
+  재서술 블록을 포인터로 교체; 신규 `references/agent-result-envelope.md`(공통 결과 봉투 SSOT)로
+  에이전트 공통 필드 표 8곳 교체; full-pipeline의 Phase E 절차 재서술을 configure-harness 위임+산출물
+  확인으로 축약, #21 블록 ×5·무진전 규칙 반복을 포인터화; 5·7단계 Task 프롬프트의 생성 규칙 재서술을
+  에이전트 정의 참조로 축약(서브에이전트 시스템 프롬프트와 중복이었음).
+- **흐름 정밀화**: 4단계 입력을 사용 필드 서브셋(testTargets/testSeams·collaborators/acceptanceCriteria
+  등)만 전달하도록 슬리밍; 5단계 파일 기록 소유권을 에이전트로 단일화(오케스트레이터 이중 Write 제거,
+  `files[].content` 선택화); `seamRefs`=testSeams 문자열 verbatim 정의; mutation-analyst 입력에
+  `totalMutants` 추가(분모 미제공 수식 해소); 8·9단계에 `junitPolicy`/`stylePolicy` 스레딩;
+  configure-harness CI 판별 4번째 조건을 실존 경로(HarnessConfig 재사용)로 교체; E1/E2 프로비저닝
+  명령을 `launch.cjs --ensure-only` 단일 진입점으로 통일; `detect_pipeline_state` 미노출=구버전 설치
+  신호(#20 준용 remediation) 명시; `redact-secrets.py`가 PostToolUse 훅 envelope에서 기록 페이로드만
+  추출해 스캔(파일경로:라인 리포트, 4케이스 단위검증 통과); methodCalls 공백의 원인 구분을 repo-ast
+  `degraded` 플래그로 명문화(생성기·적합성 검증기); JDT LS 문구 정밀화 — 정책(#3 필수)은 유지하되
+  에이전트가 직접 LSP를 호출한다는 거짓 능력 서술 제거, refactor-advisor는 #19(보조 게이트) 정합으로
+  경고 후 진행, repo-ast `nextActions`의 미구현 JDT 제안 문구 교정.
+- **신선도**: GUIDE의 `.mcp.json` 기동 방식(python3 직접→`launch.cjs`), fallback 정책 개수 하드코딩
+  제거(19→문서 정본), `maxRepairRetries` 기본 2→3(#12 무진전 "3회 연속"과 정렬 — full-pipeline·GUIDE),
+  README 제거/재설정 절을 GUIDE §4.5–4.6 링크로 축약(사본 drift 제거).
+
+### Fixed — 예제·문서 일관성 (P2)
+
+- 모순 예제 교정(모델이 그대로 모방하는 할루시네이션 원천): mutation-analyst 예제 수치 정합
+  (0.83 vs 17/20=0.85 → totalMutants 20 기준 0.90으로 일관), source-code-analyzer 예제의
+  `lspAvailable:false`(자체 규칙상 즉사 입력)→true·`springBootVersion 4.1.0`(미검증)→3.4.5,
+  analyze-source 출력 예시를 스키마와 필드 단위 정합(collaborators fqcn/role/injectionType/mockable 등),
+  generate-scenarios 예제에 `mockTargets`/`sliceAnnotation` 보강, refactor-advisory INDEX 템플릿의
+  유령 버전 `v0.9.0`→plugin.json 동적 참조 플레이스홀더, `<pluginRoot>` 리터럴→`${CLAUDE_PLUGIN_ROOT}`.
+- spec-doc 서버: `SPEC_DOC_REDACT_EMAIL=off`로 EMAIL 마스킹만 개별 해제 가능(스펙 예시 이메일을
+  테스트 fixture로 써야 하는 경우), allowlist를 경로 컴포넌트 부분일치로 완화("documentation"도 "doc"
+  항목으로 허용), `index_docs`가 호출마다 인덱스를 전체 교체함을 docstring에 명시(배치 호출 시 유실
+  방지); repo-ast `resolve_symbol`의 부분 스코프(테스트타깃만 필터링) docstring 명시.
+
+---
+
 ## [0.20.1] - 2026-07-10
 
 ### Fixed — durable resume의 test 출처(provenance) 구분: 손수 짠 기존 테스트를 "생성 완료"로 오인하지 않음

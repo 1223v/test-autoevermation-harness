@@ -33,9 +33,13 @@ Hook JSON input (Claude Code PreToolUse contract):
   { "tool_name": "Write"|"Edit", "tool_input": { "file_path": "...",
     "content": "..." (Write) }, ... }
 
-Hook JSON output (decision contract):
-  Allow:  {}
-  Deny:   {"permissionDecision": "deny", "message": "<reason>"}
+Hook JSON output (Claude Code PreToolUse decision contract — the decision MUST be
+nested under ``hookSpecificOutput``; a top-level ``permissionDecision`` key is not
+part of the hook schema and is silently ignored, i.e. fails open):
+  Allow:  {} (no opinion)
+  Deny:   {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                  "permissionDecision": "deny",
+                                  "permissionDecisionReason": "<reason>"}}
 
 Stdlib only (json, sys, os). Fails open on malformed input.
 """
@@ -57,7 +61,13 @@ _CONTRACT_HINT = (
 
 
 def _deny(message: str) -> None:
-    print(json.dumps({"permissionDecision": "deny", "message": message}, ensure_ascii=False))
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": message,
+        }
+    }, ensure_ascii=False))
 
 
 def _allow() -> None:

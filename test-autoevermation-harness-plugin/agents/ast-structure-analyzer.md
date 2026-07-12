@@ -2,7 +2,7 @@
 name: ast-structure-analyzer
 description: "Use this agent when you need to extract the structural shape of a Spring Java project — class/method/field/annotation/dependency maps — without reading actual code bodies. Triggers on: pipeline step 2 (structure extraction), target module/class discovery, pre-scenario planning that requires knowing what public API surfaces exist."
 model: inherit
-tools: Read, Grep, Glob, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__list_spring_components, mcp__repo-ast__extract_test_targets
+tools: Read, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__list_spring_components, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets
 disallowedTools: Write, Edit, Bash
 ---
 
@@ -43,22 +43,15 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 
 
 ## 출력
 
-### 공통 필드 (전 에이전트 공유)
+### 공통 필드
 
-| 필드 | 타입 | 값 |
-|---|---|---|
-| `status` | enum | `ok` / `partial` / `failed` |
-| `summary` | string | 1-3문장 요약 |
-| `evidence` | string[] | 결론 근거 (파일 경로·라인·노드 이름) |
-| `warnings` | any[] | 비치명적 이상 상황 |
-| `errors` | any[] | 치명적 실패 상세 |
-| `nextActions` | any[] | 후속 에이전트/사용자 권고 |
+공통 결과 봉투(`status`/`summary`/`evidence`/`warnings`/`errors`/`nextActions`)의 정의·규약은 [references/agent-result-envelope.md](../references/agent-result-envelope.md)(SSOT)를 따른다. 이 에이전트의 `evidence`에는 결론 근거 (파일 경로·라인·노드 이름)를 담는다.
 
 ### 에이전트 특화 필드
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `testTargets` | object[] | 분석 완료된 FQCN 목록 (kind, publicMethods 포함) |
+| `testTargets` | object[] | 분석 완료된 FQCN 목록 (kind, publicMethods, **file — 소스 파일 경로** 포함. repo-ast 서버가 반환하는 `file` 값을 그대로 패스스루하며, 7단계 test-fixer의 `relatedSources`가 이 경로를 소비한다) |
 | `dependencyGraph` | object | `{ nodes: [FQCN], edges: [{from, to, via}] }` 그래프 (필드 타입 기반 협력 엣지) |
 | `unresolvedSymbols` | string[] | 파싱 중 resolve 불가한 심볼 목록 |
 | `riskPoints` | string[] | 테스트 어려움이 예상되는 지점(static, final, 외부 SDK 직접 호출 등) |
@@ -80,11 +73,15 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["fqcn", "kind"],
+        "required": ["fqcn", "kind", "file"],
         "properties": {
           "fqcn": { "type": "string" },
           "kind": {
             "enum": ["controller", "service", "repository", "component", "pojo", "unknown"]
+          },
+          "file": {
+            "type": "string",
+            "description": "대상 소스 파일 경로 — repo-ast 도구 응답의 file 필드 패스스루 (full-pipeline 7단계 relatedSources의 경로 출처)"
           },
           "publicMethods": {
             "type": "array",
@@ -189,7 +186,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 
 | `UNSUPPORTED_PROJECT_SHAPE` | 비표준 디렉터리 구조, annotation processor 전용 생성 클래스 | `partial` 반환. 탐지 가능한 범위만 결과 포함. `warnings`에 상세 기록 |
 | 프로젝트 루트 없음 | `projectRoot`가 존재하지 않음 | `failed` 반환. `errors`에 경로 명시 |
 
-2회 연속 `SYMBOL_UNRESOLVED`가 전체 대상의 30% 이상이면 `status: partial`로 격하하고 `nextActions`에 JDT LS 활성화를 권고한다.
+`SYMBOL_UNRESOLVED`가 전체 대상의 30% 이상이면 `status: partial`로 격하하고 `nextActions`에 JDT LS 활성화(파이프라인 3단계 보강 경로)를 권고한다.
 
 ---
 

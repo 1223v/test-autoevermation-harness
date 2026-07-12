@@ -7,7 +7,12 @@ Usage:
   python3 redact-secrets.py --mode warn  [file ...]
   python3 redact-secrets.py --mode strip [file ...]
 
-  If no files are given, reads from stdin (and prints to stdout for strip mode).
+  If no files are given, reads from stdin. When stdin is a Claude Code
+  PostToolUse hook envelope (JSON with tool_name/tool_input — the hook pipes
+  the event JSON, NOT the written file), only the written payload
+  (tool_input.content / tool_input.new_string) is scanned and findings are
+  reported against tool_input.file_path. Raw text on stdin (CLI usage) is
+  scanned as before (and printed to stdout for strip mode).
 
 Modes:
   warn  — report matches with file/line info; exit nonzero if any found.
@@ -179,9 +184,32 @@ def main():
             else:  # strip
                 total_findings += _process_strip_file(path)
     else:
-        # stdin mode
+        # stdin mode — either a Claude Code hook JSON envelope or raw text (CLI)
         text = sys.stdin.read()
-        if args.mode == "warn":
+        envelope = None
+        try:
+            import json
+            candidate = json.loads(text)
+            if isinstance(candidate, dict) and "tool_input" in candidate:
+                envelope = candidate
+        except ValueError:
+            envelope = None
+
+        if envelope is not None:
+            # PostToolUse(Write|Edit) hook: scan only the written payload, not
+            # the raw envelope (JSON escaping garbles line numbers and matches
+            # metadata rather than the file content actually written).
+            tool_input = envelope.get("tool_input") or {}
+            source = str(tool_input.get("file_path")
+                         or envelope.get("tool_name") or "<hook>")
+            pieces = [v for k, v in tool_input.items()
+                      if k in ("content", "new_string") and isinstance(v, str)]
+            scanned = "\n".join(pieces)
+            if args.mode == "warn":
+                total_findings += _process_warn(source, scanned)
+            else:
+                sys.stdout.write(_redact_text(scanned))
+        elif args.mode == "warn":
             total_findings += _process_warn("<stdin>", text)
         else:
             sys.stdout.write(_redact_text(text))

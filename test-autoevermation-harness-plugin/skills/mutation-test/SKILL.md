@@ -11,7 +11,7 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `build-test` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다.
+이 스킬은 `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다.
 
 ## 호출 조건
 - 자동: `measure-coverage` 게이트 통과 직후(커버리지 충족 후 품질 검증).
@@ -40,7 +40,7 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 
 ## 절차
 1. **실행**: build-test로 PITest 실행(Gradle `pitest`, Maven `org.pitest:pitest-maven:mutationCoverage`). `withHistory=true`로 증분, `timestampedReports=false`. 네트워크 off.
-2. **파싱**: `mcp__build-test__parse_pitest_report(root)` → `mutationScore`, `survivedMutants[]{class,method,line,mutator,status}`.
+2. **파싱**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_pitest_report(root)` → `mutationScore`, `survivedMutants[]{class,method,line,mutator,status}`.
 3. **분기**:
    - score ≥ threshold 이고 survivors 없음(또는 허용 범위) → `ok`, 종료.
    - survivors 존재 → **mutation-analyst** 에 구조화 입력으로 전달(에이전트 입력 스키마와 1:1):

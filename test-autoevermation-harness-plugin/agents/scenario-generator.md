@@ -2,7 +2,7 @@
 name: scenario-generator
 description: "Use this agent when you need to design a minimal, prioritized test scenario set from converged AST, source analysis, and spec review results. Triggers on: after ast-structure-analyzer, source-code-analyzer, and spec-reviewer have all returned results, when scenario planning is needed before test code generation."
 model: inherit
-tools: Read, mcp__spec-doc__search_requirements, mcp__spec-doc__extract_acceptance_criteria, mcp__repo-ast__extract_test_targets, mcp__repo-ast__list_spring_components
+tools: Read, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_requirements, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__extract_acceptance_criteria, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__list_spring_components
 disallowedTools: Write, Edit, Bash
 ---
 
@@ -42,9 +42,9 @@ disallowedTools: Write, Edit, Bash
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `astResult` | object | `ast-structure-analyzer` 출력 전체. full-pipeline 경유 시 3.5 권고 게이트에서 제외 대상이 이미 필터링됨([refactor-advisory.md](../references/refactor-advisory.md) §4) |
-| `sourceResult` | object | `source-code-analyzer` 출력 전체(동일하게 3.5 필터 적용본) |
-| `specResult` | object | `spec-reviewer` 출력 전체 |
+| `astResult` | object | `ast-structure-analyzer` 출력 — full-pipeline 경유 시 **사용 필드 서브셋(`testTargets`, `riskPoints`)만** 전달된다(토큰 절감; 성능 절 참조). 3.5 권고 게이트에서 제외 대상이 이미 필터링됨([refactor-advisory.md](../references/refactor-advisory.md) §4) |
+| `sourceResult` | object | `source-code-analyzer` 출력 — full-pipeline 경유 시 **`testSeams`, `collaborators`, `exceptionFlows`, `externalDependencies` 서브셋만** 전달(동일하게 3.5 필터 적용본) |
+| `specResult` | object | `spec-reviewer` 출력 — full-pipeline 경유 시 **`acceptanceCriteria` 서브셋만** 전달 |
 | `testScope` | enum | `unit` / `slice` / `integration` / `mixed`(기본). `unit`이면 unit 시나리오만, `mixed`면 전체 유형 허용 — `HarnessRequest.testScope`가 full-pipeline 4단계에서 전달됨 |
 | `options.maxScenarios` | integer | 최대 시나리오 수. 기본 50 |
 | `options.testTypePreference` | string[] | 테스트 유형 우선순위. 기본 `["unit","slice","integration"]` |
@@ -56,14 +56,7 @@ disallowedTools: Write, Edit, Bash
 
 ### 공통 필드
 
-| 필드 | 타입 | 값 |
-|---|---|---|
-| `status` | enum | `ok` / `partial` / `failed` |
-| `summary` | string | 1-3문장 요약 |
-| `evidence` | string[] | 결론 근거 (criteria ID, 대상 FQCN, 병합 사유) |
-| `warnings` | any[] | 비치명적 이상 상황 |
-| `errors` | any[] | 치명적 실패 상세 |
-| `nextActions` | any[] | 후속 에이전트/사용자 권고 |
+공통 결과 봉투(`status`/`summary`/`evidence`/`warnings`/`errors`/`nextActions`)의 정의·규약은 [references/agent-result-envelope.md](../references/agent-result-envelope.md)(SSOT)를 따른다. 이 에이전트의 `evidence`에는 결론 근거 (criteria ID, 대상 FQCN, 병합 사유)를 담는다.
 
 ### 에이전트 특화 필드
 
@@ -96,7 +89,7 @@ disallowedTools: Write, Edit, Bash
           "id": { "type": "string" },
           "title": { "type": "string" },
           "type": { "enum": ["unit", "slice", "integration"] },
-          "target": { "type": "string", "description": "대상 FQCN" },
+          "target": { "type": "string", "description": "대상 FQCN#method — 클래스 FQCN + '#' + 검증 대상 메서드 단순명 (예: com.example.order.OrderService#createOrder). 5단계 targetCallCheck와 10단계 기계 대조가 '#' 뒤 메서드명을 파싱하므로 클래스만 쓰면 게이트가 무효화된다" },
           "priority": { "enum": ["P0", "P1", "P2"] },
           "given": {
             "type": "array",
@@ -120,7 +113,7 @@ disallowedTools: Write, Edit, Bash
           "seamRefs": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "source-code-analyzer의 testSeams 항목 참조 목록"
+            "description": "source-code-analyzer의 testSeams 문자열을 **그대로(verbatim)** 담는 참조 목록 — testSeams는 ID 없는 string[]이므로 별도 참조 체계를 발명하지 말고 해당 문자열 자체를 복사한다"
           },
           "mockTargets": {
             "type": "array",

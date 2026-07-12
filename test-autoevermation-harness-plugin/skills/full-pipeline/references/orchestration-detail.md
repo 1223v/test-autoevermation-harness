@@ -58,7 +58,7 @@ _workspace/
 
 ### 2-1. 영속 증거 → `_workspace/` stub 복원 표 (상태 복원)
 
-`_workspace/`가 휘발(fresh clone·checkout·새 세션·로테이션)해도 영속 증거는 남는다. Phase 0에서 `mcp__build-test__detect_pipeline_state`가 판정한 결과로 **최소 stub 산출물**을 재구성해 이후 단계가 "이미 완료된 단계"를 Read로 재사용하게 한다. stub은 **재사용 신호일 뿐 재생성 트리거가 아니다**(§3 78행 원칙).
+`_workspace/`가 휘발(fresh clone·checkout·새 세션·로테이션)해도 영속 증거는 남는다. Phase 0에서 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pipeline_state`가 판정한 결과로 **최소 stub 산출물**을 재구성해 이후 단계가 "이미 완료된 단계"를 Read로 재사용하게 한다. stub은 **재사용 신호일 뿐 재생성 트리거가 아니다**(§3 78행 원칙).
 
 > **provenance 게이트(전제).** stub 복원은 **하네스가 생성한** 산출물에만 적용한다 — 도구의 `harnessProvenance:true`(=`test_docs/` 존재)일 때만. 테스트 파일이 있어도 `foreignTestsPresent:true`(손수 짠 기존 테스트, `test_docs/` 없음)면 `05_test-gen_files.json` stub을 **만들지 않는다**(5단계 완료로 오인 금지). 이 경우 초기 실행하되 `testFiles[]`를 **8단계 coverage-closer의 `existingTestPaths`**로 넘겨 공존 보완하고, 5단계 generate-tests는 자체 덮어쓰기 확인·충돌 비교로 기존 테스트를 보존한다(§3 durable 행 참조).
 

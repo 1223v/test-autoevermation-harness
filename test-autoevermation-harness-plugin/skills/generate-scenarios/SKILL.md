@@ -13,7 +13,7 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `spec-doc` + `repo-ast` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다.
+이 스킬은 `spec-doc` + `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다.
 
 ---
 
@@ -89,7 +89,7 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
          "id": string,
          "title": string,
          "type": "unit" | "slice" | "integration",
-         "target": string,
+         "target": string,   // "FQCN#method" 형식 필수 — '#' 뒤 메서드 단순명을 5단계 targetCallCheck·10단계 기계 대조가 파싱
          "priority": "P0" | "P1" | "P2",
          "given": [string],
          "when": string,
@@ -133,13 +133,15 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
       "id": "SC-001",
       "title": "재고 부족 시 주문 생성 실패",
       "type": "unit",
-      "target": "com.example.order.OrderService",
+      "target": "com.example.order.OrderService#createOrder",
       "priority": "P0",
       "given": ["재고가 0인 상품", "주문 수량 1"],
       "when": "createOrder(상품, 수량) 호출",
       "then": ["OutOfStockException 발생", "주문이 저장되지 않음"],
       "criteriaRefs": ["AC-001"],
       "seamRefs": ["OrderRepository — mock 대상"],
+      "mockTargets": ["com.example.order.OrderRepository"],
+      "sliceAnnotation": "",
       "isParameterized": false,
       "slowReason": ""
     },
@@ -147,13 +149,15 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
       "id": "SC-002",
       "title": "주문 생성 API 요청/응답 검증",
       "type": "slice",
-      "target": "com.example.order.OrderController",
+      "target": "com.example.order.OrderController#createOrder",
       "priority": "P1",
       "given": ["유효한 주문 생성 요청 본문", "OrderService가 생성된 주문을 반환하도록 stub"],
       "when": "POST /api/orders 요청",
       "then": ["201 Created", "응답 JSON의 orderId가 존재"],
       "criteriaRefs": ["AC-002"],
       "seamRefs": ["OrderService — Mock(@MockBean/@MockitoBean, 프로파일)"],
+      "mockTargets": ["com.example.order.OrderService"],
+      "sliceAnnotation": "@WebMvcTest",
       "isParameterized": false,
       "slowReason": ""
     },
@@ -161,7 +165,7 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
       "id": "SC-003",
       "title": "주문-결제 통합 흐름 검증",
       "type": "integration",
-      "target": "com.example.order.OrderService",
+      "target": "com.example.order.OrderService#confirmAndPay",
       "priority": "P2",
       "given": ["승인된 주문", "결제 클라이언트가 성공 응답"],
       "when": "confirmAndPay(주문) 호출",

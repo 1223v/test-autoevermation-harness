@@ -118,14 +118,7 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 /plugin marketplace remove test-autoevermation-harness
 ```
 
-- 제거하지 않고 잠시 끄려면 `/plugin disable test-autoevermation-harness-plugin@test-autoevermation-harness`,
-  다시 켜려면 같은 인자로 `/plugin enable`.
-- [로컬 설치](#2-로컬-설치-대안)를 사용한 경우에는 `~/.claude/plugins/test-autoevermation-harness-plugin`을
-  삭제한 뒤 Claude Code를 재시작한다.
-- 변경 사항은 `/reload-plugins` 또는 세션 재시작으로 반영된다.
-- **상태줄은 자동 원복된다**: uninstall 후 Claude Code를 재시작하면 첫 상태줄 렌더에서 원래
-  상태줄로 되돌아간다(전역 사본의 self-heal). 즉시 원복하려면 uninstall 전에
-  `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청한다.
+일시 비활성화(`/plugin disable`)·로컬 설치 제거·상태줄 자동 원복 등 상세 절차는 [docs/GUIDE.md §4.5](./docs/GUIDE.md)가 정본이다(중복 기술로 인한 drift 방지 — 여기서는 명령 2줄만 유지).
 
 ---
 
@@ -147,15 +140,7 @@ rm -rf ~/.claude/plugins/cache
 
 이후 Claude Code를 재시작하고 위 [설치](#설치) 절차를 다시 실행한다.
 
-**하네스 실행 상태 재설정:** 파이프라인 중간 산출물은 대상 프로젝트 루트의 `_workspace/`에 저장된다
-(부분 재실행용). 이 디렉터리를 삭제해도 **무조건 처음부터 다시 시작하지는 않는다** — 생성된 테스트·
-승인 시나리오·커버리지/뮤테이션 리포트 같은 영속 증거가 남아 있으면 `detect_pipeline_state`가 이를
-판정해 알맞은 단계부터 재개한다(위 "상태 복원 재개(v0.20.0+)" 참고). 영속 증거가 전혀 없는 프로젝트만
-0단계(`configure-harness` 인터뷰 포함)부터 시작한다. 새 입력으로 다시 돌리면 기존 산출물은 자동으로
-`_workspace_{timestamp}/`로 보존되므로 수동 삭제는 선택이다. `test_docs/`는 사람이 읽는 영속 산출물이므로
-유지한다. 부분 재실행/재개 방법 상세는 docs/GUIDE.md 참고. 상태줄은 uninstall 시
-자동 원복되며(위 [제거](#제거) 절), 즉시 끄려면 `/test-autoevermation-harness-plugin:setup-statusline`에
-"제거"를 요청한다. 상세: [docs/GUIDE.md §4.5~4.6](./docs/GUIDE.md).
+**하네스 실행 상태 재설정:** `_workspace/`를 지워도 영속 증거(생성 테스트·승인 시나리오·리포트)가 남아 있으면 `detect_pipeline_state` 판정으로 알맞은 단계부터 재개한다(위 "상태 복원 재개(v0.20.0+)"). 완전 초기화·부분 재실행·상태줄 원복의 상세 절차는 [docs/GUIDE.md §4.6](./docs/GUIDE.md)이 정본이다.
 
 ---
 

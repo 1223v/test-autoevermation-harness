@@ -45,7 +45,7 @@ description: Spring 테스트 하네스 실행 전 환경 세팅(Phase E)과 인
 - `skipInterview: true`가 명시된 경우
 - 환경 변수 `CI=true` 또는 `CLAUDE_NO_PROMPT=true`가 설정된 경우
 - `claude -p` 플래그로 호출된 비대화형 세션인 경우
-- `HarnessRequest` 입력에 4개 인터뷰 항목이 모두 채워진 경우
+- 이미 통과한 `_workspace/00_config-harness.json`(HarnessConfig)이 있어 재사용하는 경우 — 인터뷰를 재수행하지 않는다 (주의: HarnessRequest 스키마에는 커버리지 임계·뮤테이션 깊이 필드가 없으므로 "요청 입력만으로 인터뷰 4항목이 전부 충족"되는 경로는 존재하지 않는다)
 
 CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 바로 "HarnessConfig 생성" 단계로 이동한다.
 
@@ -62,14 +62,14 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 
 | TODO | 항목 | 감지 | 미충족 시 세팅 |
 |---|---|---|---|
-| E1 | Python 3.10+ | `python3 -c "import sys;assert sys.version_info>=(3,10)"` (Windows: `py -3 -c ...`) 또는 python-path 핀 | `node <pluginRoot>/mcp/launch.cjs --ensure-only` (auto, v0.15.0+ — uv로 무-sudo 자동 설치, 전 OS). 실패 시 설치 경로 안내 |
-| E2 | MCP SDK `mcp[cli]>=1.2.0` | `python3 -c "import mcp"` 또는 bootstrap venv marker | `python3 <pluginRoot>/mcp/bootstrap.py --ensure-only` (auto, v0.12.0+ — 플러그인 venv에 설치). 실패 시 pip 폴백 |
+| E1 | Python 3.10+ | `python3 -c "import sys;assert sys.version_info>=(3,10)"` (Windows: `py -3 -c ...`) 또는 python-path 핀 | `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` (auto, v0.15.0+ — uv로 무-sudo 자동 설치, 전 OS). 실패 시 설치 경로 안내 |
+| E2 | MCP SDK `mcp[cli]>=1.2.0` | `python3 -c "import mcp"` 또는 bootstrap venv marker | `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` (auto, v0.15.0+ — E1과 동일한 단일 진입점, 내부적으로 bootstrap.py를 호출해 플러그인 venv에 설치). 실패 시 pip 폴백(`python3 -m pip install -r mcp/requirements.txt`) |
 | E3 | MCP 서버 3종 등록 | `.mcp.json` + 서버 모듈 로드 | import 실패는 E2로 귀결 |
-| E3b | MCP 라이브 연결 검증 (필수) | `health` 3종(repo-ast·spec-doc·build-test) 실제 호출 성공 | 도구 미존재/호출 실패 시 하드 중단 + remediation(플러그인 활성화 확인 → `node <pluginRoot>/mcp/launch.cjs --ensure-only` → `/reload-plugins`/재시작). 아래 **E3b 실행 블록** 참조 |
+| E3b | MCP 라이브 연결 검증 (필수) | `health` 3종(repo-ast·spec-doc·build-test) 실제 호출 성공 | 도구 미존재/호출 실패 시 하드 중단 + remediation(플러그인 활성화 확인 → `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` → `/reload-plugins`/재시작). 아래 **E3b 실행 블록** 참조 |
 | E4 | JDK 21+ (필수) | `java -version`≥21 | 설치/`JAVA_HOME` 안내(assist). 미충족 시 중단 |
 | E5 | mvnw 동봉 — 시스템 Maven 불요 | `mcp/javaparser-cli/mvnw`(Windows: `mvnw.cmd`) 존재 | 동봉 wrapper 사용(시스템 Maven 불필요). E6이 이를 호출 |
 | E6 | JavaParser CLI jar (필수) | `REPO_AST_JAVAPARSER_JAR` 또는 `mcp/javaparser-cli/target/*-shaded.jar` | `(cd mcp/javaparser-cli && ./mvnw -q -DskipTests package)` (auto). 실패 시 `JAVAPARSER_REQUIRED` 하드 중단 |
-| E7 | JDT LS + Java 21+ (필수) | `jdtls`(PATH/프로비저닝) + `.lsp.json` + Java 21+ | `python3 <pluginRoot>/scripts/setup_jdtls.py` (auto). 실패 시 하드 중단. **E7 통과 시 `HarnessConfig.lspAvailable`은 항상 `true`** |
+| E7 | JDT LS + Java 21+ (필수) | `jdtls`(PATH/프로비저닝) + `.lsp.json` + Java 21+ | `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py` (auto). 실패 시 하드 중단. **E7 통과 시 `HarnessConfig.lspAvailable`은 항상 `true`** |
 | E10 | 테스트 실행 JDK ↔ Mockito 호환 | 실행 JDK major vs Mockito/ByteBuddy 지원 범위 | 17/21 LTS 권장 또는 Mockito 5.16+/experimental 플래그 |
 
 > E8(빌드도구)·E9(Spring 프로파일)는 데이터 감지라 아래 **0.5단계**에서 함께 확정한다.
@@ -87,7 +87,7 @@ build-test-mcp.health() → { server, pluginVersion, networkAllowed, ... }
 - **3종 모두 성공**: 응답의 `pluginVersion`과 repo-ast의 `javaparser` 상태를 기록(`_workspace/00_config-harness.json`)하고 E3b를 `completed`로 표시한다.
 - **도구 미존재 또는 호출 실패**(어느 서버든): 침묵 fallback·Grep/Read 대체 없이 **하드 중단**한다 — `status:"failed"` + remediation:
   1. 플러그인이 활성화되어 있는지 확인(`/plugin` 목록에 `test-autoevermation-harness-plugin`).
-  2. `node <pluginRoot>/mcp/launch.cjs --ensure-only`로 런타임을 재프로비저닝.
+  2. `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only`로 런타임을 재프로비저닝.
   3. `/reload-plugins` 또는 Claude Code 재시작으로 MCP 서버를 재등록.
 - **repo-ast health의 `javaparser.jarFound:false`**: jar 미빌드 상태다 — E6 세팅(자동 빌드)으로 연결한다. `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1`이므로 jar 없이는 이후 파싱이 `JAVAPARSER_REQUIRED`로 실패한다.
 

@@ -2,7 +2,7 @@
 name: scenario-conformance-verifier
 description: "Use this agent at the very end of the pipeline (after run/coverage/mutation) to verify that the generated and passing tests actually satisfy each approved BDD scenario (given/when/then), and to write the scenario↔test↔result living documentation under the target project's test_docs/. Triggers on: full-pipeline final conformance stage, or /test-autoevermation-harness-plugin:verify-scenarios."
 model: inherit
-tools: Read, Write, Edit, Grep, Glob, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__build-test__parse_junit_xml
+tools: Read, Write, Edit, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml
 disallowedTools: Bash
 ---
 
@@ -31,7 +31,7 @@ disallowedTools: Bash
 {
   "approvedScenarios": [ { "...": "승인된 ScenarioSet.scenarios[] (approval=approved)" } ],
   "generatedFiles": ["src/test/java/com/example/order/OrderServiceTest.java"],
-  "runResult": { "...": "최종 TestRunResult (passed/failed 메서드 목록)" },
+  "runResult": { "...": "최종 TestRunResult — 집계 passed(정수) + failed[](실패 목록). 메서드 단위 통과 '목록'은 없음" },
   "coverageResult": { "...": "선택: 커버리지 결과" },
   "projectRoot": "/path/to/project",
   "testDocsDir": "test_docs"
@@ -42,7 +42,7 @@ disallowedTools: Bash
 |---|---|---|
 | `approvedScenarios` | object[] | 4.5단계에서 **승인된** 시나리오만. 제외(excluded)분은 제외 |
 | `generatedFiles` | string[] | 생성된 테스트 파일 경로 |
-| `runResult` | object | 최종 실행 결과(메서드 단위 passed/failed). XML 리포트 경로 포함 가능 |
+| `runResult` | object | 최종 실행 결과(TestRunResult — 집계 `passed` 정수 + `failed[]` 목록). XML 리포트 경로 포함 가능. 메서드 단위 판정은 아래 절차 2의 추론 규칙을 따른다 |
 | `projectRoot` | string | 대상 프로젝트 루트(`test_docs/`를 만들 위치) |
 | `testDocsDir` | string | 기본 `test_docs` |
 
@@ -55,8 +55,10 @@ disallowedTools: Bash
 1. **매핑** — `scenarioRef`로 시나리오 → 테스트 메서드를 찾는다. 메서드명 접두(`SC-001`→`sc001_`)와 javadoc의
    `scenarioRef`/`criteriaRef`를 함께 사용한다. 생성 파일을 `Read`/`parse_java_file`로 읽어 메서드를 식별한다.
    매핑 메서드가 없으면 `verdict: "missing"`.
-2. **실행 결과** — 매핑된 메서드가 `runResult`(또는 `parse_junit_xml`)에서 `passed`인지 확인한다.
-   `failed`/미실행이면 `verdict: "unsatisfied"`.
+2. **실행 결과** — `TestRunResult`는 집계(`passed` 정수 + `failed[]` 목록)이므로 메서드 단위 합격은 다음 규칙으로 판정한다:
+   **매핑된 테스트 메서드가 `failed[]`에 없고, 그 테스트 클래스가 실행 스코프에 포함되었으면 passed로 간주**한다.
+   미실행 가능성이 의심되거나 확증이 필요하면 `parse_junit_xml`로 XML 리포트에서 메서드 단위 결과를 보강 확인한다.
+   `failed[]`에 있거나 미실행이면 `verdict: "unsatisfied"`.
 3. **target 호출 기계 대조** — `parse_java_file`을 테스트 파일에 실행해 `testTargets[].methodCalls`(테스트 메서드 → 호출 메서드 단순명)를 얻는다.
    - **unit/직접호출 시나리오**: 시나리오 `target`(`FQCN#method`)의 메서드 단순명이 매핑된 테스트 메서드의 `methodCalls`에 없으면
      **결정적으로** `verdict: "unsatisfied"` + `nonconformanceClass: "WRONG_TARGET_CALL"`(예: target `recordMoResult`인데
@@ -69,7 +71,7 @@ disallowedTools: Bash
 5. **판정** — `satisfied`(매핑+통과+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·target 불일치·단언 부족) / `missing`(매핑 없음, `nonconformanceClass: "MAPPING_MISSING"`).
    `thenCovered`를 `충족/전체`(예: `2/3`)로 기록하고, `unsatisfied`/`missing`에는 `nonconformanceClass`를 반드시 기록한다(10.5단계 보정 라우팅 힌트).
 
-then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과 시나리오를 대조)이지만, **target 호출 대조(3단계)는 `methodCalls` 기반 기계 판정**이다. `methodCalls`가 비어 있으면(폴백 파스) 읽기 기반으로 대체하고 `warnings`에 기록한다.
+then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과 시나리오를 대조)이지만, **target 호출 대조(3단계)는 `methodCalls` 기반 기계 판정**이다. `methodCalls`가 비어 있을 때는 repo-ast 응답의 `degraded` 플래그로 원인을 구분한다 — `degraded:true`(regex 폴백)는 "호출 정보 없음"이므로 읽기 기반으로 대체 판정하고 `warnings`에 기록하며, `degraded:false`인데 비어 있으면 실제로 호출이 없는 것이므로 결정적 `WRONG_TARGET_CALL`이다.
 
 ---
 

@@ -3,14 +3,14 @@ name: test-fixer
 description: "Use this agent when test-runner reports one or more test failures and targeted repair is needed, or when scenario-conformance-verifier reports unsatisfied scenarios that need conformance repair (SCENARIO_NONCONFORMANT). Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when full-pipeline stage 10.5 routes unsatisfied scenarios for minimum-diff conformance fixes, when minimum-diff patches are needed to fix failing tests without full regeneration."
 model: inherit
 isolation: worktree
-tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-test__run_targeted_tests, mcp__build-test__parse_junit_xml, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__extract_test_targets, mcp__spec-doc__search_requirements, mcp__spec-doc__extract_acceptance_criteria
+tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_build_tool, mcp__plugin_test-autoevermation-harness-plugin_build-test__run_targeted_tests, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_requirements, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__extract_acceptance_criteria
 ---
 
 ## 목적
 
 `test-runner`가 반환한 실패 결과를 분석하여 **원인 유형을 분류**하고 **최소 diff**로 테스트를 수정한다. 무작정 재생성은 금지한다. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안한다. 수정 후 `rerunTargets`를 반환하여 `test-runner`가 재실행하도록 한다.
 
-이 에이전트는 `isolation: worktree`로 격리된 git worktree에서 실행된다. 파일 수정이 메인 브랜치에 직접 반영되지 않으며, 패치 검증 후 머지 여부는 사용자·파이프라인이 결정한다. 오케스트레이터(repair-tests/full-pipeline)는 **그린이 될 때까지 재시도**하며 `retryCount`는 진전 추적 단위일 뿐 고정 상한이 아니다(fallback-policy.md #12). **직전과 동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`로 잔여 실패를 보고하고 종료한다.
+이 에이전트는 `isolation: worktree`로 격리된 git worktree에서 실행된다. 파일 수정이 메인 브랜치에 직접 반영되지 않으며, 패치 검증 후 머지 여부는 사용자·파이프라인이 결정한다. 재시도·무진전 중단 규칙(#12)의 정의는 「재시도 루프」 절 한 곳에만 둔다.
 
 ---
 
@@ -20,7 +20,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 - `full-pipeline` 10.5단계가 `scenario-conformance-verifier`의 `unsatisfied` 시나리오를 라우팅할 때 (**모드 B — 적합성 보정**: 테스트는 통과하지만 시나리오와 불일치. 입력 `nonconformantItems[]` 존재 시 이 모드)
 - `/test-autoevermation-harness-plugin:repair-tests` skill이 직접 호출될 때
 - `full-pipeline` skill에서 `test-runner` 결과에 실패가 포함될 때
-- 재시도: **그린까지 계속**(고정 상한 없음, #12). 직전과 동일한 실패 집합이 3회 연속(무진전)이면 `status: partial`로 잔여 보고 후 수동 개입 요청. 모드 B의 라운드 상한은 파이프라인 10.5단계가 관리(#16 — 최대 3라운드)
+- 재시도 규칙은 「재시도 루프」 절(#12) 참조. 모드 B의 라운드 상한은 파이프라인 10.5단계가 관리(#16 — 최대 3라운드)
 
 ---
 
@@ -64,7 +64,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `failResult` | object | `test-runner` 출력의 `TestRunResult` 전체. **`nonconformantItems`가 있으면 생략 가능(모드 B)** |
-| `nonconformantItems` | object[] | (모드 B) 10단계 `ConformanceResult.unmet` 중 `unsatisfied` 항목 — scenarioId·testClass·testMethods·verdict·`nonconformanceClass`(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH)·notes. 존재 시 적합성 보정 모드로 동작 |
+| `nonconformantItems` | object[] | (모드 B) 오케스트레이터가 10단계 `ConformanceResult.scenarioResults[]`에서 **id가 `unmet`(string[] — ID 배열이라 필드를 담지 않음)에 포함되고 `verdict:"unsatisfied"`인 항목을 조인해 전달** — scenarioId·testClass·testMethods·verdict·`nonconformanceClass`(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH)·notes. 존재 시 적합성 보정 모드로 동작 |
 | `originalTests` | object[] | 실패한 테스트 파일 경로 및 현재 내용. `content` 생략 시 `path`를 Read로 로드 |
 | `relatedSources` | object[] | 실패와 관련된 프로덕션 소스 파일 경로·FQCN. 경로 문자열만 전달되면 `repo-ast-mcp`로 FQCN을 해석 |
 | `springProfile` | object\|null | 0단계 `configure-harness`가 확정한 버전 프로파일(스키마: [version-compatibility.md](../references/version-compatibility.md)). **미전달 시 기존 테스트·대상 소스의 실제 import를 정본으로 삼는다**(혼용 방어와 동일 규칙) |
@@ -77,14 +77,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 ### 공통 필드
 
-| 필드 | 타입 | 값 |
-|---|---|---|
-| `status` | enum | `ok` / `partial` / `failed` |
-| `summary` | string | 1-3문장 요약 |
-| `evidence` | string[] | 원인 분석 근거, 수정된 파일 경로·라인, diff 요약 |
-| `warnings` | any[] | 비치명적 이상 상황 |
-| `errors` | any[] | 치명적 실패 상세 (재시도 한도 초과 포함) |
-| `nextActions` | any[] | 후속 에이전트/사용자 권고 |
+공통 결과 봉투(`status`/`summary`/`evidence`/`warnings`/`errors`/`nextActions`)의 정의·규약은 [references/agent-result-envelope.md](../references/agent-result-envelope.md)(SSOT)를 따른다. 이 에이전트의 `evidence`에는 원인 분석 근거, 수정된 파일 경로·라인, diff 요약를 담는다.
 
 ### 에이전트 특화 필드
 
@@ -172,7 +165,7 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 ## 핵심 지시문
 
-실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안하라. **모드 B(`nonconformantItems` 입력)**: 통과 중인 테스트라도 시나리오와 불일치하면 `SCENARIO_NONCONFORMANT`로 보정하라 — `// when`을 시나리오 `target` 메서드로 교정하고 `methodCalls`로 재확인하라. **적합성 보정이 green 테스트를 red로 만들 수 있으며 이는 정상이다**(교정된 호출이 실제 결함·누락을 드러낸 것) — 그 실패는 통상의 실패 보정(모드 A) 절차로 이어서 처리한다. 수정은 **생성 시점의 테스트 원칙을 유지**해야 한다 — BDD 3단 구조·BDDMockito 스타일·`scenarioRef` 메서드명/javadoc 보존(10단계 매핑 의존)·`springProfile` 관용구(「테스트 원칙 준수」 절). 진전이 있는 한(실패가 줄어드는 한) 고정 횟수 상한 없이 계속 보정하라(#12). 직전과 **동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`과 `retryExhausted: true`를 반환하고 수동 개입을 요청하라.
+실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`(조건 기반 `await().until(...)`)·clock 주입 등 결정적 방식을 제안하라. **모드 B(`nonconformantItems` 입력)**: 통과 중인 테스트라도 시나리오와 불일치하면 `SCENARIO_NONCONFORMANT`로 보정하라 — `// when`을 시나리오 `target` 메서드로 교정하고 `methodCalls`로 재확인하라. **적합성 보정이 green 테스트를 red로 만들 수 있으며 이는 정상이다**(교정된 호출이 실제 결함·누락을 드러낸 것) — 그 실패는 통상의 실패 보정(모드 A) 절차로 이어서 처리한다. 수정 불변식은 「테스트 원칙 준수」 절(정본: test-code-invariants.md)을 따르고, 반복·중단은 「재시도 루프」 절(#12)을 따르라.
 
 ---
 
@@ -198,17 +191,9 @@ tools: Read, Write, Edit, Bash, mcp__build-test__detect_build_tool, mcp__build-t
 
 ## 테스트 원칙 준수 (수정 시 불변 규칙)
 
-패치는 **생성 시점의 테스트 원칙**(full-pipeline 5단계 `test-code-generator` 규약)을 그대로 유지해야 한다. 실패를 없애는 수정이라도 아래 규약을 깨면 잘못된 수정이다.
+패치는 **생성 시점의 테스트 불변식**을 그대로 유지해야 한다 — 정본: [references/test-code-invariants.md](../references/test-code-invariants.md) (BDD 3단 구조 §3 · stub 스타일 §3 · scenarioRef 보존 §2 · 버전 프로파일 관용구 §4 · then 단언 완화 금지 §1/§3). 실패를 없애는 수정이라도 불변식을 깨면 잘못된 수정이다.
 
-| 원칙 | 규칙 | 근거·의존 |
-|---|---|---|
-| BDD 3단 구조 | `// given → // when → // then` 섹션 보존. 예외 검증은 `// when & then` 병합만 허용 | 시나리오 given/when/then 1:1 반영 ([scenario-docs.md](../references/scenario-docs.md)) |
-| stub 스타일 | `BDDMockito given().willReturn()/willThrow()` 유지. `when().thenReturn()` 혼용 도입 금지 | 5단계 생성 규약과 일관 |
-| scenarioRef 보존 | 메서드명 `<scenarioRefSlug>_<행위>`(예: `sc001_...`)와 javadoc `scenarioRef`/`criteriaRef` **리네임·삭제 금지** | 10단계 `verify-scenarios`가 이 매핑으로 시나리오↔테스트 적합성을 판정 — 깨지면 `missing` 오판 |
-| 버전 프로파일 관용구 | `springProfile`의 namespace(javax/jakarta)·junitEngine(junit4/jupiter)·mockAnnotation(`@MockBean`/`@MockitoBean`)+정확한 import를 따른다. `@MockBean`은 Boot 3.4+에서 deprecated → 3.4+ 프로파일이면 `@MockitoBean`으로 수정 | 정본: [version-compatibility.md](../references/version-compatibility.md); [Spring Framework `@MockitoBean` 공식 문서](https://docs.spring.io/spring-framework/reference/testing/annotations/integration-spring/annotation-mockitobean.html) |
-| then 단언 유지 | `// then` 단언은 시나리오 then(`scenarioDocs`)을 계속 빠짐없이 반영해야 한다. 단언 완화·축소로 통과시키기 금지(금지 패턴과 동일) | 10단계 `thenCovered` 판정 의존 |
-
-`springProfile`이 전달되지 않으면 **기존 테스트 파일·대상 소스의 실제 import를 정본**으로 삼아 관용구를 판별한다(version-compatibility.md §6 혼용 방어 규칙과 동일).
+7단계 특이사항: `@MockBean`은 Boot 3.4+에서 deprecated — 3.4+ 프로파일이면 `@MockitoBean`으로 교정한다([Spring 공식 문서](https://docs.spring.io/spring-framework/reference/testing/annotations/integration-spring/annotation-mockitobean.html)). `springProfile` 미전달 시 기존 테스트·대상 소스의 실제 import를 정본으로 판별한다(invariants §4).
 
 ---
 

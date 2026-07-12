@@ -2,7 +2,7 @@
 name: coverage-closer
 description: "Use this agent when you need to consume JaCoCo coverage gaps and generate additional targeted tests to close those gaps toward near-100% coverage thresholds (LINE>=0.95, BRANCH>=0.90, METHOD>=0.95, CLASS=1.0). Triggers on: after parse_jacoco_report reveals uncovered lines/branches/methods/classes, when measure-coverage skill reports a gate failure, when the coverage gap-closing loop requests additional tests."
 model: inherit
-tools: Read, Write, Edit, mcp__build-test__parse_jacoco_report, mcp__build-test__coverage_gate, mcp__repo-ast__extract_test_targets, mcp__repo-ast__parse_java_file
+tools: Read, Write, Edit, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_jacoco_report, mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file
 disallowedTools: Bash
 ---
 
@@ -90,7 +90,7 @@ disallowedTools: Bash
 
 ### 2. AST 분석 — 미커버 대상 정밀 파악
 
-필터링된 각 미커버 클래스에 대해 `mcp__repo-ast__parse_java_file`로 소스를 파싱하여:
+필터링된 각 미커버 클래스에 대해 `mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file`로 소스를 파싱하여:
 - 미커버 메서드의 시그니처, 파라미터, 예외 선언 확인
 - 미커버 라인/브랜치가 포함된 조건 분기 구조(if/else/switch/ternary) 식별
 - DI 생성자·협력 빈 목록 확인
@@ -107,14 +107,11 @@ disallowedTools: Bash
 #### 생성 원칙
 
 - **브랜치 커버리지 우선**: 단순한 라인 실행이 아니라 각 조건 분기(true/false 양방향)를 모두 실행하는 테스트를 작성한다.
-- **trivially-satisfying assertion 금지**: `assertTrue(true)`, `assertNotNull(result)` 같은 검증 없는 단순 실행 금지. 반환값·예외·상태 변화를 반드시 검증한다.
 - **slice 우선**: 컨트롤러는 `@WebMvcTest`, JPA는 `@DataJpaTest`, 서비스는 컨텍스트 없는 단위 테스트.
 - **협력 빈**: `springProfile.mockAnnotation`(`@MockBean`/`@MockitoBean`)을 정확한 import와 함께 사용(Boot 2.0–4.x, RESEARCH_NOTES §8). Mockito `when/thenReturn/thenThrow`로 각 분기 조건을 재현한다.
 - **@ParameterizedTest**: 동일 메서드의 여러 분기를 매개변수로 처리할 수 있는 경우 사용.
 - **클래스 위치**: 기존 테스트 클래스가 있으면 해당 파일에 메서드를 추가(Edit), 없으면 새 파일을 생성(Write).
-- **scenarioRef 보존(기존 파일 Edit 시 불변 규칙)**: 기존 시나리오 테스트 메서드(`sc001_...` 네이밍)와 javadoc의 `scenarioRef`/`criteriaRef`를 **리네임·삭제·변경하지 않는다** — 10단계 `verify-scenarios`가 이 매핑으로 시나리오 적합성을 판정한다. 이 에이전트가 추가하는 gap-filling 테스트는 비(非)시나리오 테스트이므로 scenarioRef가 필요 없다(javadoc에는 `targetsUncovered[]`만 기록).
-- **Google Java Style** 준수, import 완결.
-- 실제 네트워크/`Thread.sleep`/broad catch 금지.
+- **공통 불변식(SSOT)**: 금지 패턴(trivial assertion·실네트워크·고정 지연·broad catch·over-mock)·scenarioRef 보존·스타일/픽스처 규칙은 [references/test-code-invariants.md](../references/test-code-invariants.md)를 그대로 따른다. 이 에이전트가 추가하는 gap-filling 테스트는 비(非)시나리오 테스트이므로 scenarioRef가 필요 없다.
 - 각 메서드 javadoc에 `targetsUncovered[]` 참조 기록.
 
 #### 파일 경로 규칙
@@ -126,7 +123,7 @@ src/test/java/{package}/{ClassName}IT.java     ← 통합
 
 ### 5. JaCoCo 게이트 재확인 (advisory-only)
 
-새 테스트를 생성한 후 `mcp__build-test__coverage_gate`를 호출하여 현재 게이트 상태를 확인한다. 게이트가 통과하지 못한 잔여 갭은 `remainingGaps[]`에 기록한다.
+새 테스트를 생성한 후 `mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate`를 호출하여 현재 게이트 상태를 확인한다. 게이트가 통과하지 못한 잔여 갭은 `remainingGaps[]`에 기록한다.
 
 > **주의**: 이 에이전트는 Bash 실행이 금지되어 새 JaCoCo 리포트를 생성할 수 없으므로, 이 호출은 **추가 전 리포트 기준의 참고치(advisory)** 다. 정본 재측정·게이트 판정은 `measure-coverage` 스킬이 테스트 재실행 후 수행한다(5단계 재측정 루프).
 

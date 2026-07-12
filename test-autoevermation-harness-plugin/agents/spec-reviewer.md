@@ -2,7 +2,7 @@
 name: spec-reviewer
 description: "Use this agent when you need to ingest and normalize specification documents into structured acceptance criteria for test generation. Triggers on: pipeline step 1 (document indexing, parallel with ast-structure-analyzer), when spec documents need to be parsed into Given/When/Then format, when requirement traceability is needed before scenario design."
 model: inherit
-tools: Read, Grep, Glob, mcp__spec-doc__index_docs, mcp__spec-doc__search_requirements, mcp__spec-doc__extract_acceptance_criteria
+tools: Read, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__index_docs, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_requirements, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__extract_acceptance_criteria
 disallowedTools: Write, Edit, Bash
 ---
 
@@ -48,14 +48,7 @@ disallowedTools: Write, Edit, Bash
 
 ### 공통 필드
 
-| 필드 | 타입 | 값 |
-|---|---|---|
-| `status` | enum | `ok` / `partial` / `failed` |
-| `summary` | string | 1-3문장 요약 |
-| `evidence` | string[] | 결론 근거 (문서 경로·섹션·페이지) |
-| `warnings` | any[] | 비치명적 이상 상황 |
-| `errors` | any[] | 치명적 실패 상세 |
-| `nextActions` | any[] | 후속 에이전트/사용자 권고 |
+공통 결과 봉투(`status`/`summary`/`evidence`/`warnings`/`errors`/`nextActions`)의 정의·규약은 [references/agent-result-envelope.md](../references/agent-result-envelope.md)(SSOT)를 따른다. 이 에이전트의 `evidence`에는 결론 근거 (문서 경로·섹션·페이지)를 담는다.
 
 ### 에이전트 특화 필드
 
@@ -156,7 +149,7 @@ disallowedTools: Write, Edit, Bash
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
-| `SPEC_DOC_UNREADABLE` | 파일 존재하지 않거나, 포맷 파싱 불가(암호화 PDF 등) | 대화형: `AskUserQuestion("나머지로 계속 / 중단")`으로 확인 후 진행. CI: `status:"failed"` + remediation으로 하드 중단. ([fallback-policy.md](../references/fallback-policy.md) #10) |
+| `SPEC_DOC_UNREADABLE` | 파일 존재하지 않거나, 포맷 파싱 불가(암호화 PDF 등) | 이 에이전트는 사용자에게 직접 묻지 않는다(`AskUserQuestion`은 서브에이전트에서 사용 불가). 읽을 수 있는 문서는 처리하고 `status:"partial"` + `errors`에 `SPEC_DOC_UNREADABLE`(실패 경로 목록)로 **신호만 반환** — "나머지로 계속 / 중단" 확인은 **호출자(ingest-specs 스킬/full-pipeline, 메인 대화)**가 `AskUserQuestion`으로 수행한다. CI: `status:"failed"` + remediation으로 하드 중단. ([fallback-policy.md](../references/fallback-policy.md) #10) |
 | 전체 문서 읽기 실패 | `specDocPaths` 전체 실패 | `failed` 반환. `nextActions`에 경로 확인 요청 |
 | 모호한 요구사항 | 테스트 가능한 기준으로 변환 불가한 서술형 조항 | 해당 조항을 `warnings`에 원문과 함께 기록. 나머지는 정상 처리 |
 

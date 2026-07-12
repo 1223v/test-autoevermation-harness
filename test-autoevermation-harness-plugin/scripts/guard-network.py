@@ -14,10 +14,15 @@ Hook JSON input (Claude Code PreToolUse contract):
     ...
   }
 
-Hook JSON output (Claude Code hook decision contract):
-  Allow:  {} or {"permissionDecision": "allow"}
-  Deny:   {"permissionDecision": "deny", "message": "<reason>"}
-  Ask:    {"permissionDecision": "ask",  "message": "<reason>"}
+Hook JSON output (Claude Code PreToolUse decision contract — the decision MUST be
+nested under ``hookSpecificOutput``; a top-level ``permissionDecision`` key is not
+part of the hook schema and is silently ignored, i.e. fails open):
+  Allow:  {} (no opinion — defer to the normal permission flow) or
+          {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                  "permissionDecision": "allow"}}
+  Deny:   {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                  "permissionDecision": "deny",
+                                  "permissionDecisionReason": "<reason>"}}
 
 Network is considered OFF unless env var TEST_AUTOEVERMATION_HARNESS_NETWORK == "on".
 Stdlib only (json, sys, os, re).
@@ -44,7 +49,9 @@ _NETWORK_PATTERNS = [
     re.compile(r'\bnmap\b'),
     re.compile(r'\bdig\b'),
     re.compile(r'\bnslookup\b'),
-    re.compile(r'\bhost\b'),
+    # NOTE: a bare \bhost\b pattern was removed — "host" appears in legitimate
+    # non-network arguments (JDBC URLs, -Dspring.datasource.host, testcontainers
+    # config) and over-blocked builds. The dig/nslookup DNS tools above remain.
     # Windows-native network tools (PowerShell/cmd) — curl.exe/wget.exe는 위의
     # \bcurl\b/\bwget\b 패턴이 이미 매칭한다.
     re.compile(r'\binvoke-webrequest\b', re.IGNORECASE),
@@ -55,8 +62,14 @@ _NETWORK_PATTERNS = [
     re.compile(r'\bbitsadmin\b', re.IGNORECASE),
     re.compile(r'\bstart-bitstransfer\b', re.IGNORECASE),
     re.compile(r'\bnet\.webclient\b', re.IGNORECASE),
-    # Common patterns for inline network calls in build scripts
-    re.compile(r'https?://'),
+    # Network verbs that fetch remote resources. A bare https?:// URL string in
+    # an argument (e.g. -Dwiremock.url=http://localhost:8089) is NOT itself a
+    # network call, so URLs are only denied in combination with a fetch verb —
+    # the curl/wget/iwr patterns above already cover those. The verbs below
+    # cover the remaining common fetchers.
+    re.compile(r'\bgit\s+(clone|fetch|pull|push|ls-remote)\b'),
+    re.compile(r'\burlopen\b'),
+    re.compile(r'\brequests\.(get|post|put|delete|head)\b'),
     re.compile(r'--network'),
 ]
 
@@ -72,6 +85,19 @@ def _contains_network_call(command: str) -> bool:
 def _network_allowed() -> bool:
     """Return True if the harness network flag is explicitly set to on."""
     return os.environ.get("TEST_AUTOEVERMATION_HARNESS_NETWORK", "").lower() == "on"
+
+
+def _decision(decision: str, reason: str = "") -> None:
+    """Emit a PreToolUse decision in the schema Claude Code actually honors."""
+    out = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": decision,
+        }
+    }
+    if reason:
+        out["hookSpecificOutput"]["permissionDecisionReason"] = reason
+    print(json.dumps(out, ensure_ascii=False))
 
 
 def main():
@@ -106,20 +132,17 @@ def main():
 
     if _network_allowed():
         # Network explicitly permitted by env var
-        print(json.dumps({"permissionDecision": "allow"}))
+        _decision("allow")
         return
 
     # Network call detected and network is off — deny with explanation
-    decision = {
-        "permissionDecision": "deny",
-        "message": (
-            "test-autoevermation-harness-plugin: Network access is disabled by default. "
-            "The command appears to make a network call. "
-            "Set TEST_AUTOEVERMATION_HARNESS_NETWORK=on to permit network access, "
-            "or remove the network call from the command."
-        ),
-    }
-    print(json.dumps(decision))
+    _decision(
+        "deny",
+        "test-autoevermation-harness-plugin: Network access is disabled by default. "
+        "The command appears to make a network call. "
+        "Set TEST_AUTOEVERMATION_HARNESS_NETWORK=on to permit network access, "
+        "or remove the network call from the command.",
+    )
 
 
 if __name__ == "__main__":

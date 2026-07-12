@@ -2,7 +2,7 @@
 name: refactor-advisor
 description: "Use this agent when you need to flag code that is too complex, inefficient, or test-hostile before scenario generation — cyclomatic complexity over threshold, N+1/loop-query inefficiency, and testability-blocking design (tight coupling, static/hidden dependencies, constructor side effects, un-injected clock/random). Triggers on: immediately after source-code-analyzer completes in full-pipeline (stage 3.5), when refactoring advisories are requested before test generation."
 model: inherit
-tools: Read, Grep, Glob, mcp__repo-ast__parse_java_file, mcp__repo-ast__resolve_symbol, mcp__repo-ast__list_spring_components, mcp__repo-ast__extract_test_targets
+tools: Read, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__list_spring_components, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets
 disallowedTools: Write, Edit, Bash
 ---
 
@@ -55,14 +55,7 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
 
 ### 공통 필드
 
-| 필드 | 타입 | 값 |
-|---|---|---|
-| `status` | enum | `ok` / `partial` / `failed` |
-| `summary` | string | 1-3문장 요약 (예: "3개 대상 플래그 — complexity 1 / efficiency 1 / testability 2") |
-| `evidence` | string[] | 결론 근거 (파일 경로·라인 범위·지표) |
-| `warnings` | any[] | 비치명적 이상 상황 (바디 Read 불가 대상 등) |
-| `errors` | any[] | 치명적 실패 상세 |
-| `nextActions` | any[] | 후속 권고 |
+공통 결과 봉투(`status`/`summary`/`evidence`/`warnings`/`errors`/`nextActions`)의 정의·규약은 [references/agent-result-envelope.md](../references/agent-result-envelope.md)(SSOT)를 따른다. 이 에이전트의 `evidence`에는 결론 근거(파일 경로·라인 범위·지표)를, `summary`에는 범주별 플래그 수(예: "3개 대상 플래그 — complexity 1 / efficiency 1 / testability 2")를, `warnings`에는 바디 Read 불가 대상 등을 담는다.
 
 ### 에이전트 특화 필드
 
@@ -141,9 +134,9 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
 - **코드 본문 처리**: repo-ast는 메서드 바디를 반환하지 않는다(설계 불변). 바디 신호(분기 수·루프 내 호출·`new`·
   `now()`)는 에이전트의 `Read`로 대상 파일을 직접 읽어 계산하되, 결과 JSON에 소스 원문을 포함하지 않는다.
 
-### JDT LS (필수, LSP)
-- **미가용 시**: 중단한다(fallback-policy.md #3 준용). `status: "failed"` + `errors`에
-  `JDT_LS_UNAVAILABLE` + remediation(`node <pluginRoot>/mcp/launch.cjs script <pluginRoot>/scripts/setup_jdtls.py`, Java 21+ 필요).
+### JDT LS (파이프라인 전제 — 이 에이전트의 판정에는 불필요)
+- 이 에이전트의 판정 신호(복잡도·`new`/`now()` 스캔·N+1)는 전부 Read/Grep + repo-ast 메타 기반이라 **JDT LS를 직접 쓰지 않는다**. JDT LS는 Phase E·E7이 파이프라인 레벨에서 보장하는 전제일 뿐이다.
+- **`lspAvailable:false` 수신 시**: 정상 흐름에선 도달 불가(전제 위반 신호)지만, 권고는 **보조 게이트**이므로 중단하지 않는다 — `warnings`에 `JDT_LS_UNAVAILABLE`을 기록하고 판정을 계속한다(fallback-policy #19: 권고 실패는 파이프라인을 차단하지 않음).
 
 ---
 
@@ -171,7 +164,7 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
-| LSP 미가용 | `lspAvailable: false` | 중단, `status: "failed"` + `errors: JDT_LS_UNAVAILABLE` + remediation(`node <pluginRoot>/mcp/launch.cjs script <pluginRoot>/scripts/setup_jdtls.py`, Java 21+ 필요) (#3 준용) |
+| LSP 미가용 | `lspAvailable: false` | **중단하지 않는다** — 판정 신호는 Read/Grep 기반이라 JDT LS 없이 성립. `warnings`에 `JDT_LS_UNAVAILABLE`(전제 위반 신호) 기록 후 판정 계속(#19 — 권고는 보조 게이트, 파이프라인 차단 안 함. 파이프라인 자체의 JDT 필수 게이트는 Phase E·E7 소관) |
 | 바디 Read 불가 | 파일 접근 불가·비Java | 해당 대상만 `warnings` 기록 + 시그니처 기반 부분 판정, 나머지 계속 |
 | `targetSymbols` 미제공 + `astResult` 없음 | — | `status: partial`, `analyze-ast` 선행 실행 안내 |
 | 대상 전부 판정 불가 | — | `status: failed`, `errors`에 원인 기록 |

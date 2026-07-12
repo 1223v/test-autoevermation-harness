@@ -173,7 +173,7 @@ decidedAt: —
 ```markdown
 # 리팩토링 권고 인덱스
 
-> 생성: 2026-07-02 · 프로젝트: `/path/to/project` · 하네스 v0.9.0
+> 생성: <YYYY-MM-DD> · 프로젝트: `/path/to/project` · 하네스 v<version — plugin.json에서 읽은 실제 값>
 
 ## 요약
 - 권고: 3 (포함 2 / 제외 1) · 게이트 모드: interactive

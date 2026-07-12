@@ -62,6 +62,17 @@ def _redact_enabled() -> bool:
     return os.environ.get("SPEC_DOC_REDACT", "on").lower() != "off"
 
 
+def _redact_email_enabled() -> bool:
+    """EMAIL redaction is separately toggleable (SPEC_DOC_REDACT_EMAIL=off).
+
+    Spec documents frequently contain literal example addresses that
+    acceptance criteria — and the tests generated from them — must assert on
+    verbatim; blanket-redacting those turns real fixtures into
+    [REDACTED_EMAIL] and breaks the generated assertions.
+    """
+    return os.environ.get("SPEC_DOC_REDACT_EMAIL", "on").lower() != "off"
+
+
 def _plugin_version() -> str | None:
     """Best-effort read of the plugin's declared version, or None on failure.
 
@@ -117,6 +128,8 @@ def redact_text(text: str) -> str:
         return text
     result = text
     for _name, pattern, replacement in _REDACT_PATTERNS:
+        if _name == "EMAIL" and not _redact_email_enabled():
+            continue
         result = pattern.sub(replacement, result)
     return result
 
@@ -142,13 +155,20 @@ def _is_path_allowed(path: Path) -> tuple[bool, str]:
         except ValueError:
             return False, f"Path outside workspace root: {resolved}"
 
-    # Check allowlist: at least one path component must match
+    # Check allowlist: at least one path COMPONENT must contain an allowed
+    # name as a substring — "documentation"/"api-docs" pass for entry "doc"
+    # (exact-name matching rejected real spec folders and silently skipped them).
     allowlist = _get_allowlist()
     if allowlist:
-        parts_lower = {p.lower() for p in resolved.parts}
-        if not any(allowed.lower() in parts_lower for allowed in allowlist):
+        parts_lower = [p.lower() for p in resolved.parts]
+        if not any(
+            allowed.lower() in part
+            for part in parts_lower
+            for allowed in allowlist
+        ):
             return False, (
-                f"Path not under any allowed directory {allowlist}: {resolved}"
+                f"Path has no component matching the allowed directory names "
+                f"{allowlist} (substring match): {resolved}"
             )
 
     return True, ""
@@ -438,6 +458,11 @@ def index_docs(paths: list[str]) -> dict:
     Respects SPEC_DOC_ALLOWLIST (comma-separated directory names) and rejects
     paths outside the workspace root (SPEC_DOC_WORKSPACE).
     Unreadable documents are reported as SPEC_DOC_UNREADABLE in the result.
+
+    NOTE: each call REPLACES the whole in-memory index (_clear_index() runs
+    first) — pass ALL spec paths in a single call. Calling index_docs(A) then
+    index_docs(B) leaves only B indexed; incremental/append indexing is not
+    supported.
 
     Args:
         paths: List of file paths or directory paths to index.

@@ -13,7 +13,7 @@ description: 모든 단계(생성·실행·커버리지·뮤테이션)가 끝난
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `repo-ast` + `build-test` MCP 도구가 **필수**다. 도구 미가용(도구 없음·호출 실패·연결 끊김)이면 Grep/Read/직접 파싱으로 **대체하지 말고** `status:"failed"` + remediation(fallback-policy #20)으로 즉시 중단한다. 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 연결이 검증되어 있어야 한다.
+이 스킬은 `repo-ast` + `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다.
 
 ---
 
@@ -36,7 +36,7 @@ description: 모든 단계(생성·실행·커버리지·뮤테이션)가 끝난
 |---|---|---|---|---|
 | `approvedScenarios` | object[] | 예 | — | 4.5단계에서 승인된 시나리오(`approval=approved`)만 |
 | `generatedFiles` | string[] | 예 | — | 생성된 테스트 파일 경로 |
-| `runResult` | object | 예 | — | 최종 실행 결과(메서드 단위 passed/failed) |
+| `runResult` | object | 예 | — | 최종 실행 결과(TestRunResult). **주의: run-tests는 집계 `passed`(정수) + `failed[]`(실패 목록)만 반환하며 메서드 단위 통과 목록은 없다** — 메서드 단위 합격은 "매핑된 테스트 메서드가 `failed[]`에 없고 해당 클래스가 실행 스코프에 포함"으로 추론하고, 확증이 필요하면 `parse_junit_xml`(XML 리포트)로 보강한다 |
 | `coverageResult` | object | 아니오 | `null` | 커버리지 결과(보조) |
 | `projectRoot` | string | 아니오 | cwd | `test_docs/`를 만들 위치 |
 | `testDocsDir` | string | 아니오 | `test_docs` | 산출물 디렉터리 |

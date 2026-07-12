@@ -1108,12 +1108,20 @@ def detect_pipeline_state(root: str = ".") -> dict:
 @mcp.tool()
 def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = DEFAULT_BRANCH,
                   method: float = DEFAULT_METHOD, klass: float = DEFAULT_CLASS,
-                  mutation: float = DEFAULT_MUTATION) -> dict:
+                  mutation: float = DEFAULT_MUTATION, require_pitest: bool = False) -> dict:
     """Combine JaCoCo + PITest parse and return pass/fail per counter + gaps.
 
     Returns overall pass flag plus a per-counter breakdown with the actual ratio,
     the required threshold, and pass/fail. Includes uncovered classes and surviving
     mutants as actionable gaps.
+
+    ``require_pitest`` (default False): the coverage gate (stage 8) runs BEFORE the
+    mutation stage (stage 9), so a missing PITest report is expected there and must
+    not force ``status:"partial"`` when all four JaCoCo counters pass. With the
+    default, a missing PITest report is simply omitted (no MUTATION counter, not in
+    ``missingReports``). Pass ``require_pitest=True`` for post-stage-9 aggregation
+    checks where the mutation report is mandatory. A PITest report that EXISTS is
+    always evaluated regardless of this flag.
 
     Note: `klass` (CLASS counter) defaults to 1.0 per the near-100% policy. On a
     narrowly-targeted run whose JaCoCo report scope still includes uncovered sibling
@@ -1153,7 +1161,11 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
             gaps["uncovered"] = jr["uncovered"]
 
     if pitest_path is None:
-        missing.append("PITEST_REPORT_NOT_FOUND")
+        # Stage 8 (coverage) runs before stage 9 (mutation): absence of a PITest
+        # report is the normal pre-mutation state, so it only counts as missing
+        # when the caller explicitly requires it (post-stage-9 aggregation).
+        if require_pitest:
+            missing.append("PITEST_REPORT_NOT_FOUND")
     else:
         pr = _parse_pitest(pitest_path)
         if pr.get("status") != "ok":
