@@ -44,9 +44,10 @@
 - 제외 allowlist: 생성코드/DTO/config/`*Application` 등은 `excludes`로 제외(near-100% 현실화).
 
 ## 4. 뮤테이션: PITest
+- 하네스 정책: **선택 기능**, `HarnessConfig.mutation.enabled` 기본 `false`. 활성화된 경우에만 플러그인·JUnit 어댑터·XML 출력과 9단계 게이트를 요구한다.
 - Gradle: **`info.solidsoft.pitest` 1.19.0**, `pitest { junit5PluginVersion = "1.0.0" }`. 공식: [gradle-pitest-plugin](https://gradle-pitest-plugin.solidsoft.info/), [szpak/gradle-pitest-plugin](https://github.com/szpak/gradle-pitest-plugin)
 - Maven: `org.pitest:pitest-maven` + `org.pitest:pitest-junit5-plugin`.
-- 핵심 옵션: `targetClasses`, `targetTests`, `mutators`(기본/STRONGER), `mutationThreshold`, `threads`, `timestampedReports=false`, `withHistory=true`(증분). 리포트: `build/reports/pitest/`.
+- 핵심 옵션: `targetClasses`, `targetTests`, `mutators`(기본/STRONGER), `mutationThreshold`, `threads`, `timestampedReports=false`, `withHistory=true`(증분), **`outputFormats`에 XML 포함**. PIT 기본 출력은 HTML이므로 XML을 명시해야 MCP가 `mutations.xml`을 소비할 수 있다. 리포트: `build/reports/pitest/`.
 - JUnit5 지원: `pitest-junit5-plugin **1.0.0+**` (PIT 1.9.0+ 요구). 공식: [pitest/pitest-junit5-plugin](https://github.com/pitest/pitest-junit5-plugin)
 - 해석: line/branch 100%여도 살아남은 mutant가 있으면 **assertion 부재/약함** → mutation-analyst가 테스트 강화.
 
@@ -83,11 +84,11 @@
 
 **JaCoCo / PITest 버전 폴백** (Java 베이스라인별)
 - JaCoCo: **0.8.12**는 Java 8 런타임에서도 정상(바이트코드 5–23 지원). 매우 오래된 Gradle(≤6.x)이면 `toolVersion`만 0.8.8+로 낮춰도 됨. 공식: [JaCoCo Releases](https://www.jacoco.org/jacoco/trunk/doc/changes.html)
-- PITest(Gradle): `info.solidsoft.pitest` **1.19.0**은 Gradle 6.4+ 필요. Gradle 5.x(구 2.0/2.1)면 **1.7.4**로 폴백하거나 뮤테이션 단계를 **graceful skip + warning**. JUnit5는 `pitest-junit5-plugin`, **순수 JUnit4면 어댑터 불필요**(PIT 내장).
+- PITest(Gradle, opt-in): `info.solidsoft.pitest` **1.19.0**은 Gradle 6.4+ 필요. Gradle 5.x면 호환 버전으로 폴백하거나 `mutation.enabled:false`로 전환해 **graceful skip + warning**. JUnit5는 `pitest-junit5-plugin`, **순수 JUnit4면 어댑터 불필요**(PIT 내장).
 - 뮤테이션 단계는 advanced·선택. 버전 폴백이 불확실하면 측정만 스킵하고 커버리지 게이트는 유지.
 
 ## 6. near-100% 커버리지 정책(현실화)
-- 목표 게이트(기본, 런타임 조정 가능): LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS ≥ 1.00, mutationThreshold ≥ 0.80.
+- 목표 게이트(기본, 런타임 조정 가능): LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS ≥ 1.00. PITest를 활성화한 경우에만 mutationThreshold ≥ 0.80.
 - 제외 allowlist(기본 제안): `**/*Application*`, `**/config/**`, `**/dto/**`, `**/generated/**`, lombok/MapStruct 생성물, `equals/hashCode/toString` 자동생성.
 - 게이트 미달 시: coverage-closer/mutation-analyst가 gap을 받아 추가 테스트 생성 → 재측정 루프.
 

@@ -9,13 +9,13 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 
 근거: `[[../../RESEARCH_NOTES.md]]` §4(gradle-pitest 1.19.0 / pitest-junit5-plugin 1.0.0), §6(mutationThreshold≥0.80).
 
-## MCP 필수 (대체 금지)
+## 활성화 시 MCP 필수 (대체 금지)
 
-이 스킬은 `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다.
+`mutation.enabled:false`인 정상 skip 경로는 MCP를 호출하지 않는다. PITest를 실행하는 경로에서는 `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다.
 
 ## 호출 조건
-- 자동: `measure-coverage` 게이트 통과 직후(커버리지 충족 후 품질 검증).
-- 수동: `/test-autoevermation-harness-plugin:mutation-test`
+- 자동: `measure-coverage` 게이트 통과 직후 **`HarnessConfig.mutation.enabled:true`일 때만**.
+- 수동: `/test-autoevermation-harness-plugin:mutation-test` 자체를 명시적 opt-in으로 본다. 수동 호출 입력에 `enabled`가 없으면 `true`로 처리하고, `enabled:false`를 명시하면 정상 skip한다.
 
 ## 입력 (HarnessConfig 일부)
 ```json
@@ -23,6 +23,7 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
   "buildTool": "gradle|maven",
   "root": ".",
   "mutation": {
+    "enabled": true,
     "targetClasses": ["com.example.orders.*"],
     "targetTests": ["com.example.orders.*Test"],
     "mutators": "DEFAULTS",
@@ -34,12 +35,13 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
   "existingTestPaths": ["src/test/java/com/example/orders/OrderServiceTest.java"]
 }
 ```
-> `mutation` 깊이/대상/임계값은 `configure-harness` 인터뷰(§7 항목 c)에서 사용자가 조정. `mutators`는 DEFAULTS 또는 STRONGER.
+> `mutation.enabled`의 파이프라인 기본값은 `false`다. 깊이/대상/임계값은 활성화를 선택한 경우에만 `configure-harness` 인터뷰(항목 c)에서 조정한다. `mutators`는 DEFAULTS 또는 STRONGER.
 > `maxIterations`는 full-pipeline이 `HarnessConfig.mutationMaxIterations`를 매핑해 전달한다.
 > `existingTestPaths`는 full-pipeline이 5단계 생성 파일 + 8단계 `addedTests`를 병합해 전달한다.
 
 ## 절차
-1. **실행**: build-test로 PITest 실행(Gradle `pitest`, Maven `org.pitest:pitest-maven:mutationCoverage`). `withHistory=true`로 증분, `timestampedReports=false`. 네트워크 off.
+0. **활성화 분기**: `mutation.enabled:false`이면 PITest·MCP·mutation-analyst를 호출하지 않고 아래 정상 skip 결과를 반환한다. full-pipeline은 이 값을 `_workspace/09_mutation_result.json`에 기록하고 10단계로 진행한다. 수동 호출에서 `enabled`가 생략된 경우만 명시적 opt-in(`true`)으로 본다.
+1. **실행**: build-test로 PITest 실행(Gradle `pitest`, Maven `org.pitest:pitest-maven:mutationCoverage`). `withHistory=true`로 증분, `timestampedReports=false`, 출력 형식은 `XML` 포함. 네트워크 off.
 2. **파싱**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_pitest_report(root)` → `mutationScore`, `survivedMutants[]{class,method,line,mutator,status}`.
 3. **분기**:
    - score ≥ threshold 이고 survivors 없음(또는 허용 범위) → `ok`, 종료.
@@ -66,9 +68,31 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 4. **재실행 루프**: 강화된 테스트로 재실행한다. threshold 충족 시 중단. `maxIterations`는 고정 상한이 아니라 **진전 추적 단위**다 — 진전(생존 mutant 감소)이 있는 한 계속하고, **동일 survivor 집합이 3회 연속(무진전)**이면 `partial`로 `survivingMutants[]`(+동등 mutant 사유)를 전량 보고 후 중단한다(fallback-policy.md #12).
 5. **수렴 실패**: 잔여 survivor는 `partial`로 보고하고 `survivingMutants[]`에 사유(동등 mutant 가능성 포함) 명시. 동등(equivalent) mutant 의심은 임의 무시하지 말고 보고.
 
-**스킵 금지 (fallback-policy.md #21)**: survivors 존재 분기에서 mutation-analyst 호출은 **무조건**이다. RA advisory 대상이라는 이유로 강화 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 9단계 게이트와 무관하다. "강화 불가" 판단은 mutation-analyst가 루프를 실제 수행한 뒤 `survivingMutants[]` 사유(동등 mutant 등)로만 성립하고, 스코프 제외는 `mutation.targetClasses`/PIT `excludedClasses`(사용자 승인 설정)로만 가능하다. **무효 조건**: `thresholdMet:false`인데 `iterations<1` 또는 `survivingMutants`가 비어 있는 결과는 "게이트 미수행" 산출물로 무효 — 이 상태로 반환·저장하지 말고 루프를 수행하라(`guard-gate-artifacts.py` 훅이 무효 산출물 기록을 차단한다).
+**활성화 후 임의 스킵 금지 (fallback-policy.md #21)**: `mutation.enabled:true`이고 survivors가 존재하는 분기에서는 mutation-analyst 호출이 **무조건**이다. RA advisory 대상이라는 이유로 강화 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 9단계 게이트와 무관하다. "강화 불가" 판단은 mutation-analyst가 루프를 실제 수행한 뒤 `survivingMutants[]` 사유(동등 mutant 등)로만 성립하고, 스코프 제외는 `mutation.targetClasses`/PIT `excludedClasses`(사용자 승인 설정)로만 가능하다. **무효 조건**: 활성화 상태에서 `thresholdMet:false`인데 `iterations<1` 또는 `survivingMutants`가 비어 있는 결과는 "게이트 미수행" 산출물로 무효다. `status:"skipped"`는 `enabled:false`의 `PITEST_DISABLED` 계약으로만 허용된다(`guard-gate-artifacts.py` 훅이 그 외 무효 산출물 기록을 차단한다).
 
 ## 출력
+
+비활성화된 경우:
+
+```json
+{
+  "status": "skipped",
+  "reason": "PITEST_DISABLED",
+  "mutationScore": null,
+  "thresholdMet": null,
+  "iterations": 0,
+  "killedMutants": 0,
+  "strengthenedTests": [],
+  "survivingMutants": [],
+  "evidence": [],
+  "warnings": [],
+  "errors": [],
+  "nextActions": ["mutation.enabled=true로 설정하면 PITest를 실행합니다"]
+}
+```
+
+활성화해 실행한 경우:
+
 ```json
 {
   "status": "ok|partial|failed",
@@ -85,7 +109,7 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 ```
 
 ## 실패 유형
-- `PITEST_RUN_FAILED` → 빌드/플러그인 설정 점검(예: junit5PluginVersion 누락) 후 재시도.
+- `PITEST_RUN_FAILED` → 활성화 상태에서 빌드/플러그인 설정 점검(예: junit5PluginVersion 또는 XML 출력 누락) 후 재시도.
 - `EQUIVALENT_MUTANT_SUSPECTED` → 강화 불가 사유 보고, 임계값 조정은 사용자 확인.
 
 ## 보안·성능

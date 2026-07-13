@@ -33,10 +33,10 @@ fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서
 | E8 | **빌드 도구**(gradle/maven) | `build-test-mcp.detect_build_tool(root)` | data | `BUILD_TOOL_UNDETECTED`면 `AskUserQuestion("gradle? maven?")` | 미감지면 중단(`HarnessRequest.buildTool` 명시 요청) | policy #5 |
 | E9 | **Spring Boot 버전/프로파일** | `build-test-mcp.detect_spring_profile(root)` | data | `interviewRequired`면 Boot major AskUserQuestion(#4); `requiresConfirmation`면 충돌 확정(#6). 가정 금지 | 미감지/충돌이면 중단(`HarnessRequest.springVersion` 명시) | policy #4·#6 |
 | E10 | **테스트 실행 JDK ↔ Mockito 호환** | 실행 JDK major vs Mockito/ByteBuddy 지원 범위 | assist | JDK 24/25에서 inline mock-maker 미지원 위험이면 `AskUserQuestion`: "① 테스트 실행 JDK를 17/21 LTS로 / ② Mockito 5.16+(ByteBuddy 1.17+)로 / ③ `-Dnet.bytebuddy.experimental=true`" | 위험이면 자동 보정 불가 → 중단(remediation 안내) | RESEARCH_NOTES §5, ByteBuddy |
-| E11 | **대상 빌드 능력**(JaCoCo XML·PITest 플러그인) | `build-test.detect_build_capabilities(root, junitEngine)` → `missing[]` | data(approve→inject) | 누락 시 `AskUserQuestion("빌드 파일에 주입할까요?")` → 예: `proposedChanges[]` 최소 주입(`buildChanges[]` 기록)→재감지 / 아니오: 해당 단계 skipped 보고 | 자동 주입 금지 → 누락+스니펫 remediation 중단 | policy #17, [build-provisioning.md](./build-provisioning.md) §1 |
+| E11 | **대상 빌드 능력**(JaCoCo XML 필수·PITest opt-in) | `build-test.detect_build_capabilities(root, junitEngine, require_pitest=mutation.enabled)` → `missing[]` | data(approve→inject) | JaCoCo 누락은 별도 승인 주입. PITest는 `enabled:true`일 때만 플러그인·JUnit 어댑터·XML을 검사/제안하며 거부 시 `enabled:false`로 전환해 9단계만 skipped | 자동 주입 금지. JaCoCo 또는 명시 활성화된 PITest 능력 누락만 remediation 중단; 기본 `enabled:false`에서는 PITest 누락 허용 | policy #17, [build-provisioning.md](./build-provisioning.md) §1 |
 | E12 | **의존성 캐시 프라이밍**(콜드 캐시 첫 실행) | `build-test.check_dependency_cache(buildTool, root)` → `primed` | data(approve→prime) | `primed:false`/신규 플러그인이면 `AskUserQuestion("1회 온라인 프라이밍?")` → 예: `run_targeted_tests(online=True)` 1회(또는 Maven `dependency:go-offline`)→이후 오프라인 | 자동 온라인 금지 → `BUILD_TEST_ALLOW_NETWORK=1` 옵트인·사전 워밍업 안내 | policy #18, [build-provisioning.md](./build-provisioning.md) §2 |
 
-E8·E9·E10·E11·E12는 **데이터 감지**라 "자동 빌드"로는 못 고친다 — 대화형은 질문(E11·E12는 승인 후 함께 세팅), CI는 `HarnessRequest`에 사전 지정/사전 워밍업(없으면 중단). E11·E12는 **0.5단계(프로파일 확정) 직후 0.6단계에서 6단계 run-tests 이전에** 처리한다 — JaCoCo 에이전트는 `test` 실행 중 attach되므로 빌드 능력이 먼저 갖춰져야 한다.
+E8·E9·E10·E11·E12는 **데이터 감지**라 "자동 빌드"로는 못 고친다 — 대화형은 질문(E11·E12는 승인 후 함께 세팅), CI는 필수 값·캐시를 사전 준비한다. 단, `mutation.enabled`는 선택 필드라 미지정 시 `false`이며 PITest 누락으로 중단하지 않는다. E11·E12는 **0.5단계(프로파일 확정) 직후 0.6단계에서 6단계 run-tests 이전에** 처리한다 — JaCoCo 에이전트는 `test` 실행 중 attach되므로 빌드 능력이 먼저 갖춰져야 한다.
 
 ---
 
@@ -96,5 +96,5 @@ verify_mcp_health(E3b)                # repo-ast/spec-doc/build-test health 3종
 ## 통과 기준
 
 - **E1·E2·E3·E3b·E4·E5(시스템 mvn 또는 동봉 mvnw)·E6·E7(전부 필수) 통과** + E8·E9(빌드도구·프로파일) **확정** + E10(실행 JDK 호환) **확인** → 0단계(configure-harness 인터뷰)로 진행. 하나라도 미충족이면 파이프라인을 시작하지 않는다.
-- **E11(빌드 능력)·E12(캐시 프라이밍)**는 0.5단계 직후 **0.6단계**에서 처리한다(6단계 run-tests 이전 필수). 대화형=승인 후 주입/프라이밍, CI=미비 시 remediation 중단.
+- **E11(빌드 능력)·E12(캐시 프라이밍)**는 0.5단계 직후 **0.6단계**에서 처리한다(6단계 run-tests 이전 필수). 대화형=승인 후 주입/프라이밍, CI=JaCoCo 또는 명시 활성화된 PITest 능력 미비 시 remediation 중단.
 - 하나라도 미충족(대화형에서 사용자가 중단 선택 / CI에서 자동 세팅 실패·비결정적) → `status:"failed"`, `errors`에 항목과 remediation 명시, 파이프라인 **미시작**.

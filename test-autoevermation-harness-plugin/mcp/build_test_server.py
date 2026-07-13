@@ -1115,13 +1115,11 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
     the required threshold, and pass/fail. Includes uncovered classes and surviving
     mutants as actionable gaps.
 
-    ``require_pitest`` (default False): the coverage gate (stage 8) runs BEFORE the
-    mutation stage (stage 9), so a missing PITest report is expected there and must
-    not force ``status:"partial"`` when all four JaCoCo counters pass. With the
-    default, a missing PITest report is simply omitted (no MUTATION counter, not in
-    ``missingReports``). Pass ``require_pitest=True`` for post-stage-9 aggregation
-    checks where the mutation report is mandatory. A PITest report that EXISTS is
-    always evaluated regardless of this flag.
+    ``require_pitest`` (default False): PITest is opt-in. With the default, the
+    mutation report is ignored even if a stale ``mutations.xml`` exists, so stage 8
+    and a mutation-disabled pipeline are based only on JaCoCo. Pass true only after
+    an enabled stage 9; then a missing report is an error and an existing report is
+    evaluated as the MUTATION counter.
 
     Note: `klass` (CLASS counter) defaults to 1.0 per the near-100% policy. On a
     narrowly-targeted run whose JaCoCo report scope still includes uncovered sibling
@@ -1131,7 +1129,7 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
     root = os.path.abspath(root)
 
     jacoco_path = _find_jacoco_xml(root)
-    pitest_path = _find_pitest_xml(root)
+    pitest_path = _find_pitest_xml(root) if require_pitest else None
 
     counters_result: dict[str, dict] = {}
     gaps: dict = {"uncovered": [], "survivedMutants": []}
@@ -1160,13 +1158,9 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
                     }
             gaps["uncovered"] = jr["uncovered"]
 
-    if pitest_path is None:
-        # Stage 8 (coverage) runs before stage 9 (mutation): absence of a PITest
-        # report is the normal pre-mutation state, so it only counts as missing
-        # when the caller explicitly requires it (post-stage-9 aggregation).
-        if require_pitest:
-            missing.append("PITEST_REPORT_NOT_FOUND")
-    else:
+    if require_pitest and pitest_path is None:
+        missing.append("PITEST_REPORT_NOT_FOUND")
+    elif require_pitest and pitest_path is not None:
         pr = _parse_pitest(pitest_path)
         if pr.get("status") != "ok":
             missing.append(pr.get("error", "PITEST_PARSE_FAILED"))
@@ -1201,12 +1195,11 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
 # ---------------------------------------------------------------------------
 # Build-capability provisioning (F1) + dependency-cache priming (F2)
 #
-# These tools EXPOSE SIGNALS ONLY (no file writes): the JaCoCo/PITest plugins and
-# JaCoCo XML output are NOT applied to a typical target build, so the coverage (8단계)
-# and mutation (9단계) stages call tasks that do not exist or produce no XML. Per
-# fallback-policy.md #17/#18 the consuming skill (configure-harness) detects the gap,
-# asks for approval (interactive) or stops with remediation (CI), then applies the
-# minimal build change itself. Sources are cited inline in references/build-provisioning.md.
+# These tools EXPOSE SIGNALS ONLY (no file writes). JaCoCo XML is required for stage 8;
+# PITest plugin/JUnit/XML capabilities are required only when the caller opts in with
+# require_pitest=True. Per fallback-policy.md #17/#18 the consuming skill detects only
+# required gaps, asks for approval (interactive) or stops with remediation (CI), then
+# applies the minimal build change itself. Sources: references/build-provisioning.md.
 # ---------------------------------------------------------------------------
 
 # JaCoCo XML toggle is OFF by default for the Gradle plugin, so the harness's
@@ -1215,10 +1208,18 @@ _GRADLE_JACOCO_PLUGIN_RE = re.compile(r"""(?:id\s*\(?\s*['"]jacoco['"]|apply\s+p
 _GRADLE_JACOCO_XML_RE = re.compile(r"""xml\s*\.\s*(?:required|enabled)\s*(?:\.\s*set\s*\(\s*)?=?\s*true""")
 _GRADLE_PITEST_PLUGIN_RE = re.compile(r"""info\.solidsoft\.pitest""")
 _GRADLE_PITEST_JUNIT5_RE = re.compile(r"""junit5PluginVersion|pitest-junit5-plugin""")
+_GRADLE_PITEST_XML_RE = re.compile(
+    r"""outputFormats\s*(?:(?:\.\s*set)\s*\(|=)?[\s\S]{0,256}?['\"]XML['\"]""",
+    re.IGNORECASE,
+)
 _MAVEN_JACOCO_RE = re.compile(r"""jacoco-maven-plugin""")
 _MAVEN_JACOCO_REPORT_GOAL_RE = re.compile(r"""<goal>\s*report\s*</goal>""")
 _MAVEN_PITEST_RE = re.compile(r"""pitest-maven""")
 _MAVEN_PITEST_JUNIT5_RE = re.compile(r"""pitest-junit5-plugin""")
+_MAVEN_PITEST_XML_RE = re.compile(
+    r"""<outputFormats\b[^>]*>[\s\S]*?<(?:param|value)>\s*XML\s*</(?:param|value)>[\s\S]*?</outputFormats>""",
+    re.IGNORECASE,
+)
 
 
 def _gradle_build_text(root: str) -> tuple[str, str]:
@@ -1230,8 +1231,8 @@ def _gradle_build_text(root: str) -> tuple[str, str]:
     return "", ""
 
 
-def _gradle_capabilities(root: str, jupiter: bool) -> tuple:
-    """Return (capabilities, missing[], proposedChanges[]) for a Gradle target."""
+def _gradle_capabilities(root: str, jupiter: bool, require_pitest: bool = False) -> tuple:
+    """Return required capabilities and changes for a Gradle target build."""
     text, fname = _gradle_build_text(root)
     kts = fname.endswith(".kts")
     fref = fname or "build.gradle[.kts]"
@@ -1240,6 +1241,10 @@ def _gradle_capabilities(root: str, jupiter: bool) -> tuple:
         "jacocoXml": bool(_GRADLE_JACOCO_XML_RE.search(text)),
         "pitest": bool(_GRADLE_PITEST_PLUGIN_RE.search(text)),
         "pitestJunit5": (not jupiter) or bool(_GRADLE_PITEST_JUNIT5_RE.search(text)),
+        "pitestXml": bool(
+            _GRADLE_PITEST_PLUGIN_RE.search(text)
+            and _GRADLE_PITEST_XML_RE.search(text)
+        ),
     }
     missing: list[str] = []
     proposed: list[dict] = []
@@ -1265,7 +1270,7 @@ def _gradle_capabilities(root: str, jupiter: bool) -> tuple:
             "reason": "JaCoCo XML 기본 OFF → parse_jacoco_report가 XML 미발견(HTML만 생성)",
             "source": "https://docs.gradle.org/current/userguide/jacoco_plugin.html",
         })
-    if not caps["pitest"]:
+    if require_pitest and not caps["pitest"]:
         missing.append("PITEST_PLUGIN_MISSING")
         proposed.append({
             "file": fref,
@@ -1278,7 +1283,7 @@ def _gradle_capabilities(root: str, jupiter: bool) -> tuple:
             "reason": "PITest 플러그인 미적용 → pitest 태스크 없음(Task 'pitest' not found)",
             "source": "https://gradle-pitest-plugin.solidsoft.info/",
         })
-    if not caps["pitestJunit5"]:
+    if require_pitest and not caps["pitestJunit5"]:
         missing.append("PITEST_JUNIT5_MISSING")
         proposed.append({
             "file": fref,
@@ -1291,17 +1296,31 @@ def _gradle_capabilities(root: str, jupiter: bool) -> tuple:
             "reason": "JUnit5(Jupiter) 테스트는 pitest-junit5-plugin 필요",
             "source": "https://github.com/pitest/pitest-junit5-plugin",
         })
+    if require_pitest and not caps["pitestXml"]:
+        missing.append("PITEST_XML_DISABLED")
+        proposed.append({
+            "file": fref,
+            "anchor": "pitest { }",
+            "snippet": (
+                'pitest { outputFormats.set(setOf("XML", "HTML")) }'
+                if kts else
+                "pitest { outputFormats = ['XML', 'HTML'] }"
+            ),
+            "reason": "PIT 기본 출력은 HTML → parse_pitest_report가 mutations.xml을 읽으려면 XML 출력 필요",
+            "source": "https://gradle-pitest-plugin.solidsoft.info/",
+        })
     return caps, missing, proposed
 
 
-def _maven_capabilities(root: str, jupiter: bool) -> tuple:
-    """Return (capabilities, missing[], proposedChanges[]) for a Maven target."""
+def _maven_capabilities(root: str, jupiter: bool, require_pitest: bool = False) -> tuple:
+    """Return required capabilities and changes for a Maven target build."""
     pom = _read_text(os.path.join(root, "pom.xml"))
     caps = {
         "jacoco": bool(_MAVEN_JACOCO_RE.search(pom)),
         "jacocoXml": bool(_MAVEN_JACOCO_RE.search(pom) and _MAVEN_JACOCO_REPORT_GOAL_RE.search(pom)),
         "pitest": bool(_MAVEN_PITEST_RE.search(pom)),
         "pitestJunit5": (not jupiter) or bool(_MAVEN_PITEST_JUNIT5_RE.search(pom)),
+        "pitestXml": bool(_MAVEN_PITEST_RE.search(pom) and _MAVEN_PITEST_XML_RE.search(pom)),
     }
     missing: list[str] = []
     proposed: list[dict] = []
@@ -1321,7 +1340,7 @@ def _maven_capabilities(root: str, jupiter: bool) -> tuple:
             "reason": "jacoco-maven-plugin prepare-agent+report 미바인딩 → jacoco.xml 미생성",
             "source": "https://www.eclemma.org/jacoco/trunk/doc/maven.html",
         })
-    if not caps["pitest"]:
+    if require_pitest and not caps["pitest"]:
         missing.append("PITEST_PLUGIN_MISSING")
         proposed.append({
             "file": "pom.xml",
@@ -1329,30 +1348,54 @@ def _maven_capabilities(root: str, jupiter: bool) -> tuple:
             "snippet": (
                 "<plugin><groupId>org.pitest</groupId>"
                 "<artifactId>pitest-maven</artifactId><version>1.19.0</version>"
-                + ("<dependencies><dependency><groupId>org.pitest</groupId>"
-                   "<artifactId>pitest-junit5-plugin</artifactId><version>1.0.0</version>"
-                   "</dependency></dependencies>" if jupiter else "")
-                + "</plugin>"
+                "</plugin>"
             ),
-            "reason": "pitest-maven 미적용 → mutationCoverage 골 없음" + (" (Jupiter는 pitest-junit5-plugin 포함)" if jupiter else ""),
-            "source": "https://gradle-pitest-plugin.solidsoft.info/",
+            "reason": "pitest-maven 미적용 → mutationCoverage 골 없음",
+            "source": "https://pitest.org/quickstart/maven/",
+        })
+    if require_pitest and not caps["pitestJunit5"]:
+        missing.append("PITEST_JUNIT5_MISSING")
+        proposed.append({
+            "file": "pom.xml",
+            "anchor": "pitest-maven <dependencies>",
+            "snippet": (
+                "<dependency><groupId>org.pitest</groupId>"
+                "<artifactId>pitest-junit5-plugin</artifactId><version>1.0.0</version>"
+                "</dependency>"
+            ),
+            "reason": "JUnit5(Jupiter) 테스트는 pitest-junit5-plugin 필요",
+            "source": "https://github.com/pitest/pitest-junit5-plugin",
+        })
+    if require_pitest and not caps["pitestXml"]:
+        missing.append("PITEST_XML_DISABLED")
+        proposed.append({
+            "file": "pom.xml",
+            "anchor": "pitest-maven <configuration>",
+            "snippet": (
+                "<outputFormats><value>XML</value><value>HTML</value></outputFormats>"
+            ),
+            "reason": "PIT 기본 출력은 HTML → parse_pitest_report가 mutations.xml을 읽으려면 XML 출력 필요",
+            "source": "https://pitest.org/quickstart/maven/",
         })
     return caps, missing, proposed
 
 
 @mcp.tool()
-def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter") -> dict:
-    """Detect whether the TARGET build is provisioned for JaCoCo-XML + PITest (signal only).
+def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter",
+                              require_pitest: bool = False) -> dict:
+    """Detect required JaCoCo-XML and optional PITest capabilities (signal only).
 
     The coverage gate (parse_jacoco_report) needs a JaCoCo **XML** report, but the Gradle
     JaCoCo plugin emits HTML only by default (`reports { xml.required = true }` required);
-    the `pitest` task exists only when the PITest plugin is applied, and JUnit5 needs the
-    pitest-junit5 plugin. This tool reads the build file and reports each capability plus a
-    minimal, source-cited `proposedChanges[]` snippet for the consuming skill to apply after
-    approval (interactive) or to surface as remediation (CI). It does NOT modify any file.
+    When ``require_pitest`` is false (the default), PITest gaps are informational and do not
+    enter ``missing[]`` or change ``status``. When true, the PITest task, JUnit5 adapter, and
+    XML output are required because ``parse_pitest_report`` consumes ``mutations.xml``. This
+    tool reads the build file and reports each capability plus a minimal, source-cited
+    ``proposedChanges[]`` snippet for required gaps. It does NOT modify any file.
 
-    Returns {status, buildTool, capabilities{jacoco,jacocoXml,pitest,pitestJunit5},
-    missing[], proposedChanges[], remediation}.
+    Returns {status, buildTool, pitestRequired,
+    capabilities{jacoco,jacocoXml,pitest,pitestJunit5,pitestXml}, missing[],
+    proposedChanges[], remediation}.
     """
     root = os.path.abspath(root)
     det = _detect(root)
@@ -1362,9 +1405,9 @@ def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter") ->
     jupiter = (junit_engine or "jupiter").strip().lower() != "junit4"
 
     if tool == "gradle":
-        caps, missing, proposed = _gradle_capabilities(root, jupiter)
+        caps, missing, proposed = _gradle_capabilities(root, jupiter, require_pitest)
     else:  # maven
-        caps, missing, proposed = _maven_capabilities(root, jupiter)
+        caps, missing, proposed = _maven_capabilities(root, jupiter, require_pitest)
 
     all_ok = not missing
     remediation = ("" if all_ok else
@@ -1375,6 +1418,7 @@ def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter") ->
         "status": "ok" if all_ok else "partial",
         "buildTool": tool,
         "junitEngine": "junit4" if not jupiter else "jupiter",
+        "pitestRequired": bool(require_pitest),
         "capabilities": caps,
         "missing": missing,
         "proposedChanges": proposed,
@@ -1387,8 +1431,8 @@ def check_dependency_cache(build_tool: str = "", root: str = ".") -> dict:
     """Best-effort signal: is the dependency cache likely PRIMED, or COLD? (F2, signal only).
 
     Network is OFF by default (`--offline`/`-o`), and Gradle fails fast when a required
-    module is not cached. A cold cache (or a build file just given new JaCoCo/PITest
-    plugins) therefore breaks the first offline run. This heuristic checks the shared
+    module is not cached. A cold cache (or a build file just given new JaCoCo/optional
+    PITest plugins) therefore breaks the first offline run. This heuristic checks the shared
     Gradle/Maven caches; it cannot guarantee per-project completeness, so when COLD it
     recommends a one-time online priming run (run_targeted_tests(online=True)) gated by
     approval (fallback-policy.md #18). It does NOT touch the network or any file.
@@ -1473,7 +1517,7 @@ def suggest_test_command(build_tool: str = "auto", test_pattern: str = "") -> st
         "Run the NARROWEST possible test scope with the network OFF.\n"
         f"Suggested command: {cmd}\n"
         "Then parse JUnit XML (parse_junit_xml), coverage (parse_jacoco_report), "
-        "and mutation (parse_pitest_report), and evaluate with coverage_gate."
+        "and optional mutation (parse_pitest_report), and evaluate with coverage_gate."
     )
 
 

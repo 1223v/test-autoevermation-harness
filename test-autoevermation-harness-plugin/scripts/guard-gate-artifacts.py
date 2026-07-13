@@ -22,7 +22,9 @@ Zone A — ``_workspace`` 단계 산출물 (basename 매칭):
   * 08/09 필드 불변식(#21)                       -> 기존 로직 유지 (아래 참조)
   * 08: gatePassed=false && iterations>=1 && spawn-coverage-closer 부재
                                                 -> deny (루프 증거 위조 — 미위임)
-  * 09: thresholdMet=false && iterations>=1 && spawn-mutation-analyst 부재
+  * 09: status=skipped + reason=PITEST_DISABLED + null 측정값
+                                                -> allow (명시적 선택 기능 비활성)
+  * 09: 그 외 thresholdMet=false && iterations>=1 && spawn-mutation-analyst 부재
                                                 -> deny (동일)
   * producer 산출물 provenance:
       - agent_type == producer                  -> allow (자기 산출물)
@@ -119,7 +121,7 @@ TEST_WRITE_AGENTS = {"test-code-generator", "coverage-closer", "mutation-analyst
 _CONTRACT_HINT = (
     "(fallback-policy.md #21) 게이트 미달 시 coverage-closer/mutation-analyst "
     "루프를 실제 수행한 뒤 잔여를 전량 보고하고 기록하라. RA advisory는 "
-    "8·9단계 게이트의 면제·스킵 사유가 아니며, '구조적 커버리지 한계' 판단은 "
+    "8단계와 활성화된 9단계 게이트의 면제·스킵 사유가 아니며, '구조적 커버리지 한계' 판단은 "
     "에이전트의 remainingGaps[].reason/survivingMutants[]로만 성립한다. "
     "스코프 제외는 HarnessConfig.coverage.excludes(사용자 승인)로만 가능하다."
 )
@@ -209,6 +211,22 @@ def _artifact_exists(workspace: str, basename: str) -> bool:
     return os.path.isfile(os.path.join(workspace, basename))
 
 
+def _configured_mutation_enabled(workspace: str):
+    """Read opt-in: no config is unknown; a legacy config without the field is disabled."""
+    config = _read_json_file(os.path.join(workspace, "00_config-harness.json"))
+    if not isinstance(config, dict):
+        return None
+    if "mutation" not in config:
+        return False
+    mutation = config.get("mutation")
+    if not isinstance(mutation, dict):
+        return None
+    if "enabled" not in mutation:
+        return False
+    enabled = mutation.get("enabled")
+    return enabled if isinstance(enabled, bool) else None
+
+
 def _parse_content(tool_input: dict):
     try:
         data = json.loads(tool_input.get("content"))
@@ -259,8 +277,28 @@ def _check_coverage(data: dict) -> str:
     )
 
 
-def _check_mutation(data: dict) -> str:
+def _check_mutation(data: dict, mutation_enabled=None, enforce_config: bool = False) -> str:
     """Return a deny message for an invalid 09 artifact, or '' to allow."""
+    if data.get("status") == "skipped":
+        valid_disabled = (
+            data.get("reason") == "PITEST_DISABLED"
+            and data.get("mutationScore") is None
+            and data.get("thresholdMet") is None
+            and data.get("iterations") == 0
+        )
+        if valid_disabled:
+            if mutation_enabled is True or (enforce_config and mutation_enabled is None):
+                return (
+                    "게이트 미수행 산출물: 활성 파이프라인에서 "
+                    "HarnessConfig.mutation.enabled=false가 확인되지 않아 "
+                    "PITEST_DISABLED skip을 기록할 수 없다. 설정을 확인하거나 9단계를 수행하라."
+                )
+            return ""
+        return (
+            "게이트 미수행 산출물: 09_mutation_result.json의 skipped 상태는 "
+            "HarnessConfig.mutation.enabled=false일 때 reason=PITEST_DISABLED, "
+            "mutationScore=null, thresholdMet=null, iterations=0 계약으로만 허용된다."
+        )
     if data.get("status") == "failed":
         return ""
     if data.get("thresholdMet") is True:
@@ -315,7 +353,16 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
 
     # 08/09: 필드 불변식 + 루프 증거 위조 검출
     if basename in (COVERAGE_ARTIFACT, MUTATION_ARTIFACT):
-        message = _check_coverage(data) if basename == COVERAGE_ARTIFACT else _check_mutation(data)
+        message = (
+            _check_coverage(data)
+            if basename == COVERAGE_ARTIFACT
+            else _check_mutation(
+                data,
+                _configured_mutation_enabled(workspace)
+                if _run_active(workspace, session_id) else None,
+                enforce_config=_run_active(workspace, session_id),
+            )
+        )
         if message:
             return message
         if basename == COVERAGE_ARTIFACT:

@@ -49,9 +49,9 @@ jobs:
           # Maven 옵션: 빌드 재현성 및 메모리 설정
           MAVEN_OPTS: "-Xmx1g -Djava.awt.headless=true"
 
-      # 뮤테이션 테스트는 비용이 크므로 PR에서만 분리 실행 권장. 게이트 미달 시 실패.
+      # 선택 기능: 저장소 변수 RUN_PITEST=true인 PR에서만 실행한다.
       - name: Mutation testing (PITest)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && vars.RUN_PITEST == 'true'
         run: mvn -B test-compile org.pitest:pitest-maven:mutationCoverage --no-transfer-progress
 
       - name: Upload test reports (항상 업로드 — 실패 시 디버깅용)

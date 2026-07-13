@@ -8,7 +8,7 @@
   <plugins>
 
     <!-- Java 17 컴파일러 설정
-         --release 17: 소스·타깃·부트스트랩 클래스패스를 Java 17로 한번에 고정.
+         release 17: 소스·타깃·부트스트랩 클래스패스를 Java 17로 한번에 고정.
          -parameters: Spring @RequestParam 등 파라미터 이름 리플렉션에 필요. -->
     <plugin>
       <groupId>org.apache.maven.plugins</groupId>
@@ -98,7 +98,7 @@
       </executions>
     </plugin>
 
-    <!-- PITest 뮤테이션 (RESEARCH_NOTES §4); 실행: mvn -DwithHistory test-compile org.pitest:pitest-maven:mutationCoverage -->
+    <!-- 선택적 PITest(mutation.enabled=true일 때만 유지); 실행: mvn -DwithHistory test-compile org.pitest:pitest-maven:mutationCoverage -->
     <plugin>
       <groupId>org.pitest</groupId>
       <artifactId>pitest-maven</artifactId>
@@ -122,6 +122,8 @@
         <mutators><mutator>DEFAULTS</mutator></mutators>
         <mutationThreshold>80</mutationThreshold>
         <threads>2</threads>
+        <!-- PIT 기본은 HTML뿐이므로 mutations.xml 소비를 위해 XML을 명시 -->
+        <outputFormats><value>XML</value><value>HTML</value></outputFormats>
         <timestampedReports>false</timestampedReports>
         <!-- 리포트: target/pit-reports/ → parse_pitest_report 소비 -->
       </configuration>

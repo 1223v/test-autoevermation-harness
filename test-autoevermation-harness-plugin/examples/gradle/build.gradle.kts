@@ -7,7 +7,7 @@ plugins {
     jacoco
     id("org.springframework.boot") version "4.1.0"
     id("io.spring.dependency-management") version "1.1.7"
-    // PITest 뮤테이션 테스트 (RESEARCH_NOTES §4)
+    // 선택 기능: mutation.enabled=true일 때만 유지 (비활성 프로젝트는 플러그인/하단 pitest 블록 제거 가능)
     id("info.solidsoft.pitest") version "1.19.0"
 }
 
@@ -111,7 +111,7 @@ tasks.named("check") {
     dependsOn(tasks.named("jacocoTestCoverageVerification"))
 }
 
-// ── PITest 뮤테이션 (RESEARCH_NOTES §4) ─────────────────────────────────────
+// ── 선택적 PITest 뮤테이션 (mutation.enabled=true인 프로젝트용) ───────────────
 pitest {
     // JUnit5 어댑터 자동 연결 (pitest-junit5-plugin 1.0.0+)
     junit5PluginVersion = "1.0.0"
@@ -125,6 +125,8 @@ pitest {
     mutators = setOf("DEFAULTS")
     mutationThreshold = 80          // mutation score < 80% 이면 빌드 실패
     threads = 2
+    // PIT 기본은 HTML뿐이므로 build-test MCP가 읽는 mutations.xml을 명시적으로 생성
+    outputFormats = setOf("XML", "HTML")
     timestampedReports = false
     withHistory = true              // 증분 실행
     // 리포트: build/reports/pitest/ → build-test-mcp parse_pitest_report 가 소비

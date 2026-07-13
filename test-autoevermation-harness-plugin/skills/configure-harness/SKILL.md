@@ -45,7 +45,7 @@ description: Spring 테스트 하네스 실행 전 환경 세팅(Phase E)과 인
 - `skipInterview: true`가 명시된 경우
 - 환경 변수 `CI=true` 또는 `CLAUDE_NO_PROMPT=true`가 설정된 경우
 - `claude -p` 플래그로 호출된 비대화형 세션인 경우
-- 이미 통과한 `_workspace/00_config-harness.json`(HarnessConfig)이 있어 재사용하는 경우 — 인터뷰를 재수행하지 않는다 (주의: HarnessRequest 스키마에는 커버리지 임계·뮤테이션 깊이 필드가 없으므로 "요청 입력만으로 인터뷰 4항목이 전부 충족"되는 경로는 존재하지 않는다)
+- 이미 통과한 `_workspace/00_config-harness.json`(HarnessConfig)이 있어 재사용하는 경우 — 인터뷰를 재수행하지 않는다. 선택 필드 `mutation.enabled`가 없으면 `false`로 정규화한다.
 
 CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 바로 "HarnessConfig 생성" 단계로 이동한다.
 
@@ -155,26 +155,37 @@ AskUserQuestion(
 
 ---
 
-### 0.6단계: 빌드 능력 프로비저닝 + 캐시 프라이밍 (항상 수행 — 6/8/9단계 선행)
+### 0.6단계: 빌드 능력 프로비저닝 + 캐시 프라이밍 (항상 수행 — 6/8단계 및 선택적 9단계 선행)
 
-대상 빌드 파일이 **JaCoCo XML·PITest**를 낼 수 있는지, 의존성 캐시가 **첫 오프라인 실행**을 견디는지 확정한다.
-JaCoCo 에이전트는 `test` 실행 중 attach되므로 이 단계는 반드시 **6단계 run-tests 이전**에 끝낸다. 정본: [references/build-provisioning.md](../../references/build-provisioning.md), 정책: fallback-policy.md #17·#18.
+대상 빌드 파일이 **JaCoCo XML**을 낼 수 있는지 확인하고, 사용자가 PITest를 켠 경우에만 **PITest 플러그인·JUnit 어댑터·XML 출력**까지 확인한다. 의존성 캐시가 첫 오프라인 실행을 견디는지도 함께 확정한다. JaCoCo 에이전트는 `test` 실행 중 attach되므로 이 단계는 반드시 **6단계 run-tests 이전**에 끝낸다. 정본: [references/build-provisioning.md](../../references/build-provisioning.md), 정책: fallback-policy.md #17·#18.
 
-**(a) 빌드 능력(E11, #17)** — `detect → approve → inject`
-```
-build-test-mcp.detect_build_capabilities(root=projectRoot, junit_engine=springProfile.junitEngine)
-→ { capabilities{jacoco,jacocoXml,pitest,pitestJunit5}, missing[], proposedChanges[], remediation }
-```
-- **충족(`missing:[]`)**: 그대로 진행.
-- **누락(대화형)**: `missing`/`proposedChanges`를 표로 보여주고 질문 →
+**(a-0) PITest opt-in 확정.** `HarnessRequest.mutation.enabled`가 있으면 그 값을 사용한다. 없으면 대화형에서 아래 질문으로 인터뷰 항목 (c)의 첫 선택을 확정하고, 비대화형·CI에서는 선택 기능의 안전한 기본값인 `false`를 사용한다.
+
 ```
 AskUserQuestion(
-  question="대상 빌드 파일에 커버리지/뮤테이션 설정을 자동 주입할까요? (JaCoCo XML 활성화·PITest 플러그인)",
-  options=["예 — 최소 스니펫 주입", "아니오 — 해당 단계 건너뜀(skipped 보고)"]
+  question="PITest 뮤테이션 테스트를 사용할까요? 실행 시간이 크게 늘어날 수 있습니다.",
+  options=["사용 안 함 (기본)", "사용함 — 설정과 빌드 능력 확인"]
 )
 ```
-  "예"면 `proposedChanges[]`의 스니펫을 빌드 파일에 **최소 주입**(Edit)하고 `buildChanges[]`에 기록 → `detect_build_capabilities` **재감지**로 통과 확인. "아니오"면 8/9단계를 `skipped`(사유: 사용자 거부)로 표시.
-- **누락(CI)**: 자동 주입 **금지**. `status:"failed"` + `errors`에 `missing` 코드와 스니펫을 remediation으로 명시하고 중단(사용자는 빌드 파일에 미리 반영하거나 `HarnessRequest`로 회피).
+
+- `사용 안 함` → `mutation.enabled:false`. PITest 관련 누락은 오류가 아니며 9단계가 `PITEST_DISABLED`로 정상 `skipped` 처리된다.
+- `사용함` → `mutation.enabled:true`. 아래 능력 검사와 3단계 세부 설정을 수행한다.
+
+**(a) 빌드 능력(E11, #17)** — `detect → approve → inject`
+
+```
+build-test-mcp.detect_build_capabilities(
+  root=projectRoot,
+  junit_engine=springProfile.junitEngine,
+  require_pitest=mutation.enabled
+)
+→ { pitestRequired, capabilities{jacoco,jacocoXml,pitest,pitestJunit5,pitestXml}, missing[], proposedChanges[], remediation }
+```
+
+- `mutation.enabled:false`: `missing[]`에는 JaCoCo 필수 능력만 포함된다. PITest 플러그인이 없어도 `status:"ok"`일 수 있고 PITest 스니펫을 주입하지 않는다.
+- `mutation.enabled:true`: PITest 플러그인·Jupiter 어댑터·`mutations.xml`을 위한 XML 출력도 `missing[]`에 포함한다.
+- **누락(대화형)**: JaCoCo와 PITest 변경을 분리해 보여준다. 승인한 `proposedChanges[]`만 빌드 파일에 최소 주입(Edit)하고 `buildChanges[]`에 기록한 뒤 같은 `require_pitest` 값으로 재감지한다. 사용자가 **PITest 설정만** 거부하면 `mutation.enabled:false`로 바꾸고 `warnings:["PITEST_SETUP_DECLINED"]`를 남긴 뒤 8단계는 유지하고 9단계만 건너뛴다.
+- **누락(CI)**: JaCoCo 누락, 또는 `mutation.enabled:true`로 명시했는데 PITest 능력이 누락된 경우에만 `status:"failed"` + 오류 코드·스니펫 remediation으로 중단한다. `mutation.enabled:false`이면 PITest 누락으로 중단하지 않는다.
 
 **(b) 캐시 프라이밍(E12, #18)**
 ```
@@ -187,7 +198,7 @@ AskUserQuestion(
   options=["예 — 1회 온라인 프라이밍", "아니오 — 오프라인 진행(실패 위험)"]
 )
 ```
-  "예"면 6단계 첫 실행을 `run_targeted_tests(online=True)`로 1회 수행(또는 Maven `mvn dependency:go-offline`), 이후는 오프라인. "아니오"면 오프라인 그대로(실패 시 #18대로 보고).
+  "예"면 6단계 첫 실행을 `run_targeted_tests(online=True)`로 1회 수행(또는 Maven `mvn dependency:go-offline`), 이후는 오프라인. "아니오"면 오프라인 그대로(실패 시 #18대로 보고). PITest가 비활성이고 JaCoCo 변경도 없었다면 PITest 때문에 프라이밍하지 않는다.
 - **CI**: 자동 온라인 전환 금지 — `BUILD_TEST_ALLOW_NETWORK=1` 옵트인 또는 사전 캐시 워밍업을 안내. 미충족이면 첫 실행 실패를 `partial`로 보고.
 
 감지·주입·프라이밍 결과는 `_workspace/00b_build_provision.json`에 보존한다(부분 재실행 시 재사용, 중복 주입 금지).
@@ -233,6 +244,8 @@ AskUserQuestion(
 
 ### 3단계: 인터뷰 항목 (c) — 뮤테이션 테스트 깊이/대상
 
+`mutation.enabled:false`이면 이 단계의 나머지 질문을 생략하고 기본 세부값은 저장만 한다(실행하지 않음). `mutation.enabled:true`일 때만 다음을 질문한다.
+
 ```
 AskUserQuestion(
   question="PITest 뮤테이션 테스트 설정을 선택하세요.",
@@ -270,6 +283,7 @@ AskUserQuestion(
 결과를 `mutation` 블록에 저장(최종 `HarnessConfig.mutation`으로 병합):
 ```json
 {
+  "enabled": false,
   "mutators": "DEFAULTS",
   "targetClasses": [],
   "mutationThreshold": 0.80
@@ -365,6 +379,7 @@ AskUserQuestion(
     ]
   },
   "mutation": {
+    "enabled": false,
     "mutators": "DEFAULTS",
     "targetClasses": [],
     "targetTests": [],
@@ -380,7 +395,7 @@ AskUserQuestion(
 }
 ```
 
-> **입력 키 매핑(필수)**: 이 `HarnessConfig`는 루프 스킬 입력 스키마와 **동일한 이름**을 쓴다 — `coverage{line,branch,method,class,excludes}`는 `measure-coverage`로, `mutation{...}`는 `mutation-test`로 그대로 전달된다(full-pipeline 0단계 산출과 일치). 반복 한도는 `full-pipeline`이 `coverageMaxIterations → measure-coverage.maxIterations`, `mutationMaxIterations → mutation-test.maxIterations`로 매핑한다(둘 다 고정 상한이 아니라 진전 추적 단위, fallback-policy.md #12).
+> **입력 키 매핑(필수)**: 이 `HarnessConfig`는 루프 스킬 입력 스키마와 **동일한 이름**을 쓴다 — `coverage{line,branch,method,class,excludes}`는 `measure-coverage`로, `mutation{enabled,...}`는 `mutation-test`로 그대로 전달된다(full-pipeline 0단계 산출과 일치). `mutation.enabled`가 없으면 `false`로 정규화한다. 반복 한도는 `full-pipeline`이 `coverageMaxIterations → measure-coverage.maxIterations`, `mutationMaxIterations → mutation-test.maxIterations`로 매핑한다(둘 다 고정 상한이 아니라 진전 추적 단위, fallback-policy.md #12).
 >
 > **`refactorAdvisory`(선택)**: 3.5단계 리팩토링 권고 게이트 제어. **인터뷰 항목은 아니다**(비침습 기본값 — 질문 추가 없음). `HarnessRequest`로만 오버라이드하며, 기본값·임계값 의미론의 정본은 [refactor-advisory.md](../../references/refactor-advisory.md) §5.
 
@@ -469,7 +484,7 @@ description: 주문 도메인 특화 테스트 생성 및 커버리지 검증을
 |---|---|
 | **필수 입력(projectRoot/buildTool/springVersion 등) 미지정 (#13)** | **자동 기본값 금지.** 대화형=`AskUserQuestion`으로 전부 질문 / CI=`status:"failed"`+remediation 중단 |
 | **빌드도구 미감지 (#5)** | `detect_build_tool`이 `BUILD_TOOL_UNDETECTED`면, 대화형=`AskUserQuestion("gradle/maven?")` / CI=중단 |
-| **빌드 능력 미비 (#17, 0.6단계)** | JaCoCo XML/PITest 미적용(`detect_build_capabilities.missing[]`). 대화형=`AskUserQuestion` 승인 후 스니펫 주입(`buildChanges[]`) / 거부 시 8·9단계 skipped / CI=자동 주입 금지·remediation 중단 |
+| **빌드 능력 미비 (#17, 0.6단계)** | JaCoCo XML은 필수 검사. PITest는 `mutation.enabled:true`일 때만 플러그인·JUnit 어댑터·XML을 필수 검사한다. 대화형=PITest 주입 거부 시 `enabled:false`로 전환해 9단계만 skipped / CI=명시적으로 활성화한 PITest 능력 누락일 때만 remediation 중단 |
 | **콜드 의존성 캐시 (#18, 0.6단계)** | `check_dependency_cache.primed:false`. 대화형=`AskUserQuestion` 승인 후 `run_targeted_tests(online=True)` 1회 프라이밍 / CI=`BUILD_TEST_ALLOW_NETWORK=1` 옵트인·워밍업 안내 |
 | 스펙 문서 경로가 존재하지 않음 | 대화형=계속할지 질문(#10) / CI=중단. (읽기불가 spec은 `ingest-specs`가 정책대로 처리) |
 | 도메인 스킬 이름 중복 | `warnings`에 "이미 존재하는 스킬: {name}" 기록, 덮어쓰기 여부 재질문 |

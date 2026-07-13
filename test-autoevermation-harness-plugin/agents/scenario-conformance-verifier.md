@@ -1,6 +1,6 @@
 ---
 name: scenario-conformance-verifier
-description: "Use this agent at the very end of the pipeline (after run/coverage/mutation) to verify that the generated and passing tests actually satisfy each approved BDD scenario (given/when/then), and to write the scenario↔test↔result living documentation under the target project's test_docs/. Triggers on: full-pipeline final conformance stage, or /test-autoevermation-harness-plugin:verify-scenarios."
+description: "Use this agent at the very end of the pipeline (after run/coverage and optional mutation) to verify that the generated and passing tests actually satisfy each approved BDD scenario (given/when/then), and to write the scenario↔test↔result living documentation under the target project's test_docs/. Triggers on: full-pipeline final conformance stage, or /test-autoevermation-harness-plugin:verify-scenarios."
 model: inherit
 tools: Read, Write, Edit, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml
 disallowedTools: Bash
@@ -19,7 +19,7 @@ disallowedTools: Bash
 
 ## 호출 조건
 
-- `full-pipeline` 10단계(run-tests·measure-coverage·mutation-test 완료 후)에서 호출될 때
+- `full-pipeline` 10단계(run-tests·measure-coverage 및 활성화된 경우 mutation-test 완료 후)에서 호출될 때
 - `/test-autoevermation-harness-plugin:verify-scenarios` 스킬이 직접 호출될 때
 - 시나리오/테스트가 갱신되어 적합성 재검증이 필요할 때(부분 재실행)
 

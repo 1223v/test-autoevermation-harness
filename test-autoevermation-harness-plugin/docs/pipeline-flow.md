@@ -19,7 +19,7 @@ flowchart TD
     A(["HarnessRequest 입력"]) --> P0{"Phase 0 — 컨텍스트 확인<br/>_workspace/ 존재? 요청 유형?"}
     P0 -- "있음 + 부분 요청" --> PR["부분 재실행<br/>영향 단계만 재호출 · 나머지 Read 재사용 (§부분 재실행 매트릭스)"]
     P0 -- "없음/불완전 → detect_pipeline_state" --> P0R{"영속 증거(테스트·시나리오·리포트)<br/>resumable?"}
-    P0R -- "예 (상태 복원)" --> PRES["stub 재구성 + _resume.json 기록<br/>대화형=AskUserQuestion(6/8/9/4) · CI=recommendedEntryStage<br/>기본 6→8→9→10 (재생성 없이 보정)"]
+    P0R -- "예 (상태 복원)" --> PRES["stub 재구성 + _resume.json 기록<br/>대화형=AskUserQuestion(6/8/(enabled면 9)/4) · CI=recommendedEntryStage<br/>기본 6→8→(enabled면 9)→10"]
     PRES -. "재진입(대표: run-tests)" .-> L
     PR -. "재진입(영향 단계)" .-> L
     P0R -- "아니오 (초기 실행)" --> B["전처리: 입력 정규화"]
@@ -29,8 +29,8 @@ flowchart TD
     D -- "아니오" --> X1(["status: failed — 파이프라인 미시작<br/>+ remediation 안내"])
     D -- "예" --> E["0단계 — configure-harness<br/>0.5 프로파일 감지 → 인터뷰 → HarnessConfig"]
 
-    E --> E6{"0.6 빌드 능력/캐시 (E11·E12)<br/>detect_build_capabilities · check_dependency_cache"}
-    E6 -. "누락: 대화형=승인 주입 / CI=remediation 중단" .-> E6
+    E --> E6{"0.6 PITest opt-in + 빌드 능력/캐시<br/>JaCoCo 필수 · PITest는 enabled일 때만 필수"}
+    E6 -. "필수 누락: 대화형=승인 주입 / CI=remediation 중단" .-> E6
     E6 --> F1["1단계 — ingest-specs<br/>(spec-reviewer)"]
     E6 --> F2["2단계 — analyze-ast<br/>(ast-structure-analyzer)"]
     F1 --> G["3단계 — analyze-source<br/>(source-code-analyzer)"]
@@ -50,8 +50,11 @@ flowchart TD
     N -. "그린까지 재시도<br/>(무진전 3회 → partial)" .-> L
     M -- "아니오 (그린)" --> O["8단계 — measure-coverage<br/>(coverage-closer) near-100% 게이트 루프"]
 
-    O --> P["9단계 — mutation-test<br/>(mutation-analyst) PITest 강화 루프"]
+    O --> PE{"mutation.enabled?"}
+    PE -- "false (기본)" --> PS["9단계 — status: skipped<br/>reason: PITEST_DISABLED"]
+    PE -- "true" --> P["9단계 — mutation-test<br/>(mutation-analyst) PITest 강화 루프"]
     P --> Q["10단계 — verify-scenarios<br/>(scenario-conformance-verifier)<br/>target 호출 methodCalls 기계 대조"]
+    PS --> Q
     Q --> R{"승인 시나리오 전부 satisfied?<br/>given/when/then 충족"}
     R -- "아니오 (unmet)" --> S105["10.5단계 — 적합성 자동 보정 루프<br/>unsatisfied→test-fixer(모드 B) / missing→부분 재생성<br/>최대 3라운드 · 동일 unmet 즉시 무진전 중단"]
     S105 -. "보정 → 6단계 재실행 → 10단계 재검증" .-> L
@@ -65,10 +68,10 @@ flowchart TD
 
 > 1·2단계는 **병렬**(서브에이전트 팬아웃)이라 `E`에서 두 갈래로 갈라져 `G`(3단계)에서 합류한다.
 > 3.5단계는 플래그 0건이거나 `refactorAdvisory.enabled: false`면 게이트 없이 3→4로 직결된다(상세: §3).
-> 7·8·9단계는 **게이트 충족까지 반복**하며, 직전과 동일한 실패/gap/survivor가 3회 연속(무진전)이면 `partial`로 중단한다(fallback-policy.md #12).
+> 7·8단계와 **활성화된 9단계**는 게이트 충족까지 반복하며, 직전과 동일한 실패/gap/survivor가 3회 연속(무진전)이면 `partial`로 중단한다(fallback-policy.md #12).
 > 10.5단계 적합성 보정 루프는 #12의 **명시적 예외**로 **최대 3라운드 하드 캡**을 적용한다(적합성 판정은 일부 LLM 판단이라 진동 위험 — #16).
-> 8·9단계 루프는 **스킵 불가**(#21): RA advisory는 게이트 면제 사유가 아니며, 게이트 미달인데 루프 증거(`iterations≥1`+잔여 전량 보고)가 없는 산출물은 무효 — `guard-gate-artifacts.py` 훅이 기록을 차단한다.
-> 8·9단계에서 테스트가 **추가·수정**되면 각 단계 수렴 후 6단계(run-tests)로 **회귀 실행**해 그린을 확인하고(실패 시 7단계 보정 재진입), 최종 `runResult`를 재할당해 10단계에 전달한다 — 10단계가 stale 실행 결과로 판정하는 것을 방지.
+> 8단계와 활성화된 9단계 루프는 임의 스킵 불가(#21)다. 단, `mutation.enabled:false`일 때의 정확한 `PITEST_DISABLED` skip 산출물은 정상이다.
+> 8단계 또는 활성화된 9단계에서 테스트가 추가·수정되면 수렴 후 6단계로 회귀 실행해 그린을 확인하고 최종 `runResult`를 10단계에 전달한다.
 
 ---
 
@@ -232,11 +235,11 @@ flowchart LR
 | 6 | run-tests | test-runner | build-test | `06_run_result.json` |
 | 7 | repair-tests | test-fixer | all | `07_repair_result.json` |
 | 8 | measure-coverage | coverage-closer | build-test(JaCoCo) | `08_coverage_result.json` |
-| 9 | mutation-test | mutation-analyst | build-test(PITest) | `09_mutation_result.json` |
+| 9(선택) | mutation-test | enabled면 mutation-analyst, disabled면 오케스트레이터 skip | enabled면 build-test(PITest), disabled면 호출 없음 | `09_mutation_result.json` |
 | 10 | verify-scenarios | scenario-conformance-verifier | repo-ast, build-test | `test_docs/` 갱신, `10_conformance.json` |
 | 10.5 | full-pipeline(적합성 보정 루프) | test-fixer(모드 B) / test-code-generator | all | `10b_conformance_repair.json` |
 
-> durable resume(상태 복원) 시 5·6·8·9단계 산출물(`05_test-gen_files.json`·`06_run_result.json`·`08_coverage_result.json`·`09_mutation_result.json`)은 라이브 실행이 아니라 영속 증거로부터 stub 재구성될 수 있다 — 재구성 규칙: [orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1.
+> durable resume 시 5·6·8과 **PITest 리포트가 있는 활성화된 9단계** 산출물은 영속 증거로부터 stub 재구성될 수 있다. 비활성화된 9단계는 현재 설정을 확인한 뒤 새 `PITEST_DISABLED` 산출물을 기록한다.
 
 ---
 

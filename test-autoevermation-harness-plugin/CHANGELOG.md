@@ -7,7 +7,12 @@
 
 ## [Unreleased]
 
-_(비어 있음)_
+### Changed — PITest를 기본 비활성 선택 기능으로 전환
+
+- `HarnessConfig.mutation.enabled`(기본 `false`)를 추가하고 full-pipeline 9단계가 비활성 상태에서 `PITEST_DISABLED`로 정상 `skipped`되도록 계약을 변경했다. 이 skip은 전체 파이프라인 상태를 낮추지 않는다.
+- `detect_build_capabilities(..., require_pitest=false)`를 추가해 JaCoCo XML은 항상 필수로, PITest plugin/JUnit 어댑터/XML은 opt-in 시에만 필수로 판정한다. PIT 기본 HTML 출력과 MCP의 `mutations.xml` 소비 계약을 맞추기 위해 `pitestXml` 감지와 `PITEST_XML_DISABLED` remediation을 추가했다.
+- `guard-gate-artifacts.py`는 정확한 비활성 skip 계약만 허용하고, 활성화 후 임의 skip은 계속 차단한다.
+- Gradle/Maven 빌드 및 CI 예제, README/GUIDE/정책 문서를 선택형 계약으로 정렬했다. 표준 라이브러리 회귀 테스트를 추가했다.
 
 ---
 

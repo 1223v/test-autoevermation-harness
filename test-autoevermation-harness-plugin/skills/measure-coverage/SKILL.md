@@ -40,7 +40,7 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
 ## 절차
 1. **측정 실행**: test-runner(또는 build-test `run_targeted_tests(with_coverage=true)`)로 타깃 범위 테스트 + JaCoCo 리포트 생성. 네트워크 off, 최소 범위.
 2. **파싱**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_jacoco_report(root)` → 카운터별 overall + per-class + `uncovered[]`.
-3. **게이트**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate(root, line, branch, method, klass, mutation)` → counter별 pass/fail + gaps. (서버 파라미터명은 `klass` — `class`는 파이썬 예약어이므로 위치 인자로 전달.) **`require_pitest`는 생략(기본 False)** — 8단계는 9단계(뮤테이션) 이전이라 PITest 리포트 부재가 정상이며, 기본값에서 부재는 `missingReports`에 포함되지 않아 JaCoCo 4카운터 전부 통과 시 `status:"ok"`가 된다. 9단계 이후의 종합 확인에서만 `require_pitest=True`로 호출한다.
+3. **게이트**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate(root, line, branch, method, klass, mutation)` → counter별 pass/fail + gaps. (서버 파라미터명은 `klass`.) **`require_pitest`는 생략(기본 False)** — PITest는 선택 기능이고 8단계에서는 리포트 부재가 정상이다. 후속 종합 확인도 `mutation.enabled:true`로 9단계를 실제 실행한 경우에만 `require_pitest=True`로 호출한다.
 4. **분기**:
    - 게이트 통과 → 상태 `ok`, 종료.
    - 미달 → `uncovered[]`를 **coverage-closer** 에이전트에 구조화 입력으로 전달(에이전트 입력 스키마와 1:1):

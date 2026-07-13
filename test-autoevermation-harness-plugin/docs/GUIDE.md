@@ -39,7 +39,7 @@
                   ├→ 소스 분석 → 리팩토링 권고 게이트 → 시나리오 설계 → 사용자 승인
 AST 구조 추출  ───┘                                                        │
                                                                            ▼
-   시나리오 적합성 검증 ← 뮤테이션 강화 ← 커버리지 게이트 ← 실패 보정 ← 실행 ← 테스트 생성
+   시나리오 적합성 검증 ← (선택) 뮤테이션 강화 ← 커버리지 게이트 ← 실패 보정 ← 실행 ← 테스트 생성
 ```
 
 핵심 특성:
@@ -55,7 +55,7 @@ AST 구조 추출  ───┘                                                 
   불일치는 10.5단계 자동 보정 루프가 최대 3라운드 교정). 대화형은 `AskUserQuestion`으로 묻고,
   CI는 정책에 따라 자동 진행/중단한다.
 - **품질 루프 2종**: JaCoCo near-100% 커버리지 게이트(기본 LINE≥0.95/BRANCH≥0.90/METHOD≥0.95/CLASS=1.00),
-  PITest 뮤테이션 강화(기본 score≥0.80). 무진전 3회 연속이면 `partial`로 정직하게 중단한다.
+  필요하면 PITest 뮤테이션 강화(score 목표 기본 0.80)를 켤 수 있다. 기본은 비활성이며, 활성화 후 무진전 3회 연속이면 `partial`로 정직하게 중단한다.
 - **독립 실행**: oh-my-claudecode 등 외부 플러그인에 의존하지 않는다. Claude Code 네이티브 기능
   (플러그인·`Task` 서브에이전트·`AskUserQuestion`·MCP·훅)만 필수다 — Python 3.10+는 없으면
   자동 설치된다(v0.15.0+, 전 OS: macOS/Linux/WSL/Windows). 상세: [DEPENDENCIES.md](../DEPENDENCIES.md).
@@ -98,7 +98,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `run-tests` | 6 | 빌드 도구 감지 후 최소 범위 테스트 실행 |
 | `repair-tests` | 7 | 실패 원인 분류 후 최소 diff 보정 |
 | `measure-coverage` | 8 | JaCoCo near-100% 게이트 루프 |
-| `mutation-test` | 9 | PITest 뮤테이션 강화 루프 |
+| `mutation-test` | 9(선택) | `mutation.enabled:true`일 때 PITest 뮤테이션 강화 루프 |
 | `verify-scenarios` | 10 | 시나리오 적합성 검증 + `test_docs/` 정리 |
 | `setup-statusline` | (부가) | Claude Code statusLine에 Test-AutoEverMation 진행률 줄(버전·%·현재 단계) 설치/제거 |
 
@@ -118,7 +118,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `test-runner` | 6단계 | Read/Bash + MCP(build-test) — Write/Edit 없음 |
 | `test-fixer` | 7단계 | Read/Write/Edit/Bash + MCP(all) |
 | `coverage-closer` | 8단계 | Read/Write/Edit + MCP — Bash 없음 |
-| `mutation-analyst` | 9단계 | Read/Write/Edit + MCP — Bash 없음 |
+| `mutation-analyst` | 활성화된 9단계 | Read/Write/Edit + MCP — Bash 없음 |
 | `scenario-conformance-verifier` | 10단계 | Read/Write/Edit/Grep/Glob + MCP — 테스트 생성/수정 금지(문서화 전용) |
 
 권한은 각 `agents/*.md`의 frontmatter `tools:` 목록으로 강제된다. 플러그인 배포 에이전트는
@@ -137,7 +137,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 |---|---|---|
 | `repo-ast` | `parse_java_file` · `resolve_symbol` · `list_spring_components` · `extract_test_targets` · `health` | 구조 전용 Java AST/심볼 분석. **메서드 본문은 절대 반환하지 않음**(시그니처·애노테이션·메타만). JavaParser jar(`mcp/javaparser-cli`, v0.16.0부터 **필수**) — 미가용 시 정규식 fallback 없이 하드실패(`JAVAPARSER_REQUIRED`). `health`가 jar/JDK 상태를 반환. 커스텀 스테레오타입(`@Component` 메타 애노테이션)을 전이적으로 해석 |
 | `spec-doc` | `index_docs` · `search_requirements` · `extract_acceptance_criteria` · `health` | 스펙 문서 청크 인덱싱·요구사항 검색·Given/When/Then criteria 추출. 경로 allowlist(`SPEC_DOC_ALLOWLIST`) + 민감정보 redaction |
-| `build-test` | `detect_build_tool` · `detect_spring_profile` · `detect_build_capabilities` · `check_dependency_cache` · `list_test_tasks` · `run_targeted_tests` · `parse_junit_xml` · `parse_jacoco_report` · `parse_pitest_report` · `coverage_gate` · `detect_pipeline_state` · `health` | Gradle/Maven 감지, Boot 버전 프로파일 감지, 빌드 능력(JaCoCo XML·PITest) 감지, 캐시 상태 신호, 대상 한정 테스트 실행(기본 오프라인, `online=True` 1회 프라이밍 경로), 리포트 파싱, 커버리지 게이트 판정, **영속 증거 기반 파이프라인 상태 복원**(`detect_pipeline_state` — `_workspace/` 휘발 시 재개 단계 판정) |
+| `build-test` | `detect_build_tool` · `detect_spring_profile` · `detect_build_capabilities` · `check_dependency_cache` · `list_test_tasks` · `run_targeted_tests` · `parse_junit_xml` · `parse_jacoco_report` · `parse_pitest_report` · `coverage_gate` · `detect_pipeline_state` · `health` | Gradle/Maven 감지, Boot 프로파일 감지, 필수 JaCoCo XML + 선택적 PITest(plugin/JUnit/XML) 능력 감지, 캐시 신호, 대상 한정 테스트 실행, 리포트 파싱, 커버리지 게이트, 영속 증거 기반 상태 복원 |
 
 파이프라인 시작 전 Phase E `E3b`가 `health` 3종을 실호출해 세션에 실제로 연결됐는지 검증한다
 (실패 시 하드 중단 — [environment-setup.md](../references/environment-setup.md)).
@@ -151,7 +151,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | 훅 | 시점 | 동작 |
 |---|---|---|
 | `scripts/record-run-context.py` | PreToolUse(Skill·Task·Agent) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 `_workspace/.markers/run.json`(하네스 활성) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state` 호출 시 durable-resume 전제 마커 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
-| `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **위임·산출물 물리 강제**: ① spawn 마커 없는 `_workspace` 단계 산출물 기록 deny(무위임 우회 차단), ② 하네스 활성 세션에서 오케스트레이터의 `src/test/java` 기록 deny(5단계 인라인 우회 차단; test-fixer patch Edit는 예외), ③ 선행 산출물 없는 후속 산출물 기록 deny(순서 게이트), ④ 8/9단계 게이트 필드 불변식(#21)·루프 증거 위조 deny. 비파이프라인 세션(`run.json` 없음)에는 Zone B/C 비활성 — 일반 개발에 오탐 없음 |
+| `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **위임·산출물 물리 강제**: spawn 마커·테스트 파일 소유권·순서 게이트와 8/9단계 불변식을 검사한다. 9단계는 정확한 `PITEST_DISABLED` skip 계약만 예외로 허용한다. 비파이프라인 세션에는 Zone B/C 비활성 |
 | `scripts/guard-network.py` | PreToolUse(Bash) | **run-active 스코프(v0.22.1)**: 네트워크성 명령(curl/wget/`git push`\|`pull`\|`clone`\|`fetch` 등) 차단. `_workspace/.markers/run.json`(세션 일치)이 있을 때, 즉 실제 파이프라인 실행 중일 때만 개입 — 이 플러그인 소스를 직접 고치는 개발 세션 같은 일반 Bash 작업에는 마찰 없이 항상 허용 |
 | `scripts/guard-read.py` | PreToolUse(Read·WebFetch) | 시크릿(.env/pem)·vendor/build 산출물 read 차단 |
 | `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 마스킹(warn 모드) |
@@ -189,9 +189,9 @@ AST-only degrade는 더 이상 허용되지 않는다.
 | 단계 | 스킬 / 에이전트 | 하는 일 | 산출물 |
 |---|---|---|---|
 | **Phase E** | configure-harness | 환경 세팅 체크리스트 E1~E12를 TodoWrite로 만들어 **선제 통과**. 필수: E1 Python·E2 MCP SDK·E3 서버등록·**E3b MCP 라이브 연결 검증(`health` 3종 실호출)**·**E4 JDK 21+**·**E5/mvnw**·**E6 JavaParser jar**·**E7 JDT LS**·E10 실행JDK↔Mockito. v0.16.0부터 선택 항목 없음 — 미충족이면 파이프라인 **미시작**(하드 중단) | — |
-| **0** | configure-harness | 4항목 인터뷰(스펙 경로/대상 선별/뮤테이션/커버리지 임계) → `HarnessConfig` | `00_config-harness.json` |
+| **0** | configure-harness | 4항목 인터뷰(스펙 경로/대상 선별/PITest 사용 여부·세부값/커버리지 임계) → `HarnessConfig` | `00_config-harness.json` |
 | **0.5** | configure-harness | `detect_spring_profile`로 Boot 2.0–4.x 프로파일 확정. 미감지→질문(CI 중단), 충돌→확정 질문. **가정 금지** | (HarnessConfig에 병합) |
-| **0.6** | configure-harness | 빌드 능력 `detect→approve→inject`(JaCoCo XML·PITest 스니펫, `buildChanges[]` 기록) + 콜드 캐시 1회 온라인 프라이밍 결정 | `00b_build_provision.json` |
+| **0.6** | configure-harness | `mutation.enabled` opt-in 확정 → JaCoCo XML 필수 검사 + 활성화된 PITest(plugin/JUnit/XML)만 `detect→approve→inject` → 캐시 프라이밍 결정 | `00b_build_provision.json` |
 | **1 ∥ 2** | ingest-specs(spec-reviewer) ∥ analyze-ast(ast-structure-analyzer) | criteria 정규화 ∥ 테스트 대상·의존 그래프 추출 | `01_*.json`, `02_*.json` |
 | **3** | analyze-source(source-code-analyzer) | 호출 그래프·외부 I/O(DB/HTTP/clock/random) testSeam·DI/트랜잭션 경계 분석 | `03_*.json` |
 | **3.5** | refactor-advisory(refactor-advisor) + full-pipeline 게이트 | 테스트 부적합 코드 판정(§3.3) → `RA-*.md` **항상** 작성 → 포함/제외 결정 → 제외 FQCN을 이후 입력에서 필터 | `03b`, `03c`, `test_docs/refactoring/` |
@@ -201,7 +201,7 @@ AST-only degrade는 더 이상 허용되지 않는다.
 | **6** | run-tests(test-runner) | 생성 클래스만 대상 한정 실행(Gradle `--tests`/Maven `-Dtest=`), JUnit XML 파싱 | `06_run_result.json` |
 | **7** | repair-tests(test-fixer) — 실패 시만 | 실패 유형 분류(COMPILE/RUNTIME/FLAKY/SPEC_MISMATCH/SYMBOL) → 최소 diff 보정 → 6단계 재실행. **그린까지 반복**, 동일 실패 3회 연속(무진전)이면 partial | `07_*.json` |
 | **8** | measure-coverage(coverage-closer) | JaCoCo 측정 → `coverage_gate` → 미달 gap에 보완 테스트 생성 → 재측정 루프. **스킵 불가**(#21 — advisory는 면제 사유 아님, 무효 산출물은 훅이 차단) | `08_*.json` |
-| **9** | mutation-test(mutation-analyst) | PITest → 생존 mutant 단언 강화 → 재실행 루프 (sleep/over-mock/broad-catch 금지). **스킵 불가**(#21) | `09_*.json` |
+| **9** | mutation-test(mutation-analyst) | `enabled:false`이면 `PITEST_DISABLED` 정상 skip. `true`이면 PITest → 생존 mutant 단언 강화 → 재실행 루프; 활성화 후 임의 스킵 불가 | `09_*.json` |
 | **10** | verify-scenarios(scenario-conformance-verifier) | scenarioRef로 시나리오↔테스트 매핑 → target 호출 `methodCalls` 기계 대조(WRONG_TARGET_CALL) → satisfied/unsatisfied/missing 판정(then 단언 전수 반영 확인) → `test_docs/` 최종 갱신 | `10_conformance.json` |
 | **10.5** | full-pipeline(적합성 자동 보정) — unmet 시만 | unsatisfied→test-fixer 모드 B(`SCENARIO_NONCONFORMANT` 최소 diff) / missing→부분 재생성 → 6단계 재실행 → 10단계 재검증. **최대 3라운드**, 동일 unmet 집합 즉시 무진전 중단(#16) | `10b_conformance_repair.json` |
 | 집계 | full-pipeline | `PipelineResult` JSON + Markdown 보고서 | `pipeline_result.json` |
@@ -249,12 +249,12 @@ Phase 0는 **세 신호**로 실행 범위를 정한다(정본: [SKILL.md](../sk
 
 | 요청 예 | 재실행 | 재사용 |
 |---|---|---|
-| "이 패키지만 다시" | 2→3→3.5→4→4.5→5→6→8→(9)→10 | `01_spec` |
+| "이 패키지만 다시" | 2→3→3.5→4→4.5→5→6→8→(enabled일 때 9)→10 | `01_spec` |
 | "커버리지만 더 올려" | 8→10 | `01~06`, `04b` |
-| "뮤테이션만 다시" | 9→10 | `01~08`, `04b` |
+| "뮤테이션만 다시" | 명시 opt-in → 9→10 | `01~08`, `04b` |
 | "테스트 실패 고쳐" | 7→6→10 | `01~05`, `04b` |
 | "시나리오 만족하는지만 확인" | 10 | `01~09`, `04b` |
-| `_workspace/` 없음 + **하네스 생성** 테스트("보완") | 6→8→9→10 (CI 기본; 대화형은 6/8/9/4 선택) | `detect_pipeline_state`로 복원한 stub `01~05`·`04b` |
+| `_workspace/` 없음 + **하네스 생성** 테스트("보완") | 6→8→(enabled일 때 9)→10 (대화형 9 선택지도 enabled일 때만) | `detect_pipeline_state`로 복원한 stub `01~05`·`04b` |
 | `_workspace/` 없음 + **기존 손수 짠** 테스트만 | 0(정식 생성 전체) | 없음 — `testFiles[]`를 5·8단계 `existingTestPaths`로 공존 보완 |
 
 전체 매트릭스(11종)와 stub 복원 표는 §5.6 FAQ ·
@@ -414,8 +414,8 @@ Spring 프로젝트를 연 Claude Code 세션에서:
 
 1. **Phase E**: 미충족 환경 항목별 "지금 함께 세팅할까요?" (MCP SDK 설치, jar 빌드 등)
 2. **0.5**: Boot 버전을 감지 못했거나 충돌하면 메이저 버전/우선 기준 선택
-3. **0.6**: JaCoCo XML·PITest가 빌드 파일에 없으면 "최소 스니펫을 주입할까요?", 콜드 캐시면 "1회 온라인 프라이밍?"
-4. **인터뷰 4항목**: 스펙 문서 경로 / 테스트 대상(패키지·FQCN·모듈, 또는 자동 탐지) / 뮤테이션 깊이 / 커버리지 임계값·제외
+3. **0.6**: PITest 사용 여부를 먼저 확정한다. JaCoCo XML은 필수, PITest는 켠 경우에만 plugin/JUnit/XML 스니펫 주입 여부를 묻고 콜드 캐시 프라이밍을 결정한다.
+4. **인터뷰 4항목**: 스펙 문서 경로 / 테스트 대상 / PITest 사용 여부·활성화 시 깊이 / 커버리지 임계값·제외
 5. **3.5 게이트**: 리팩토링 권고가 있으면 "전체 포함(권장) / 일부 제외 / 전체 제외"
 6. **4.5 게이트**: 시나리오 "전체 승인 / 일부 제외·수정 / 재설계 요청"
 7. 완료 후 **Markdown 보고서** + `test_docs/` + 생성 테스트 확인
@@ -452,8 +452,7 @@ claude -p --output-format json "/test-autoevermation-harness-plugin:full-pipelin
 
 CI 주의사항:
 
-- 빌드 파일 자동 주입 금지 → JaCoCo XML·PITest 설정을 **미리** 빌드 파일에 반영해 두거나, 감지 실패 시
-  remediation(제안 스니펫 포함)으로 중단된다.
+- 빌드 파일 자동 주입 금지 → JaCoCo XML은 미리 반영한다. PITest는 `mutation.enabled:true`로 opt-in한 CI에서만 plugin/JUnit/XML 설정을 미리 반영해야 하며, 기본 `false`에서는 누락으로 중단하지 않는다.
 - 기본 오프라인 → 캐시가 비어 있으면 사전 워밍업(예: `mvn dependency:go-offline`)을 해 두거나
   `BUILD_TEST_ALLOW_NETWORK=1`을 옵트인한다.
 - GitHub Actions 예제: [examples/ci/gradle-ci.yml](../examples/ci/gradle-ci.yml) · [maven-ci.yml](../examples/ci/maven-ci.yml)
@@ -511,8 +510,8 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 
 - **하네스가 생성한 테스트/승인 시나리오가 있으면**(`resumable:true`): `_workspace/`가 없어도(fresh clone·`git
   checkout`·새 세션) 처음부터 다시 돌지 않는다. stub과 `_resume.json`을 복원하고 재진입 단계를 확정한다 —
-  대화형은 `AskUserQuestion` 4지선다 `[6 run-tests] [8 measure-coverage] [9 mutation-test] [4 시나리오 재설계]`,
-  CI/비대화형은 `recommendedEntryStage`(기본 **6→8→9→10**, 재생성 없이 측정·강화·보정; 승인 시나리오만 있고 테스트가
+  대화형은 `AskUserQuestion`으로 `[6 run-tests] [8 measure-coverage] [9 mutation-test] [4 시나리오 재설계]` 중 고르되 9는 `mutation.enabled:true`일 때만 표시한다.
+  CI/비대화형은 `recommendedEntryStage`(기본 **6→8→(enabled일 때 9)→10**, 재생성 없이 측정·보정; 승인 시나리오만 있고 테스트가
   없으면 5단계부터). 상태줄에 `↩ resumed @ stage N` 표시(§5.5).
 - **기존(손수 짠) 테스트만 있으면**(`foreignTestsPresent:true`, `test_docs/` 없음): 이건 "5단계 완료"가 아니다.
   하네스는 **0단계부터 정식으로** 스펙·AST·소스 분석 → 시나리오 설계 → 테스트 생성을 진행한다. 단, 감지된
@@ -527,17 +526,17 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 
 | 요청 유형 | 재실행 단계 | 재사용 |
 |---|---|---|
-| "이 패키지/클래스만 다시" | 2→3→3.5→4→4.5→5→6→8→(9)→10 | 01_spec |
-| "스펙 문서 추가했어" | 1→4→4.5→5→6→8→(9)→10 | 02_ast, 03_source, 03b·03c |
-| "리팩토링 권고만 다시" | 3.5→4→4.5→5→6→8→(9)→10 | 01~03 |
-| "시나리오 다시/승인 다시" | 4→4.5→5→6→8→(9)→10 | 01~03, 03b·03c |
+| "이 패키지/클래스만 다시" | 2→3→3.5→4→4.5→5→6→8→(enabled일 때 9)→10 | 01_spec |
+| "스펙 문서 추가했어" | 1→4→4.5→5→6→8→(enabled일 때 9)→10 | 02_ast, 03_source, 03b·03c |
+| "리팩토링 권고만 다시" | 3.5→4→4.5→5→6→8→(enabled일 때 9)→10 | 01~03 |
+| "시나리오 다시/승인 다시" | 4→4.5→5→6→8→(enabled일 때 9)→10 | 01~03, 03b·03c |
 | "커버리지만 더 올려" | 8→10 | 01~06, 04b |
-| "뮤테이션만 다시" | 9→10 | 01~08, 04b |
+| "뮤테이션만 다시" | 명시 opt-in → 9→10 | 01~08, 04b |
 | "테스트 실패 고쳐" | 7→6→10 | 01~05, 04b |
-| "임계값 바꿔서 다시" | configure(0)→8→9→10 | 01~06, 04b |
+| "임계값 바꿔서 다시" | configure(0)→8→(enabled일 때 9)→10 | 01~06, 04b |
 | "시나리오 만족하는지만 확인" | 10 | 01~09, 04b |
 | "시나리오 적합성 불일치 고쳐" | 10.5→6→10 | 01~09, 04b, 10_conformance |
-| `_workspace/` 없음 + 테스트 존재(보완) | 6→8→9→10 | detect_pipeline_state로 복원한 stub 01~05·04b |
+| `_workspace/` 없음 + 테스트 존재(보완) | 6→8→(enabled일 때 9)→10 | detect_pipeline_state로 복원한 stub 01~05·04b |
 
 **결과가 나오기 전에 미리 가로채고 싶다면** — 대화형은 생성 이전 두 승인 게이트에서 방향을 잡을 수 있다:
 
@@ -565,6 +564,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | `lspAvailable` | E7 감지값 | JDT LS 보강 경로 활성화 |
 | `maxRepairRetries` | `3` | 보정 루프 진전 추적 단위(상한 아님 — #12 무진전 "3회 연속"과 정렬) |
 | `domainKeywords` | `[]` | 스펙 검색 힌트 |
+| `mutation` | `{enabled:false}` | PITest opt-in 블록. `enabled:true`일 때만 0.6 능력 검사와 9단계 실행; 세부값은 §6.2 참조 |
 | `refactorAdvisory` | `{enabled: true}` | 3.5단계 제어. `thresholds{cyclomatic:10, constructorArgs:7}` 오버라이드 가능 |
 
 미지정 필드는 **자동 기본값으로 채우지 않는다**(fallback-policy #13) — 대화형은 질문, CI는 중단.
@@ -576,7 +576,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 - `springProfile{bootVersion, namespace, junitEngine, mockAnnotation, mockImport, javaBaseline, …}` — 0.5단계 확정
 - `coverage{line:0.95, branch:0.90, method:0.95, class:1.00, excludes[...]}` — 기본 제외:
   `**/*Application*`, `**/config/**`, `**/dto/**`, `**/generated/**`
-- `mutation{mutators:"DEFAULTS", mutationThreshold:0.80, targetClasses, targetTests, threads}`
+- `mutation{enabled:false, mutators:"DEFAULTS", mutationThreshold:0.80, targetClasses, targetTests, threads}`
 - `coverageMaxIterations`/`mutationMaxIterations`(기본 3 — 진전 추적 단위)
 - `refactorAdvisory{enabled, thresholds}` (인터뷰 항목 아님 — HarnessRequest로만 오버라이드)
 
@@ -647,7 +647,8 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | 플러그인 스킬이 아예 안 보임 / 설치 상태가 깨짐 | 플러그인 캐시 손상 | 공식 트러블슈팅: `rm -rf ~/.claude/plugins/cache` → Claude Code 재시작 → 재설치(§4.6) |
 | `JAVAPARSER_REQUIRED`로 하드 중단 | JavaParser jar 빌드 실패/JDK 21+ 없음 | §4.3대로 `./mvnw -q -DskipTests package` 재시도 또는 `REPO_AST_JAVAPARSER_JAR` 사전 지정. JDK 21+ 미탐지가 원인이면 먼저 JDK를 설치 |
 | `java -version`가 21 미만/미탐지로 Phase E(E4) 중단 | JDK 21+ 미설치 또는 PATH에 구버전 JDK만 존재 | JDK 21+ 설치 후 PATH 갱신(jar 빌드 17+ ⊂ JDT LS 21+를 아우르는 단일 기준) — E10(대상 프로젝트 테스트 실행 JDK)과는 별개 |
-| 커버리지(8)/뮤테이션(9)이 리포트를 못 찾음 | Gradle JaCoCo **XML 기본 OFF**·PITest 플러그인 부재 | 0.6단계 주입 승인, 또는 [build-provisioning.md](../references/build-provisioning.md) §1 스니펫을 빌드 파일에 직접 반영 |
+| 커버리지(8)가 리포트를 못 찾음 | Gradle JaCoCo XML 기본 OFF | 0.6단계 JaCoCo 주입 승인 또는 provisioning 스니펫 반영 |
+| 활성화한 뮤테이션(9)이 리포트를 못 찾음 | PITest 플러그인/JUnit 어댑터 또는 XML 출력 누락(PIT 기본은 HTML) | `mutation.enabled` 확인 후 0.6단계 PITest 스니펫(plugin/JUnit/XML) 반영 |
 | 첫 실행(6)에서 의존성 해석 실패 | 콜드 캐시 + 기본 오프라인 | 1회 온라인 프라이밍 승인 / CI는 사전 `dependency:go-offline` 또는 `BUILD_TEST_ALLOW_NETWORK=1` |
 | Mockito mock 생성 실패 (JDK 24/25) | inline mock-maker ↔ 신형 JDK 비호환 | 실행 JDK를 17/21 LTS로, 또는 Mockito 5.16+(ByteBuddy 1.17+), 또는 `-Dnet.bytebuddy.experimental=true` (E10) |
 | `BUILD_TOOL_UNDETECTED` | wrapper/빌드파일 미감지 | 대화형은 질문에 답, CI는 `HarnessRequest.buildTool` 명시 |
@@ -671,7 +672,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | [references/fallback-policy.md](../references/fallback-policy.md) | fallback 정책 SSOT |
 | [references/scenario-docs.md](../references/scenario-docs.md) | `test_docs/`·승인·적합성 검증 SSOT |
 | [references/refactor-advisory.md](../references/refactor-advisory.md) | 3.5단계 판정 기준·임계값 SSOT |
-| [references/build-provisioning.md](../references/build-provisioning.md) | JaCoCo XML·PITest 주입·캐시 프라이밍 SSOT |
+| [references/build-provisioning.md](../references/build-provisioning.md) | JaCoCo XML 필수·PITest opt-in 주입·캐시 프라이밍 SSOT |
 | [references/version-compatibility.md](../references/version-compatibility.md) | Boot 2.0–4.x 프로파일별 전체 코드 템플릿 |
 | [references/custom-components.md](../references/custom-components.md) | 커스텀 스테레오타입 인식 규칙 |
 | [RESEARCH_NOTES.md](../RESEARCH_NOTES.md) | 핀 고정 버전·API·공식문서 근거(런타임 SSOT) |

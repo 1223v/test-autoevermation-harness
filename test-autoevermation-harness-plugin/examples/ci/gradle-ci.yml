@@ -53,10 +53,10 @@ jobs:
           # 타임존 고정: 날짜 의존 flaky 방지
           TZ: UTC
 
-      # 뮤테이션 테스트는 비용이 크므로 PR에서만(또는 라벨/스케줄로) 분리 실행 권장.
-      # 게이트(mutationThreshold) 미달 시 실패한다. 필요 시 continue-on-error로 완화.
+      # 선택 기능: 저장소 변수 RUN_PITEST=true인 PR에서만 실행한다.
+      # mutation.enabled=false(기본)인 저장소는 변수를 만들지 않아도 된다.
       - name: Mutation testing (PITest)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && vars.RUN_PITEST == 'true'
         run: ./gradlew pitest --no-daemon
 
       - name: Upload test reports (항상 업로드 — 실패 시 디버깅용)

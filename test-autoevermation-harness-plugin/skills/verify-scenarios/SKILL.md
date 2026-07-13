@@ -1,6 +1,6 @@
 ---
 name: verify-scenarios
-description: 모든 단계(생성·실행·커버리지·뮤테이션)가 끝난 뒤, 승인된 각 BDD 시나리오가 실제로 충족되었는지(테스트가 given/when/then을 만족하는지) 검증하고, 시나리오↔테스트코드↔결과를 대상 프로젝트의 test_docs/에 정리한다. "시나리오 검증", "시나리오 만족 확인", "적합성 검증", "test_docs 정리"처럼 시나리오 충족 확인이 필요할 때 자동 호출된다.
+description: 필수 단계(생성·실행·커버리지)와 활성화된 경우의 뮤테이션 단계가 끝난 뒤, 승인된 각 BDD 시나리오가 실제로 충족되었는지(테스트가 given/when/then을 만족하는지) 검증하고, 시나리오↔테스트코드↔결과를 대상 프로젝트의 test_docs/에 정리한다. "시나리오 검증", "시나리오 만족 확인", "적합성 검증", "test_docs 정리"처럼 시나리오 충족 확인이 필요할 때 자동 호출된다.
 ---
 
 ## 목적
@@ -20,7 +20,7 @@ description: 모든 단계(생성·실행·커버리지·뮤테이션)가 끝난
 ## 자동 호출 조건
 
 - 사용자가 "시나리오 검증", "시나리오 만족 확인", "적합성 검증", "test_docs 정리"와 같은 키워드를 사용할 때
-- `full-pipeline` 10단계(run-tests·measure-coverage·mutation-test 완료 후)에서 순차 호출될 때
+- `full-pipeline` 10단계(run-tests·measure-coverage 및 활성화된 경우 mutation-test 완료 후)에서 순차 호출될 때
 
 ## 수동 호출 예시
 
