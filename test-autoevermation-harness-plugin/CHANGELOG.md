@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+---
+
+## [0.23.0] - 2026-07-14
+
 ### Changed — PITest를 기본 비활성 선택 기능으로 전환
 
 - `HarnessConfig.mutation.enabled`(기본 `false`)를 추가하고 full-pipeline 9단계가 비활성 상태에서 `PITEST_DISABLED`로 정상 `skipped`되도록 계약을 변경했다. 이 skip은 전체 파이프라인 상태를 낮추지 않는다.
