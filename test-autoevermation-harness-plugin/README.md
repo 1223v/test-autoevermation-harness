@@ -118,7 +118,7 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 /plugin marketplace remove test-autoevermation-harness
 ```
 
-일시 비활성화(`/plugin disable`)·로컬 설치 제거·상태줄 자동 원복 등 상세 절차는 [docs/GUIDE.md §4.5](./docs/GUIDE.md)가 정본이다(중복 기술로 인한 drift 방지 — 여기서는 명령 2줄만 유지).
+일시 비활성화(`/plugin disable`)·로컬 설치 제거·상태줄 자동 원복·**잔여 데이터 완전 정리**(uninstall이 지우지 않는 플러그인 데이터 디렉터리·상태줄 마커·settings 백업의 `rm` 명령) 등 상세 절차는 [docs/GUIDE.md §4.5](./docs/GUIDE.md)가 정본이다(중복 기술로 인한 drift 방지 — 여기서는 명령 2줄만 유지).
 
 ---
 

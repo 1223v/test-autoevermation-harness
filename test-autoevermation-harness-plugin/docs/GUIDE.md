@@ -344,6 +344,29 @@ PATH → brew(macOS) → eclipse.org milestone tarball(`${CLAUDE_PLUGIN_DATA}/jd
   상태줄로 자동 복구된다(§5.5의 self-heal). 즉시 원복하려면 uninstall 전에
   `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청한다.
 
+**완전 삭제(잔여 파일 정리):** `/plugin uninstall`은 설치 사본(`plugins/cache/`)과 레지스트리
+항목만 지운다. 상태줄 전역 사본(`test-autoevermation-statusline.py`/`-launch.cjs`)과 전역
+`settings.json`의 statusLine 원복은 §5.5 self-heal이 자동 처리하지만(재시작 후 첫 상태줄 렌더
+1회 필요), 아래 항목은 남으므로 완전히 지우려면 수동 정리한다.
+
+```bash
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+
+# MCP venv·관리형 jdtls 등 영속 데이터(수십 MB) — 업데이트에도 유지되도록 설계된
+# 공식 플러그인 데이터 디렉터리(${CLAUDE_PLUGIN_DATA})라 uninstall이 지우지 않는다
+rm -rf "$CFG/plugins/data/test-autoevermation-harness-plugin-test-autoevermation-harness"
+
+# 상태줄 설정 마커 — self-heal 후에도 cleaned=true 기록으로 남는다
+rm -f "$CFG/test-autoevermation-statusline.json"
+
+# 상태줄 설치 시 만든 settings.json 백업(있는 경우)
+rm -f "$CFG"/settings.json.test-autoevermation-backup-*
+```
+
+대상 프로젝트의 산출물(생성 테스트 `src/test/java`, `test_docs/`, `_workspace/`, 빌드 파일에
+주입된 JaCoCo/PITest 설정)은 사용자 자산이라 어떤 제거 절차도 건드리지 않는다 — 정리하려면
+§4.6의 "하네스 실행 상태 재설정"을 따른다.
+
 ### 4.6 재설정
 
 **최신 버전 반영(일반 재설정):**
