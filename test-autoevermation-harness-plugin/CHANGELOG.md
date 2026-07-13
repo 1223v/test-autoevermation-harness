@@ -11,6 +11,31 @@ _(비어 있음)_
 
 ---
 
+## [0.22.2] - 2026-07-14
+
+### Fixed — 상태줄 버전 표시가 플러그인 업데이트를 즉시 반영하지 못하는 문제
+
+배경: `/plugin marketplace update`로 0.21.0→0.22.1 업데이트 직후에도 상태줄이
+`#0.21.0`을 계속 표시했다. 원인 두 겹: ① wrapper의 `read_version`이 config에
+설치 시점 고정된 `pluginRoot` 경로를 읽는데, Claude Code는 버전업 시 구 버전
+캐시 디렉터리를 지우지 않고 새 디렉터리를 추가만 하므로 stale 경로가 계속
+유효했다(SessionStart의 조용한 갱신은 다음 세션에야 돌아 업데이트 당일 세션은
+내내 구버전 표시). ② `installed_plugins.json`은 v2 스키마
+(`{"version":2,"plugins":{...}}`)인데 wrapper `plugin_present`와 autosetup
+`resolve_install_path`가 최상위 키만 순회해 레지스트리 조회가 항상 미검출
+(죽은 경로)이었다.
+
+- `test-autoevermation-statusline.py`: `_registry_entries`/`registry_install_path`
+  신설 — `read_version`이 **렌더 시점에 레지스트리의 현재 installPath를 최우선**
+  으로 해석해, 업데이트 직후 세션 재시작 없이 새 버전을 표시한다(폴백:
+  config pluginRoot → SCRIPT_DIR/..). `plugin_present`도 v2 스키마 정상 조회.
+- `statusline-autosetup.py`: `resolve_install_path`가 v2 스키마의 `plugins` 중첩을
+  처리(flat 구 스키마 병행 지원).
+- 검증: 합성 픽스처 7케이스(레지스트리 우선/폴백/flat/v2·autosetup) + 실환경
+  stale-config 재현(구버전 경로 config에서 새 버전 표시 확인).
+
+---
+
 ## [0.22.1] - 2026-07-14
 
 ### Fixed — `guard-network.py` run-active 스코핑

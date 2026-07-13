@@ -82,10 +82,13 @@ def statusline_command():
 
 
 def resolve_install_path():
-    """uninstall 감지용 경로. 레지스트리의 installPath(캐시 dir)를 우선, 없으면 pluginRoot."""
+    """uninstall 감지용 경로. 레지스트리의 installPath(캐시 dir)를 우선, 없으면 pluginRoot.
+    installed_plugins.json은 v2 스키마({"version":2,"plugins":{...}})가 표준 — 구 구현은
+    최상위 키만 순회해 v2에서 항상 미검출이었다. flat(구) 스키마도 함께 지원한다."""
     reg = _load_json(INSTALLED_PLUGINS)
     if isinstance(reg, dict):
-        for key, val in reg.items():
+        plugins = reg.get("plugins") if isinstance(reg.get("plugins"), dict) else reg
+        for key, val in plugins.items():
             if key.startswith(PLUGIN_KEY_PREFIX):
                 entries = val if isinstance(val, list) else [val]
                 for e in entries:
