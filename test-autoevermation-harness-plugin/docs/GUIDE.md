@@ -152,11 +152,11 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 |---|---|---|
 | `scripts/record-run-context.py` | PreToolUse(Skill·Task·Agent) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 `_workspace/.markers/run.json`(하네스 활성) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state` 호출 시 durable-resume 전제 마커 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
 | `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **위임·산출물 물리 강제**: ① spawn 마커 없는 `_workspace` 단계 산출물 기록 deny(무위임 우회 차단), ② 하네스 활성 세션에서 오케스트레이터의 `src/test/java` 기록 deny(5단계 인라인 우회 차단; test-fixer patch Edit는 예외), ③ 선행 산출물 없는 후속 산출물 기록 deny(순서 게이트), ④ 8/9단계 게이트 필드 불변식(#21)·루프 증거 위조 deny. 비파이프라인 세션(`run.json` 없음)에는 Zone B/C 비활성 — 일반 개발에 오탐 없음 |
-| `scripts/guard-network.py` | PreToolUse(Bash) | 네트워크성 명령(curl/wget 등) 차단·경고 |
+| `scripts/guard-network.py` | PreToolUse(Bash) | **run-active 스코프(v0.22.1)**: 네트워크성 명령(curl/wget/`git push`\|`pull`\|`clone`\|`fetch` 등) 차단. `_workspace/.markers/run.json`(세션 일치)이 있을 때, 즉 실제 파이프라인 실행 중일 때만 개입 — 이 플러그인 소스를 직접 고치는 개발 세션 같은 일반 Bash 작업에는 마찰 없이 항상 허용 |
 | `scripts/guard-read.py` | PreToolUse(Read·WebFetch) | 시크릿(.env/pem)·vendor/build 산출물 read 차단 |
 | `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 마스킹(warn 모드) |
 
-**`_workspace/.markers/` 컨벤션(v0.22.0).** 훅 간 공유되는 물리 증거 저장소: `run.json`(세션별 하네스 활성 신호), `spawn-<subagent_type>.json`(단계 위임 증거), `pipeline-state.detected.json`(durable-resume stub 기록 전제). 새 full-pipeline 세션이 시작되면 이전 세션 증거는 자동 청소된다. 인프라 오류 시 훅은 fail-open(세션 불파괴), 판정 로직은 fail-closed다. 계약 드리프트 재검용 프로브는 `scripts/dev/probe-hook-stdin.py`.
+**`_workspace/.markers/` 컨벤션(v0.22.0).** 훅 간 공유되는 물리 증거 저장소: `run.json`(세션별 하네스 활성 신호 — `guard-network.py`도 v0.22.1부터 이 마커를 참조), `spawn-<subagent_type>.json`(단계 위임 증거), `pipeline-state.detected.json`(durable-resume stub 기록 전제). 새 full-pipeline 세션이 시작되면 이전 세션 증거는 자동 청소된다. 인프라 오류 시 훅은 fail-open(세션 불파괴), 판정 로직은 fail-closed다. 계약 드리프트 재검용 프로브는 `scripts/dev/probe-hook-stdin.py`.
 
 `settings.json`은 **권장 권한값 문서**다 — Claude Code는 플러그인 settings.json의 `permissions`/`env`를
 자동 적용하지 않으므로(공식 제약), 강제는 위 훅이 담당하고 사용자는 필요 시 자기 프로젝트

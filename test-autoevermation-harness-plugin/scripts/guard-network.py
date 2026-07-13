@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""guard-network.py
+r"""guard-network.py
 
 PreToolUse Bash hook for the Spring Test Harness plugin.
 
@@ -7,10 +7,21 @@ Reads Claude Code hook JSON from stdin, inspects the Bash command, and
 denies (or asks) if the command contains network-access utilities while
 TEST_AUTOEVERMATION_HARNESS_NETWORK != "on".
 
+v0.22.1: **run-active scoped**. This guard only intervenes while a full-pipeline
+run is active for the current session (``_workspace/.markers/run.json`` written
+by ``record-run-context.py`` with a matching ``session_id``). Outside an active
+run — e.g. a developer manually editing/committing/pushing this plugin's own
+source, or any ordinary Bash session in a project that merely has this plugin
+enabled — network commands are allowed unconditionally. This mirrors the
+run-active scoping used for Zone B/C of ``guard-gate-artifacts.py``: the guard's
+threat model is unsupervised subagents exfiltrating data or touching remote
+state *during pipeline execution*, not human-directed manual sessions.
+
 Hook JSON input (Claude Code PreToolUse contract):
   {
     "tool_name": "Bash",
     "tool_input": { "command": "<shell command string>" },
+    "session_id": "...", "cwd": "...",
     ...
   }
 
@@ -24,6 +35,13 @@ part of the hook schema and is silently ignored, i.e. fails open):
                                   "permissionDecision": "deny",
                                   "permissionDecisionReason": "<reason>"}}
 
+Decision table:
+  * not Bash / no command / no network pattern match   -> allow
+  * TEST_AUTOEVERMATION_HARNESS_NETWORK == "on"         -> allow (explicit opt-in)
+  * no active run for this session (no matching
+    _workspace/.markers/run.json)                       -> allow (manual/dev session)
+  * active run + network pattern + network off          -> deny
+
 Network is considered OFF unless env var TEST_AUTOEVERMATION_HARNESS_NETWORK == "on".
 Stdlib only (json, sys, os, re).
 """
@@ -32,6 +50,9 @@ import json
 import os
 import re
 import sys
+
+MARKERS_DIR = ".markers"
+RUN_MARKER = "run.json"
 
 # ---------------------------------------------------------------------------
 # Network-access command patterns
@@ -87,6 +108,20 @@ def _network_allowed() -> bool:
     return os.environ.get("TEST_AUTOEVERMATION_HARNESS_NETWORK", "").lower() == "on"
 
 
+def _run_active(payload: dict) -> bool:
+    """Return True if this session has an active full-pipeline run (matching
+    _workspace/.markers/run.json session_id, written by record-run-context.py)."""
+    cwd = str(payload.get("cwd") or os.getcwd()).replace("\\", "/")
+    session_id = str(payload.get("session_id", ""))
+    marker_path = os.path.join(cwd, "_workspace", MARKERS_DIR, RUN_MARKER)
+    try:
+        with open(marker_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 — no marker / unreadable => not active
+        return False
+    return isinstance(data, dict) and data.get("session_id") == session_id
+
+
 def _decision(decision: str, reason: str = "") -> None:
     """Emit a PreToolUse decision in the schema Claude Code actually honors."""
     out = {
@@ -135,10 +170,18 @@ def main():
         _decision("allow")
         return
 
-    # Network call detected and network is off — deny with explanation
+    if not _run_active(payload):
+        # No active full-pipeline run for this session — manual/dev session,
+        # the guard's threat model (unsupervised subagent network calls during
+        # pipeline execution) does not apply.
+        print(json.dumps({}))
+        return
+
+    # Active pipeline run + network call detected + network off — deny
     _decision(
         "deny",
-        "test-autoevermation-harness-plugin: Network access is disabled by default. "
+        "test-autoevermation-harness-plugin: Network access is disabled by default "
+        "during an active full-pipeline run. "
         "The command appears to make a network call. "
         "Set TEST_AUTOEVERMATION_HARNESS_NETWORK=on to permit network access, "
         "or remove the network call from the command.",

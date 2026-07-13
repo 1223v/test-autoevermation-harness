@@ -11,6 +11,26 @@ _(비어 있음)_
 
 ---
 
+## [0.22.1] - 2026-07-14
+
+### Fixed — `guard-network.py` run-active 스코핑
+
+배경: v0.22.0 배포 직후 이 플러그인 자신의 소스 저장소를 사람이 직접 수정·커밋·`git push`하는
+개발 세션에서도 `guard-network.py`가 무조건 네트워크성 명령을 차단하는 것을 확인했다. 이 가드의
+원래 위협 모델은 "파이프라인 실행 중 사람 감독 없는 서브에이전트가 데이터를 유출하거나 원격
+상태를 건드리는 것"이지, "사람이 매 동작을 지시·승인하는 일반 개발 세션"이 아니다 — 후자에는
+개입할 이유가 없고, 매번 `TEST_AUTOEVERMATION_HARNESS_NETWORK=on` 우회가 필요한 순수 마찰만
+발생했다.
+
+- `guard-network.py`에 `guard-gate-artifacts.py` Zone B/C와 동일한 **run-active 스코핑** 적용:
+  `_workspace/.markers/run.json`(세션 일치, `record-run-context.py`가 기록)이 있을 때만 개입하고,
+  없으면(=일반 Bash 세션) 네트워크성 명령을 무조건 허용한다. `TEST_AUTOEVERMATION_HARNESS_NETWORK=on`
+  명시적 옵트인은 기존대로 항상 우선한다.
+- 검증: 합성 stdin 8케이스(활성/비활성 세션 × git push·curl·일반 명령·stale 세션·env 오버라이드)
+  전부 통과.
+
+---
+
 ## [0.22.0] - 2026-07-13
 
 ### Added·Changed — 위임·산출물 물리 강제(enforcement) + forcing prose 복원
