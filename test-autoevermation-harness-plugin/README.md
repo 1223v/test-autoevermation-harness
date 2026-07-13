@@ -173,6 +173,17 @@ rm -rf ~/.claude/plugins/cache
 
 ---
 
+## 실행 강제 (enforcement, v0.22.0)
+
+파이프라인의 단계 위임·산출물 영속화·순서는 프롬프트 지시가 아니라 **PreToolUse 훅이 물리 강제**한다
+(prose는 강제가 아니라는 v0.18 원칙의 확장). `record-run-context.py`가 full-pipeline 실행과 subagent
+스폰의 물리 증거를 `_workspace/.markers/`에 남기고, `guard-gate-artifacts.py`가 ① 위임 증거 없는
+`_workspace` 단계 산출물 기록, ② 하네스 활성 세션에서 오케스트레이터의 `src/test/java` 직접 기록,
+③ 선행 산출물 없는 후속 기록(순서 게이트), ④ 8/9단계 게이트 무효·위조 산출물을 deny한다.
+비파이프라인 세션에는 개입하지 않는다(오탐 0). 상세: [docs/GUIDE.md](./docs/GUIDE.md) §2.5.
+
+---
+
 ## Skills (14종)
 
 | Skill | 호출 방법 | 역할 |

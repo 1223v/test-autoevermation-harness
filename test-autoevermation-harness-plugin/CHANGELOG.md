@@ -11,6 +11,57 @@ _(비어 있음)_
 
 ---
 
+## [0.22.0] - 2026-07-13
+
+### Added·Changed — 위임·산출물 물리 강제(enforcement) + forcing prose 복원
+
+배경: v0.21.0 직후 실세션에서 full-pipeline이 **하네스를 통째로 우회**하는 회귀가 관측됐다
+(자가보고: 0~7단계를 서브에이전트 위임 없이 인라인 수행, `_workspace` 산출물·`test_docs` 미기록,
+사유는 일관되게 "직접 하는 편이 빠르다"). 원인은 두 겹: ① v0.21.0 SSOT 통합(토큰 절감)이
+항상 로드되는 SKILL.md에서 **forcing prose까지 제거**(Phase E "TodoWrite로 전부 통과" 강제문,
+5단계 생성 규칙 18개 등이 오케스트레이터가 Read하지 않는 references/로 이동), ② 훅 계층에
+**위임·순서를 볼 수 있는 눈이 없음** — `Task`/`Agent` 매처 훅 부재로 "위임 안 함"은 감지 불가,
+guard-gate-artifacts는 08/09 두 파일의 필드 불변식만 검사, **산출물을 아예 안 쓰는 우회
+(bypass-by-omission)는 어떤 훅도 발화하지 않았다**. 교훈 아크: v0.18 "prose는 강제가 아님 →
+필드 불변식 훅" → v0.21 SSOT가 forcing prose까지 제거 → **v0.22 "위임·순서도 필드 불변식처럼
+물리 강제 + forcing prose 복원"**.
+
+- **신규 `scripts/record-run-context.py`** (PreToolUse `Skill|Task|Agent` + PostToolUse
+  `detect_pipeline_state`): full-pipeline 호출 시 `_workspace/.markers/run.json`(하네스 활성,
+  세션 스코프) 기록 + `additionalContext`로 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시
+  `spawn-<agent>.json`(위임의 물리 증거) 기록, 시나리오 미승인 상태(`04b_approval.json` 부재)의
+  test-code-generator 스폰 deny(4.5 게이트를 스폰 시점에 차단), `detect_pipeline_state` 성공 시
+  durable-resume 전제 마커 기록. 새 세션 시작 시 이전 세션 증거 자동 청소.
+- **`scripts/guard-gate-artifacts.py` v2** (177→476행): 기존 08/09 필드 불변식(#21)에 더해 —
+  Zone A) `_workspace` 단계 산출물 **provenance 강제**(producer 에이전트 자신 또는 spawn 마커
+  보유 오케스트레이터만 기록 가능; durable-resume stub은 `source:"durable-scan"` + detect 마커
+  전제) + 전 산출물 Edit 금지 + `00_config-harness.json` springProfile 필수 + **순서 게이트**
+  (01|02→00, 05→04∧04b, 06→05, 08→06, 09→08; run-active 한정이라 단독 스킬 세션 오탐 없음) +
+  08/09 **루프 증거 위조 검출**(iterations≥1 주장인데 coverage-closer/mutation-analyst 미스폰이면
+  deny). Zone B) 하네스 활성 세션에서 오케스트레이터의 `src/test/java` 기록 deny(허용:
+  test-code-generator·coverage-closer·mutation-analyst·test-fixer; 오케스트레이터 Edit는
+  spawn-test-fixer 마커 보유 시 patch-apply로 허용; `04b` 승인 이전 기록은 누구든 deny).
+  Zone C) `test_docs/scenarios|refactoring` 문서의 선행 산출물 게이트. 비파이프라인 세션은
+  Zone B/C 완전 비활성(일반 개발 오탐 0). 인프라 fail-open·판정 fail-closed 유지.
+- **full-pipeline SKILL.md forcing prose 복원(v0.20.1 수준 재인라인)**: 상단에 **단계 계약 표**
+  (단계→필수 수행 주체→산출물, 훅 강제 명시) 신설, Phase E 대상 항목·세팅 방식·검증 후 체크·게이트
+  4개 절 + configure-harness "TodoWrite로 전부 통과" 강제문 복원(오케스트레이터 인라인 수행·
+  AskUserQuestion 직접 대체는 계약 위반 명시, E3b는 "응답 수신"이 아닌 health 3종 필드 확인),
+  5단계 생성 규칙 18개 재인라인(정본 references/test-code-invariants.md 병기; **소유권 반전
+  "오케스트레이터 재Write 금지"는 유지** — Zone B 훅과 맞물리는 설계), 7단계 생성 원칙·무진전
+  중단 규칙 전문 복원, 8/9단계 #21 무효 술어 재인라인, resume stub 유효성(훅 강제) 1줄,
+  실패 처리 표에 8/9 술어 복원 + **위임 우회(훅 deny 수신) 행** 추가.
+- **orchestration-detail.md §2-1**: 모든 durable-resume stub에 `source:"durable-scan"` 필수 명시
+  (guard의 stub 판별 계약과 정합).
+- **hooks/hooks.json**: record-run-context 2개 엔트리 배선. **`scripts/dev/probe-hook-stdin.py`**
+  신규(훅 stdin 계약 드리프트 재검용 — 이번에 `agent_type`/`agent_id` 서브에이전트 채움·`Agent`
+  스폰 도구명·`tool_input.skill` 키·세션 동일성·MCP 풀네임 매칭을 headless 라이브 세션으로 실증).
+- 검증: 합성 stdin 단위 43케이스 전부 통과(각 Zone deny/allow 전 행 + malformed/Windows 경로/
+  stale 마커/오탐 0 확인) + headless 라이브 E2E(스킬 호출→run.json 생성, 무위임 04 Write deny,
+  승인 전 테스트 Write deny, 일반 파일·오케스트레이터 산출물 allow).
+
+---
+
 ## [0.21.0] - 2026-07-12
 
 ### Fixed — 전수 감사(오케스트레이션 신뢰성): 도구명 해석·가드 fail-open·핸드오프 계약 정합

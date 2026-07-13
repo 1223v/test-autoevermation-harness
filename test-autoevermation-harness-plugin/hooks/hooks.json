@@ -20,6 +20,17 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Skill|Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "script", "${CLAUDE_PLUGIN_ROOT}/scripts/record-run-context.py"],
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
@@ -54,6 +65,17 @@
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pipeline_state",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "script", "${CLAUDE_PLUGIN_ROOT}/scripts/record-run-context.py"],
+            "timeout": 30
+          }
+        ]
+      },
       {
         "matcher": "Write|Edit",
         "hooks": [
