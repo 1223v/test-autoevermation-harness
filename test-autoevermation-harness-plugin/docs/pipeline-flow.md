@@ -24,9 +24,10 @@ flowchart TD
     PR -. "재진입(영향 단계)" .-> L
     P0R -- "아니오 (초기 실행)" --> B["전처리: 입력 정규화"]
     P0 -- "있음 + 새 입력 → 로테이션" --> B
-    B --> C["Phase E — 환경 세팅 (선행 필수, TodoWrite)<br/>E1~E7 + E3b + E10 점검"]
-    C --> D{"환경 통과?<br/>필수 E1·E2·E3·E3b·E4·E5·E6·E7·E10 completed<br/>(E8·E9는 0.5단계 · degrade 없음)"}
-    D -- "아니오" --> X1(["status: failed — 파이프라인 미시작<br/>+ remediation 안내"])
+    SU[/"사전(선행): setup-harness 스킬<br/>E1~E10 환경 세팅 + 상태줄 — 사용자가 명시 실행"/] -.-> C
+    B --> C["Phase E-verify — 세팅 검증 게이트 (검증만, 세팅 안 함)<br/>health×3 · java≥21 · jar · jdtls --check-only · 실행JDK"]
+    C --> D{"E-verify 프로브 전부 통과?<br/>E1·E2·E3·E3b·E4·E5·E6·E7·E10<br/>(E8·E9는 0.5단계 · degrade 없음)"}
+    D -- "아니오" --> X1(["status: failed — 파이프라인 미시작<br/>'먼저 /…:setup-harness 를 실행해 환경 세팅을 완료하세요'<br/>(자동 세팅·자동 위임 없음)"])
     D -- "예" --> E["0단계 — configure-harness<br/>0.5 프로파일 감지 → 인터뷰 → HarnessConfig"]
 
     E --> E6{"0.6 PITest opt-in + 빌드 능력/캐시<br/>JaCoCo 필수 · PITest는 enabled일 때만 필수"}
@@ -75,21 +76,26 @@ flowchart TD
 
 ---
 
-## 2. Phase E — 환경 세팅 (선(先) 세팅, 후(後) 실행)
+## 2. 환경 세팅 — `setup-harness` 세팅 흐름 & E-verify 검증 게이트
+
+**v0.24.0부터 세팅과 실행이 분리되었다.** 세팅(E1~E10 + 상태줄)의 수행 주체는 **`setup-harness` 스킬 하나**이며,
+`full-pipeline`/`configure-harness`는 **세팅하지 않고 검증(E-verify)만** 한다.
+
+### 2-1. `setup-harness` — 세팅 흐름 (사용자가 명시적으로 실행)
 
 ```mermaid
 flowchart TD
-    Start(["전처리 직후 — 0단계 진입 전"]) --> Todo["TodoWrite로 체크리스트 생성<br/>pending → in_progress → completed"]
+    Start(["/test-autoevermation-harness-plugin:setup-harness"]) --> Todo["TodoWrite로 체크리스트 생성<br/>E1·E2·E3·E3b·E4·E5·E6·E7·E10 + S1<br/>pending → in_progress → completed"]
     Todo --> Detect["각 항목 감지(detect)"]
 
-    Detect --> Auto{"자동 가능 항목?<br/>E2 MCP SDK · E6 JavaParser jar"}
+    Detect --> Auto{"자동 가능 항목?<br/>E1·E2 런타임 · E6 JavaParser jar · E7 JDT LS"}
     Auto -- "대화형" --> AskA["AskUserQuestion<br/>'지금 함께 세팅할까요?'"]
-    AskA -- "예" --> RunA["node launch.cjs --ensure-only (E1·E2 자동 bootstrap)<br/>./mvnw -q -DskipTests package (E6 jar)"]
+    AskA -- "예" --> RunA["node launch.cjs --ensure-only (E1·E2 자동 bootstrap)<br/>./mvnw -q -DskipTests package (E6 jar)<br/>setup_jdtls.py (E7 JDT LS)"]
     AskA -- "아니오" --> FailE(["status: failed + remediation"])
     Auto -- "CI/비대화형" --> RunA
-    RunA --> Verify["재감지(verify)"]
+    RunA --> Verify["재감지(verify) — 통과해야 completed"]
 
-    Detect --> Assist{"시스템/비결정 항목?<br/>E1 Python · E3b MCP 라이브검증 · E4 JDK21+ · E5 mvnw · E7 JDT LS+Java21 · E10 실행JDK↔Mockito"}
+    Detect --> Assist{"시스템/비결정 항목?<br/>E4 JDK21+ · E10 실행JDK↔Mockito · (E3b MCP 라이브검증)"}
     Assist -- "대화형" --> AskB["AskUserQuestion<br/>설치/런타임 경로 안내"]
     Assist -- "CI/비대화형" --> CIstop{"충족됨?"}
     CIstop -- "아니오" --> FailE
@@ -97,14 +103,34 @@ flowchart TD
     AskB -- "갖춤" --> Verify
     CIstop -- "예" --> Verify
 
-    Gate{"필수 E1·E2·E3·E3b·E4·E5·E6·E7·E10 completed?<br/>(E8·E9는 0.5단계 · E6 JavaParser·E7 JDT LS 필수, degrade 없음)"}
+    Gate{"필수 E1·E2·E3·E3b·E4·E5·E6·E7·E10 completed?<br/>(E6 JavaParser·E7 JDT LS 필수, degrade 없음)"}
     Verify --> Gate
     Gate -- "아니오" --> FailE
-    Gate -- "예" --> Ok(["0단계 configure-harness로 진행"])
+    Gate -- "예" --> S1["S1 — 상태줄 설치 (선택)<br/>statusline-autosetup.py --status → consent 존중<br/>실패해도 warnings (게이트 아님)"]
+    S1 --> Ok(["status: ok — 이제 full-pipeline 실행 가능"])
 ```
 
+> E8(빌드도구)·E9(Spring 프로파일)는 대상 프로젝트의 **데이터 감지**라 `configure-harness` **0.5단계** 소관이고,
+> E11(빌드 능력)·E12(캐시)는 `mutation.enabled` 인터뷰 결과에 의존하므로 **0.6단계** 소관이다 — 세팅 단계로 앞당길 수 없다.
+
+### 2-2. E-verify — 검증 게이트 (`full-pipeline` / `configure-harness`)
+
+```mermaid
+flowchart TD
+    P(["파이프라인/설정 시작"]) --> Probe["E-verify 프로브 (부작용 없음·멱등)<br/>① health×3 (repo-ast·spec-doc·build-test) → E3b(+E1·E2·E3)<br/>② java -version ≥ 21 → E4<br/>③ *-shaded.jar / REPO_AST_JAVAPARSER_JAR → E5·E6<br/>④ setup_jdtls.py --check-only → E7<br/>⑤ 실행 JDK ↔ Mockito → E10"]
+    Probe --> G{"전부 통과?"}
+    G -- "아니오" --> F(["status: failed — 파이프라인 미시작<br/>'먼저 /test-autoevermation-harness-plugin:setup-harness 를<br/>실행해 환경 세팅을 완료하세요'"])
+    F -.-> SU(["사용자가 setup-harness 실행 → 위 2-1 흐름"])
+    G -- "예" --> Go(["0단계 configure-harness → 파이프라인 진행"])
+```
+
+> **여기서 세팅하지 않는다** — `--ensure-only`·`./mvnw package`·`setup_jdtls.py`(설치 모드) 실행 금지, `setup-harness` 자동 위임 금지,
+> 정규식·AST-only degrade 금지. 세팅은 사용자가 `setup-harness`를 명시적으로 실행할 때만 일어난다.
+> 재사용·재개 경로(0단계를 건너뛰어 `configure-harness`가 호출되지 않는 경우)에서는 **오케스트레이터가 직접 프로브를 실행**한다 —
+> MCP 등록은 **세션 단위**라 이전 실행의 통과가 이번 세션을 보장하지 않기 때문이다.
+
 근거: [environment-setup.md](../references/environment-setup.md) (E2 `mcp[cli]>=1.2.0`, E6 `astcli-1.0.0-shaded.jar`,
-E7 Eclipse JDT LS Java 21+ 런타임, E10 Mockito/ByteBuddy JDK 24/25 호환).
+E7 Eclipse JDT LS Java 21+ 런타임, E10 Mockito/ByteBuddy JDK 24/25 호환, 「E-verify 검증 프로브」 절).
 
 ---
 
@@ -222,7 +248,8 @@ flowchart LR
 
 | 단계 | 스킬 | 에이전트 | 주 MCP | 산출물 |
 |---|---|---|---|---|
-| Phase E | configure-harness (Preflight) | — | build-test(detect) | (환경 통과) |
+| 사전(선행) | **setup-harness** (E1~E10 세팅 + S1 상태줄) | — | 3종 `health`(E3b) | (환경 세팅 완료 — 파일 산출물 없음) |
+| E-verify | configure-harness (Preflight) / full-pipeline(재사용·재개 경로) | — | 3종 `health` + `setup_jdtls.py --check-only` | (게이트 통과 — **세팅하지 않음**) |
 | 0 | configure-harness | — | build-test(`detect_spring_profile`) | `HarnessConfig`, `_workspace/00_*.json` |
 | 0.6 | configure-harness(빌드 능력·캐시) | — | build-test(`detect_build_capabilities`·`check_dependency_cache`) | `buildChanges[]`, `_workspace/00b_build_provision.json` |
 | 1 | ingest-specs | spec-reviewer | spec-doc | `_workspace/01_*.json` |

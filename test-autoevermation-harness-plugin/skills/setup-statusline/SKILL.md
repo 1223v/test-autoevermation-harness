@@ -16,7 +16,9 @@ Claude Code 상태줄에 아래 형식의 줄을 한 줄 추가한다(공식 문
 
 **대부분 이 스킬을 수동으로 부를 필요가 없다.** 설치 후 첫 세션에서 `SessionStart` 훅
 (`hooks/statusline-autosetup.py`)이 "상태줄을 설치할까요?"를 **한 번** 묻고, 승인하면 이후 자동으로
-유지된다(§자동화). 이 스킬은 그 확인에 응답하거나(설치/거절), 나중에 수동으로 제거·재설치할 때 쓴다.
+유지된다(§자동화). 또 [`setup-harness`](../setup-harness/SKILL.md) 스킬의 **S1 단계**가 환경 세팅의 일부로
+상태줄 설치를 함께 처리한다 — 그 스킬도 아래와 **동일한 스크립트**(`hooks/statusline-autosetup.py`)를 호출하므로
+동작·consent 기록이 완전히 일치한다. 이 스킬은 그 확인에 응답하거나(설치/거절), 나중에 수동으로 제거·재설치할 때 쓴다.
 
 동작 원리: 플러그인은 main `statusLine`을 자체 settings로 설정할 수 없으므로(공식: `agent`/
 `subagentStatusLine`만 적용) 전역 `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`을 직접 편집한다.

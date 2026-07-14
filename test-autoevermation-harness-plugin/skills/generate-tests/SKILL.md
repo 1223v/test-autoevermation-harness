@@ -13,7 +13,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `repo-ast` + `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다.
+이 스킬은 `repo-ast` + `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 `setup-harness`(E3b)가 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브(`health` 3종 호출)가 재확인한다.
 
 ---
 

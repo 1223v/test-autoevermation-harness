@@ -1,13 +1,13 @@
 ---
 name: configure-harness
-description: Spring 테스트 하네스 실행 전 환경 세팅(Phase E)과 인터랙티브 인터뷰를 수행하고 HarnessConfig JSON을 생성한다. "하네스 설정", "커버리지 임계값 설정", "테스트 대상 지정", "뮤테이션 설정", "하네스 구성"처럼 설정 또는 초기화가 필요한 상황에서 자동 호출된다. CI(claude -p)에서는 인터뷰를 건너뛰되 환경 세팅의 결정적 항목은 자동 수행하고, 미충족 필수 항목은 HarnessRequest 값으로 채우거나 중단한다.
+description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행하고 HarnessConfig JSON을 생성한다. "하네스 설정", "커버리지 임계값 설정", "테스트 대상 지정", "뮤테이션 설정", "하네스 구성"처럼 설정 또는 초기화가 필요한 상황에서 자동 호출된다. 환경 세팅(Phase E)은 수행하지 않는다 — /test-autoevermation-harness-plugin:setup-harness 선행이 필수이며, 시작 시 E-verify 검증 프로브만 돌려 미완료면 하드 중단한다. CI(claude -p)에서는 인터뷰를 건너뛰되 미충족 필수 항목은 HarnessRequest 값으로 채우거나 중단한다.
 ---
 
 ## 목적
 
 먼저 대상의 **Spring Boot 버전 프로파일(Boot 2.0–4.x)을 감지/확정**(0.5단계, RESEARCH_NOTES §8)한 뒤, 사용자와 4항목 인터뷰(RESEARCH_NOTES §7)를 진행하여 `HarnessConfig` JSON을 생성한다. 생성된 `HarnessConfig`(`springProfile` 포함)는 `full-pipeline` 및 개별 스킬(measure-coverage, mutation-test 등)의 입력으로 사용된다.
 
-**환경 세팅 선행(필수)**: 이 스킬은 0단계 인터뷰 전에 **Phase E 환경 세팅 체크리스트**([references/environment-setup.md](../../references/environment-setup.md), SSOT)를 TODO 리스트로 **먼저 통과**시킨다 — fallback을 파이프라인 도중에 마주치기 전에 선제적으로 제거한다. 자동으로 고칠 수 있는 항목은 **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / 비대화형·CI=자동 세팅**한다.
+**선행 조건 — 환경 세팅은 이 스킬의 일이 아니다(v0.24.0)**: 환경 세팅(Phase E E1~E10 + 상태줄)의 수행 주체는 [`setup-harness`](../setup-harness/SKILL.md) 스킬이다. 이 스킬은 **어떤 항목도 세팅하지 않고**, 시작 시 **E-verify 검증 프로브**([references/environment-setup.md](../../references/environment-setup.md) 「E-verify 검증 프로브」, SSOT)만 실행해 세팅 완료 여부를 확인한다 — 미충족이면 `status:"failed"`로 **하드 중단**하고 `setup-harness` 실행을 안내한다(자동 세팅·자동 위임 없음).
 
 **Fallback 정책 준수(필수)**: 런타임 의사결정은 [references/fallback-policy.md](../../references/fallback-policy.md)(SSOT)를 따른다. 미충족 조건(역량 미설치, 버전 미감지, 미지정 입력, 프로파일 충돌)은 **침묵 fallback·임의 기본값 없이** 처리한다 — **대화형은 `AskUserQuestion`으로 질문/함께 세팅**, **비대화형/CI는 결정적 항목 자동 세팅·그 외 하드 중단(remediation 안내)**.
 
@@ -53,52 +53,27 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 
 ## 단계별 절차
 
-### Preflight 단계 (Phase E): 환경 세팅 체크리스트 — *선(先) 세팅, 후(後) 실행*
+### Preflight 단계: 세팅 검증 게이트 (E-verify) — *검증만 한다, 세팅하지 않는다*
 
-설정 시작 전에 하네스가 원활히 돌기 위한 **환경을 먼저 다 세팅**한다. 정본 절차·명령·근거는
-[references/environment-setup.md](../../references/environment-setup.md)(SSOT). fallback을 파이프라인 도중에 "마주치기" 전에 여기서 **선제적으로 제거**한다.
+설정 시작 전에 [`setup-harness`](../setup-harness/SKILL.md)가 환경(E1~E10)을 이미 갖춰 놓았는지 **확인만** 한다. 정본 프로브 목록·판정 기준은 [references/environment-setup.md](../../references/environment-setup.md)(SSOT) 「**E-verify 검증 프로브**」 절이다 — 그 표를 Read해 그대로 실행한다.
 
-**TODO 리스트로 진행한다.** 시작 시 `TodoWrite`로 아래 항목을 만들고 `pending → in_progress → completed`로 하나씩 체크한다(진척 가시화).
+프로브 요약(전부 부작용 없음·멱등·밀리초~1초):
 
-| TODO | 항목 | 감지 | 미충족 시 세팅 |
-|---|---|---|---|
-| E1 | Python 3.10+ | `python3 -c "import sys;assert sys.version_info>=(3,10)"` (Windows: `py -3 -c ...`) 또는 python-path 핀 | `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` (auto, v0.15.0+ — uv로 무-sudo 자동 설치, 전 OS). 실패 시 설치 경로 안내 |
-| E2 | MCP SDK `mcp[cli]>=1.2.0` | `python3 -c "import mcp"` 또는 bootstrap venv marker | `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` (auto, v0.15.0+ — E1과 동일한 단일 진입점, 내부적으로 bootstrap.py를 호출해 플러그인 venv에 설치). 실패 시 pip 폴백(`python3 -m pip install -r mcp/requirements.txt`) |
-| E3 | MCP 서버 3종 등록 | `.mcp.json` + 서버 모듈 로드 | import 실패는 E2로 귀결 |
-| E3b | MCP 라이브 연결 검증 (필수) | `health` 3종(repo-ast·spec-doc·build-test) 실제 호출 성공 | 도구 미존재/호출 실패 시 하드 중단 + remediation(플러그인 활성화 확인 → `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` → `/reload-plugins`/재시작). 아래 **E3b 실행 블록** 참조 |
-| E4 | JDK 21+ (필수) | `java -version`≥21 | 설치/`JAVA_HOME` 안내(assist). 미충족 시 중단 |
-| E5 | mvnw 동봉 — 시스템 Maven 불요 | `mcp/javaparser-cli/mvnw`(Windows: `mvnw.cmd`) 존재 | 동봉 wrapper 사용(시스템 Maven 불필요). E6이 이를 호출 |
-| E6 | JavaParser CLI jar (필수) | `REPO_AST_JAVAPARSER_JAR` 또는 `mcp/javaparser-cli/target/*-shaded.jar` | `(cd mcp/javaparser-cli && ./mvnw -q -DskipTests package)` (auto). 실패 시 `JAVAPARSER_REQUIRED` 하드 중단 |
-| E7 | JDT LS + Java 21+ (필수) | `jdtls`(PATH/프로비저닝) + `.lsp.json` + Java 21+ | `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py` (auto). 실패 시 하드 중단. **E7 통과 시 `HarnessConfig.lspAvailable`은 항상 `true`** |
-| E10 | 테스트 실행 JDK ↔ Mockito 호환 | 실행 JDK major vs Mockito/ByteBuddy 지원 범위 | 17/21 LTS 권장 또는 Mockito 5.16+/experimental 플래그 |
+1. **`health` 3종 실제 호출**(repo-ast·spec-doc·build-test) → E3b + 전이적으로 E1·E2·E3. repo-ast 응답의 `javaparser.jarFound`로 E6도 함께 확인.
+2. `java -version` ≥ 21 → E4
+3. `target/*-shaded.jar` 또는 `REPO_AST_JAVAPARSER_JAR` → E5·E6
+4. `setup_jdtls.py --check-only` → E7 (감지만, 설치하지 않음)
+5. 실행 JDK major ↔ Mockito/ByteBuddy 지원 범위 → E10
 
-> E8(빌드도구)·E9(Spring 프로파일)는 데이터 감지라 아래 **0.5단계**에서 함께 확정한다.
-
-**E3b 실행 블록 — MCP 라이브 연결 검증 (E3 직후, 필수)**
-
-E3의 모듈 로드 검사만으로는 플러그인 MCP 등록 실패(세션에 도구 미노출)를 못 잡는다. 따라서 3개 서버의 무부작용 `health` 도구를 **실제로 호출**해 연결을 검증한다.
+**게이트**: 프로브가 하나라도 실패하면 **대화형·CI 동일하게** `status:"failed"` + `errors`(실패 항목)로 **하드 중단**하고, remediation에 아래 고정 안내를 담는다. 0단계로 진행하지 않는다.
 
 ```
-repo-ast-mcp.health()   → { server, pluginVersion, javaparser:{jarFound, jarPath, javaOk, requireJavaparser}, allowRoot }
-spec-doc-mcp.health()   → { server, pluginVersion, ... }
-build-test-mcp.health() → { server, pluginVersion, networkAllowed, ... }
+먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요
 ```
 
-- **3종 모두 성공**: 응답의 `pluginVersion`과 repo-ast의 `javaparser` 상태를 기록(`_workspace/00_config-harness.json`)하고 E3b를 `completed`로 표시한다.
-- **도구 미존재 또는 호출 실패**(어느 서버든): 침묵 fallback·Grep/Read 대체 없이 **하드 중단**한다 — `status:"failed"` + remediation:
-  1. 플러그인이 활성화되어 있는지 확인(`/plugin` 목록에 `test-autoevermation-harness-plugin`).
-  2. `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only`로 런타임을 재프로비저닝.
-  3. `/reload-plugins` 또는 Claude Code 재시작으로 MCP 서버를 재등록.
-- **repo-ast health의 `javaparser.jarFound:false`**: jar 미빌드 상태다 — E6 세팅(자동 빌드)으로 연결한다. `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1`이므로 jar 없이는 이후 파싱이 `JAVAPARSER_REQUIRED`로 실패한다.
+**금지 사항**: 프로브 실패를 스스로 고치지 않는다 — `--ensure-only`·`./mvnw package`·`setup_jdtls.py`(설치 모드) 실행 금지, `setup-harness` 자동 위임 금지, 정규식·AST-only degrade 금지. **세팅은 사용자가 명시적으로 `setup-harness`를 실행할 때만 일어난다.**
 
-**세팅 방식 (정책: environment-setup.md)**
-- **대화형 — 항목별로 함께 세팅**: 자동으로 고칠 수 있는 항목(E2·E6·E7 등)은 항목마다 `AskUserQuestion("〈항목〉이 없습니다. 지금 함께 세팅할까요?")` → "예"면 그 자리에서 설치/빌드 실행(E6=`./mvnw package`, E7=`setup_jdtls.py`) → **재감지 검증** → `completed`. "아니오"면 `status:"failed"` 중단. assist 항목(E4 JDK 21+, 그리고 자동 설치 실패/`HARNESS_AUTO_PYTHON=0`인 E1)은 설치/경로 안내 질문, 사용자가 못 갖추면 중단. E3b(MCP 라이브 연결)·E6(JavaParser jar)·E7(JDT LS)은 **필수** — 미가용이면 자동 세팅을 시도하고, 실패 시 하드 중단한다(degrade 진행 없음).
-- **비대화형/CI — 항상 자동 세팅**: 결정적 항목(E1·E2·E6·E7)은 질문 없이 `node launch.cjs --ensure-only`(Python+SDK)/`./mvnw -DskipTests package`(jar)/`python3 scripts/setup_jdtls.py`(JDT LS)를 **자동 실행** 후 재검증. 자동 세팅이 실패하거나 시스템 항목(E4 JDK 21+)이 없으면, 그리고 E3b MCP 연결 검증이 실패하면 `status:"failed"` + remediation으로 하드 중단한다(`HarnessRequest`로 사전 충족 가능). **E4~E7·E3b 어느 것도 degrade로 진행하지 않는다.**
-- **검증 후 체크**: 세팅 액션 뒤 반드시 재감지해서 통과를 확인한 뒤에만 `completed`로 표시한다.
-
-필수 항목 **E1·E2·E3·E3b(런타임·MCP 라이브 연결) + E4(JDK 21+)·E5(mvnw)·E6(JavaParser jar)·E7(JDT LS) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 `completed`여야 0단계로 진행한다. **E3b·E4·E5·E6·E7은 모두 필수** — 미가용 시 자동 세팅을 시도하고, 실패하면 하드 중단한다(정규식·AST-only degrade로 진행하지 않는다). 정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」. (예시: E2는 v0.12.0+ 자동 bootstrap이 기본이므로 질문 불필요 — bootstrap 실패 시에만 `AskUserQuestion(options=["예 — python3 -m pip install -r mcp/requirements.txt 실행","아니오 — 중단"])`, E6 `options=["예 — javaparser jar 빌드","아니오 — 중단"]`.)
-
-> **`lspAvailable`은 E7 통과 시 항상 `true`다** — E7(JDT LS)은 필수 항목이므로 `jdtls`(PATH/프로비저닝) + `.lsp.json`(plugin.json `lspServers`로 등록됨) + Java 21+ 런타임이 모두 통과해야 0단계로 진행한다. E7이 미가용이면 Phase E에서 하드 중단하므로 **`lspAvailable:false` 상태로는 0단계에 진입하지 않는다**. 아래 `HarnessConfig` 출력 예시의 `lspAvailable`은 E7 통과 후 값인 `true`다. `analyze-source`/`full-pipeline`의 LSP 보강(정의이동·참조탐색) 경로는 이 전제 위에서 항상 활성화된다.
+> **`lspAvailable`은 항상 `true`다** — E7(JDT LS)은 `setup-harness`의 필수 항목이고 E-verify 프로브가 이를 재확인하므로, `lspAvailable:false` 상태로 0단계에 진입하는 경로가 없다(근거: [setup-harness](../setup-harness/SKILL.md) E3b/E7 절). 아래 `HarnessConfig` 출력 예시의 `lspAvailable:true`는 이 전제의 결과다.
 
 ### 0단계: 모드 판별
 
@@ -482,6 +457,7 @@ description: 주문 도메인 특화 테스트 생성 및 커버리지 검증을
 
 | 상황 | 처리 방식 |
 |---|---|
+| **E-verify 프로브 실패 (Preflight, #20)** | 대화형·CI 동일 `status:"failed"` + remediation `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"`. **여기서 세팅하지 않는다**(자동 세팅·자동 위임·degrade 금지). 0단계 미진입 |
 | **필수 입력(projectRoot/buildTool/springVersion 등) 미지정 (#13)** | **자동 기본값 금지.** 대화형=`AskUserQuestion`으로 전부 질문 / CI=`status:"failed"`+remediation 중단 |
 | **빌드도구 미감지 (#5)** | `detect_build_tool`이 `BUILD_TOOL_UNDETECTED`면, 대화형=`AskUserQuestion("gradle/maven?")` / CI=중단 |
 | **빌드 능력 미비 (#17, 0.6단계)** | JaCoCo XML은 필수 검사. PITest는 `mutation.enabled:true`일 때만 플러그인·JUnit 어댑터·XML을 필수 검사한다. 대화형=PITest 주입 거부 시 `enabled:false`로 전환해 9단계만 skipped / CI=명시적으로 활성화한 PITest 능력 누락일 때만 remediation 중단 |

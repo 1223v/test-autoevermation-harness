@@ -11,7 +11,7 @@ description: PITest로 뮤테이션 테스트를 실행해 mutation score를 측
 
 ## 활성화 시 MCP 필수 (대체 금지)
 
-`mutation.enabled:false`인 정상 skip 경로는 MCP를 호출하지 않는다. PITest를 실행하는 경로에서는 `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다.
+`mutation.enabled:false`인 정상 skip 경로는 MCP를 호출하지 않는다. PITest를 실행하는 경로에서는 `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 `setup-harness`(E3b)가 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브(`health` 3종 호출)가 재확인한다.
 
 ## 호출 조건
 - 자동: `measure-coverage` 게이트 통과 직후 **`HarnessConfig.mutation.enabled:true`일 때만**.

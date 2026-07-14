@@ -6,19 +6,29 @@ fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서
 > 정책 연계: 런타임 의사결정(스펙 읽기불가·건너뛰기 등)은 [fallback-policy.md](./fallback-policy.md)를 따른다.
 > 이 문서는 그중 **환경·역량·버전 감지** 항목(#1·#2·#3·#4·#5·#6·**#20** + 테스트 실행 JDK)을 **시작 시점에 일괄 처리**하는 절차다.
 
+## 역할 분담 (v0.24.0 — 세팅과 실행의 분리)
+
+| 주체 | 담당 | 성격 |
+|---|---|---|
+| **`setup-harness` 스킬** | **E1~E10 환경 세팅 + 상태줄(S1) 설치** | **설치·빌드·프로비저닝을 실제로 수행**한다. 사용자가 명시적으로 1회(또는 환경이 깨졌을 때) 실행 |
+| `configure-harness` 스킬 | **E-verify 프로브**(시작 게이트) → 0.5단계 E8·E9 감지 → 0.6단계 E11·E12 | 세팅을 **수행하지 않는다**. 프로브 실패 시 하드 중단 |
+| `full-pipeline` 스킬 | **E-verify 프로브**(configure-harness를 건너뛰는 재사용·재개 경로에서 직접 실행) | 세팅을 **수행하지 않는다**. 프로브 실패 시 파이프라인 미시작 |
+
 ## 핵심 원칙
 
-1. **선(先) 세팅, 후(後) 실행.** `full-pipeline`/`configure-harness`는 0단계 진입 전에 이 체크리스트를 **TODO 리스트로 만들고 전부 통과**시킨다. 통과 못한 항목이 있으면 파이프라인을 시작하지 않는다.
-2. **함께 세팅 (대화형).** 자동으로 고칠 수 있는 항목은 **항목별로** `AskUserQuestion("지금 함께 세팅할까요?")`로 묻고, "예"면 그 자리에서 설치/빌드 → 재검증 → 체크. 침묵 진행·임의 degrade 금지.
-3. **항상 자동 세팅 (비대화형/CI).** `claude -p`/CI에는 질문할 수 없으므로 **결정적 세팅 항목**(pip 설치·jar 빌드 등 고정 명령으로 고칠 수 있는 것)은 **자동 수행**한다. 자동 수행이 실패하거나 **비결정적 항목**(버전 미감지·프로파일 충돌처럼 사람이 골라야 하는 것)은 `status:"failed"` + remediation으로 **하드 중단**한다.
+1. **세팅과 실행의 분리.** 환경 세팅(E1~E10)의 수행 주체는 **`setup-harness` 스킬 단 하나**다. `full-pipeline`/`configure-harness`는 시작 시 아래 **「E-verify 검증 프로브」만** 실행하며, **어떤 항목도 스스로 세팅하지 않는다** — 미충족이면 파이프라인을 시작하지 않고 `setup-harness` 실행을 안내하며 하드 중단한다.
+2. **함께 세팅 (대화형, setup-harness 안에서).** 자동으로 고칠 수 있는 항목은 **항목별로** `AskUserQuestion("지금 함께 세팅할까요?")`로 묻고, "예"면 그 자리에서 설치/빌드 → 재검증 → 체크. 침묵 진행·임의 degrade 금지.
+3. **항상 자동 세팅 (비대화형/CI, setup-harness 안에서).** `claude -p`/CI에는 질문할 수 없으므로 **결정적 세팅 항목**(pip 설치·jar 빌드 등 고정 명령으로 고칠 수 있는 것)은 **자동 수행**한다. 자동 수행이 실패하거나 **비결정적 항목**(버전 미감지·프로파일 충돌처럼 사람이 골라야 하는 것)은 `status:"failed"` + remediation으로 **하드 중단**한다.
 4. **TODO 가시화.** 각 항목을 TodoWrite 항목으로 만들어 `pending → in_progress → completed`로 체크해 나간다. 사용자/로그에 진척이 보이게 한다.
 5. **검증 후 체크.** 세팅 액션 뒤에는 반드시 **재감지**해서 통과를 확인한 뒤에만 completed로 표시한다.
 
 ---
 
-## 체크리스트 (TODO 항목)
+## 체크리스트 (TODO 항목) — 수행 주체: `setup-harness`
 
 각 항목: **감지(detect) → (미충족 시) 세팅 → 검증(verify)**. `auto`=결정적 자동 세팅 가능, `assist`=사용자와 함께/안내 필요.
+
+> **아래 E1~E10의 "세팅" 컬럼을 실행하는 주체는 `setup-harness` 스킬이다.** E8·E9(데이터 감지)는 configure-harness 0.5단계, E11·E12(빌드 능력·캐시)는 configure-harness 0.6단계에서 처리한다(`mutation.enabled` 인터뷰 결과에 의존하므로 세팅 단계로 앞당길 수 없다).
 
 | # | 항목 | 감지 | 세팅 종류 | 대화형 동작 | CI 동작 | 연계 |
 |---|---|---|---|---|---|---|
@@ -75,26 +85,61 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/script
 
 ---
 
-## 비대화형/CI 자동 세팅 흐름
+## E-verify 검증 프로브 (파이프라인 시작 게이트) — 수행 주체: `configure-harness` / `full-pipeline`
+
+`configure-harness`와 `full-pipeline`은 **세팅을 수행하지 않는다.** 시작 시 아래 프로브만 실행해 `setup-harness`가 이미 환경을 갖춰 놓았는지 **물리적으로 확인**한다. 전부 빠르고(밀리초~1초) 부작용이 없으며 멱등하다.
+
+> **왜 "세팅 완료 파일"을 두지 않는가**: `_workspace/`는 휘발성(`.gitignore`)이고, 세팅 완료 리포트 파일은 모든 방향으로 stale 해질 수 있다(JDK 제거, `mvn clean`, 플러그인 업데이트로 venv 경로 변경). 무엇보다 **MCP 등록은 세션 단위**라 파일로는 E3b를 증명할 수 없다 — `health`를 실제 호출하는 것만이 유일하게 정직한 검증이다. 따라서 **증거는 파일이 아니라 프로브다.**
+
+| 프로브 | 커버 항목 | 판정 |
+|---|---|---|
+| `repo-ast.health()` · `spec-doc.health()` · `build-test.health()` **3종 실제 호출** | **E3b**(라이브 연결) + 전이적으로 **E1·E2·E3**(런타임·venv·서버 등록이 없으면 애초에 응답 불가) | 도구 미노출/호출 실패 → 실패. repo-ast 응답의 `javaparser.jarFound:false` → E6 실패로 간주 |
+| `java -version` ≥ 21 | **E4** | 미충족 → 실패 |
+| `mcp/javaparser-cli/target/*-shaded.jar` 존재 또는 `REPO_AST_JAVAPARSER_JAR` 설정 | **E5·E6** | 미충족 → 실패 (위 health의 `jarFound`로 갈음 가능) |
+| `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py" --check-only` | **E7** | 종료코드 ≠ 0 → 실패 (`--check-only`는 감지만 하고 설치하지 않는다) |
+| 실행 JDK major ↔ Mockito/ByteBuddy 지원 범위 | **E10** | 위험이면 실패(또는 명시적 사용자 확인) |
+
+**하나라도 실패하면** 대화형·CI 동일하게 `status:"failed"` + `errors`에 실패 항목을 담고 **파이프라인을 시작하지 않는다.** 이때 remediation은 항상 아래 **고정 안내 문자열**을 포함한다:
 
 ```
+먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요
+```
+
+**금지**: 프로브 실패를 스스로 고치려 들지 않는다(`--ensure-only`·`./mvnw package`·`setup_jdtls.py` 세팅 실행 금지 — 그건 `setup-harness`의 일이다). 정규식·AST-only degrade로 우회하지도 않는다.
+
+상태줄(S1)은 **게이트에 포함하지 않는다** — consent 기반 선택 기능이라 미설치가 파이프라인 실패 사유가 될 수 없다.
+
+---
+
+## 비대화형/CI 자동 세팅 흐름 (`setup-harness` 내부)
+
+```
+# setup-harness — 세팅 수행 주체
 for item in [E2, E6, E7, ...결정적]:              # 런타임/필수 세팅(MCP SDK, JavaParser jar, JDT LS 등)
     if not detect(item):
         run(auto_fix_command)        # pip install / ./mvnw package / setup_jdtls.py
         if not detect(item):         # 재검증
             return failed(item, remediation)   # 자동 세팅 실패 → 하드 중단
-for item in [E1, E4, E8, E9, E10]:              # 비결정적/시스템 필수(JDK 21+ 포함)
+for item in [E1, E4, E10]:                       # 비결정적/시스템 필수(JDK 21+ 포함)
     if not detect(item):
-        return failed(item, remediation)        # 질문 불가 → 중단(HarnessRequest 사전지정 요청)
+        return failed(item, remediation)        # 질문 불가 → 중단(설치 안내)
 verify_mcp_health(E3b)                # repo-ast/spec-doc/build-test health 3종 호출, 실패 시 즉시 중단
 ```
 
 대화형은 위 `run(auto_fix_command)`를 **AskUserQuestion 확인 후** 실행하고, 비결정적 항목은 **질문**으로 채운다.
+(E8·E9는 configure-harness 0.5단계의 데이터 감지 항목이라 이 루프에 없다.)
+
+```
+# configure-harness / full-pipeline — 검증 전용(verify-only). 세팅하지 않는다.
+if not e_verify_probes():                       # 위 「E-verify 검증 프로브」 표
+    return failed(errors, "먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요")
+```
 
 ---
 
 ## 통과 기준
 
-- **E1·E2·E3·E3b·E4·E5(시스템 mvn 또는 동봉 mvnw)·E6·E7(전부 필수) 통과** + E8·E9(빌드도구·프로파일) **확정** + E10(실행 JDK 호환) **확인** → 0단계(configure-harness 인터뷰)로 진행. 하나라도 미충족이면 파이프라인을 시작하지 않는다.
+- **`setup-harness` 완료 기준**: **E1·E2·E3·E3b·E4·E5(동봉 mvnw)·E6·E7·E10 전부 통과**. 하나라도 미충족이면 `status:"failed"` + remediation. (상태줄 S1은 선택 — 실패해도 `warnings`.)
+- **파이프라인(`full-pipeline`/`configure-harness`) 시작 기준**: **E-verify 프로브 전부 통과**. 미통과 시 `status:"failed"` + 위 고정 안내 문자열로 **미시작 하드 중단**(자동 세팅 금지, 정규식·AST-only degrade 금지).
+- **E8·E9(빌드도구·프로파일)**는 configure-harness **0.5단계**에서 확정한다(데이터 감지).
 - **E11(빌드 능력)·E12(캐시 프라이밍)**는 0.5단계 직후 **0.6단계**에서 처리한다(6단계 run-tests 이전 필수). 대화형=승인 후 주입/프라이밍, CI=JaCoCo 또는 명시 활성화된 PITest 능력 미비 시 remediation 중단.
-- 하나라도 미충족(대화형에서 사용자가 중단 선택 / CI에서 자동 세팅 실패·비결정적) → `status:"failed"`, `errors`에 항목과 remediation 명시, 파이프라인 **미시작**.

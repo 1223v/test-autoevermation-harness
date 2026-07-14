@@ -9,6 +9,26 @@
 
 ---
 
+## [0.24.0] - 2026-07-15
+
+### Added — 환경 세팅 전용 스킬 `setup-harness` 분리 (세팅과 실행의 분리)
+
+- **`skills/setup-harness/`** 신규: 환경 세팅(**E1~E10** — Python 3.10+·MCP SDK·MCP 서버 등록·**E3b MCP 라이브 연결 검증**·JDK 21+·mvnw·JavaParser jar·JDT LS·실행 JDK↔Mockito)과 **상태줄 설치(S1)**를 단독으로 소유한다. `/test-autoevermation-harness-plugin:setup-harness`로 호출하며, 플러그인 설치 후 최초 1회 실행한다. **멱등** — 재실행 시 빠진 항목만 복구한다.
+  - 상태줄은 기존 `hooks/statusline-autosetup.py`(SSOT)를 그대로 호출하므로 SessionStart 훅·`setup-statusline` 스킬과 consent 기록이 완전히 일치한다. 상태줄 실패는 `warnings`이며 세팅 실패가 아니다(선택 기능).
+  - MCP `health`·`AskUserQuestion`은 서브에이전트에서 사용할 수 없으므로 이 스킬은 **메인 루프 전용**(`Task` 위임 금지)이다.
+
+### Changed — `full-pipeline`·`configure-harness`는 세팅하지 않고 검증만 한다
+
+- 두 스킬의 Phase E 실행 절차를 **E-verify 검증 게이트**로 대체했다. 시작 시 **부작용 없는 프로브**만 실행한다: `health`×3 실호출(E3b + 전이적으로 E1·E2·E3) · `java -version`≥21(E4) · shaded jar 존재(E5·E6) · `setup_jdtls.py --check-only`(E7) · 실행 JDK↔Mockito(E10).
+- 프로브가 하나라도 실패하면 대화형·CI 동일하게 `status:"failed"`로 **파이프라인 미시작 하드 중단**하고 `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"`를 안내한다. **자동 세팅·`setup-harness` 자동 위임·degrade는 모두 금지**다.
+- **재사용·재개 경로 보강**: 기존 `00_config-harness.json` 재사용이나 durable resume으로 `configure-harness`를 건너뛰는 경우, 오케스트레이터가 **직접 E-verify 프로브를 실행**한 뒤 1단계로 진입한다 — MCP 등록은 **세션 단위**라 이전 실행의 통과가 이번 세션을 보장하지 않기 때문이다(프로브는 검증이지 세팅이 아니므로 위임 계약 위반이 아니다).
+- **세팅 완료 증거는 파일이 아니라 프로브다.** `_workspace/`는 휘발성이고 "세팅 완료 리포트"는 stale 해질 수 있으며(JDK 제거·`mvn clean`·플러그인 업데이트로 venv 경로 변경), 무엇보다 세션 단위인 MCP 등록을 파일로 증명할 수 없다. 따라서 **새 산출물 파일을 만들지 않았고, 훅(`guard-gate-artifacts.py`·`record-run-context.py`)과 `hooks.json`은 변경이 없다.**
+- `configure-harness`는 **0.5단계(E8·E9 프로파일 감지)·0.6단계(E11·E12 빌드 능력·캐시 프라이밍)·인터뷰·HarnessConfig 생성·도메인 스킬 스캐폴딩**을 그대로 유지한다. E11·E12는 인터뷰 결과 `mutation.enabled`에 의존하므로 세팅 단계로 앞당길 수 없다.
+- SSOT 정렬: `references/environment-setup.md`에 **「역할 분담」·「E-verify 검증 프로브」** 절을 신설하고, `fallback-policy.md`(#1·#2·#3·#20)·`build-provisioning.md`·전 스킬·에이전트 문서의 "Phase E" 귀속을 `setup-harness`/E-verify로 정정했다. README·GUIDE·pipeline-flow(세팅 흐름 / 검증 게이트 2개 다이어그램으로 분리)를 최신화했다.
+- 표준 라이브러리 회귀 테스트 `tests/test_setup_harness_split.py`를 추가했다(스킬 소유권·게이트 문자열·SSOT·프로브 플래그 실재성 계약).
+
+---
+
 ## [0.23.0] - 2026-07-14
 
 ### Changed — PITest를 기본 비활성 선택 기능으로 전환

@@ -11,7 +11,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 AST-only degrade로 진행하지 말고 즉시 중단한다(fallback-policy #3 개정: Phase E·E7 설치/검증 실패 시 하드 중단).
+이 스킬은 `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 `setup-harness`(E3b)가 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브(`health` 3종 호출)가 재확인한다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 AST-only degrade로 진행하지 말고 즉시 중단한다(fallback-policy #3 개정: `setup-harness`의 E7 설치/검증 실패 시 하드 중단).
 
 ---
 
@@ -77,7 +77,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
    지시:
    - repo-ast-mcp의 `resolve_symbol`, `parse_java_file` 도구를 사용해 각 대상의 호출 그래프를 탐색하라.
-   - `lspAvailable=true` 전제(Phase E·E7이 보장, #3 — 게이트 판정은 호출자가 이미 수행)로 JDT LS 결과를 정의이동·참조탐색 보강에 활용하라.
+   - `lspAvailable=true` 전제(`setup-harness`의 E7이 보장, #3 — 게이트 판정은 호출자가 이미 수행)로 JDT LS 결과를 정의이동·참조탐색 보강에 활용하라.
    - 각 대상의 외부 의존(DB/HTTP/clock/random)을 식별해 testSeams에 기록하라.
    - 동작 흐름과 예외 경로(checked/unchecked exception, 롤백 조건)를 분리해 기술하라.
    - DI 패턴(@Autowired, 생성자 주입, @Value)과 트랜잭션 경계(@Transactional)를 명시하라.

@@ -8,7 +8,7 @@
 
 ## 왜 필요한가 (사실 근거)
 
-Phase E(E1–E10)는 **하네스 자신의 런타임**(Python·MCP SDK·JavaParser jar·JDK)만 세팅한다.
+`setup-harness`(E1–E10)는 **하네스 자신의 런타임**(Python·MCP SDK·JavaParser jar·JDK)만 세팅한다.
 **대상 프로젝트의 빌드 파일**이 JaCoCo XML을 낼 수 있는지는 별개이며, 준비돼 있지 않으면 8단계(measure-coverage)가 깨진다. PITest를 명시적으로 활성화했다면 플러그인뿐 아니라 XML 출력까지 준비돼야 9단계(mutation-test)가 동작한다.
 
 | 사실 | 결과 | 공식 출처 |

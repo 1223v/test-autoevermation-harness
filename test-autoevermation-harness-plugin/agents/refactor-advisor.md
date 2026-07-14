@@ -135,7 +135,7 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
   `now()`)는 에이전트의 `Read`로 대상 파일을 직접 읽어 계산하되, 결과 JSON에 소스 원문을 포함하지 않는다.
 
 ### JDT LS (파이프라인 전제 — 이 에이전트의 판정에는 불필요)
-- 이 에이전트의 판정 신호(복잡도·`new`/`now()` 스캔·N+1)는 전부 Read/Grep + repo-ast 메타 기반이라 **JDT LS를 직접 쓰지 않는다**. JDT LS는 Phase E·E7이 파이프라인 레벨에서 보장하는 전제일 뿐이다.
+- 이 에이전트의 판정 신호(복잡도·`new`/`now()` 스캔·N+1)는 전부 Read/Grep + repo-ast 메타 기반이라 **JDT LS를 직접 쓰지 않는다**. JDT LS는 `setup-harness`의 E7이 파이프라인 레벨에서 보장하는 전제일 뿐이다.
 - **`lspAvailable:false` 수신 시**: 정상 흐름에선 도달 불가(전제 위반 신호)지만, 권고는 **보조 게이트**이므로 중단하지 않는다 — `warnings`에 `JDT_LS_UNAVAILABLE`을 기록하고 판정을 계속한다(fallback-policy #19: 권고 실패는 파이프라인을 차단하지 않음).
 
 ---
@@ -164,7 +164,7 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
-| LSP 미가용 | `lspAvailable: false` | **중단하지 않는다** — 판정 신호는 Read/Grep 기반이라 JDT LS 없이 성립. `warnings`에 `JDT_LS_UNAVAILABLE`(전제 위반 신호) 기록 후 판정 계속(#19 — 권고는 보조 게이트, 파이프라인 차단 안 함. 파이프라인 자체의 JDT 필수 게이트는 Phase E·E7 소관) |
+| LSP 미가용 | `lspAvailable: false` | **중단하지 않는다** — 판정 신호는 Read/Grep 기반이라 JDT LS 없이 성립. `warnings`에 `JDT_LS_UNAVAILABLE`(전제 위반 신호) 기록 후 판정 계속(#19 — 권고는 보조 게이트, 파이프라인 차단 안 함. 파이프라인 자체의 JDT 필수 게이트는 `setup-harness`·E7 + E-verify 소관) |
 | 바디 Read 불가 | 파일 접근 불가·비Java | 해당 대상만 `warnings` 기록 + 시그니처 기반 부분 판정, 나머지 계속 |
 | `targetSymbols` 미제공 + `astResult` 없음 | — | `status: partial`, `analyze-ast` 선행 실행 안내 |
 | 대상 전부 판정 불가 | — | `status: failed`, `errors`에 원인 기록 |

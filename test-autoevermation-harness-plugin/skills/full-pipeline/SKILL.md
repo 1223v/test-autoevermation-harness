@@ -13,7 +13,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 **시나리오 승인 + 산출물(`test_docs/`).** 시나리오 설계(4단계) 직후, 테스트 생성(5단계) **전에 사용자 승인 게이트**를 둔다 — 시나리오를 대상 프로젝트의 `test_docs/scenarios/<id>.md`로 저장하고, 대화형은 `AskUserQuestion`으로 승인/제외·수정/재설계를 묻는다(승인분만 생성으로 진행). 비대화형·CI는 자동 승인 후 기록. 모든 단계가 끝나면 **마지막 단계(10단계)에서 시나리오 적합성을 검증**해(통과한 테스트가 시나리오 given/when/then을 실제로 만족하는지) `test_docs/`를 **시나리오 ↔ 테스트코드 ↔ 결과**로 정리하고, 불일치(`unmet`)가 있으면 **10.5단계 적합성 자동 보정 루프**(최대 3라운드)로 자동 교정한다. 정본: [references/scenario-docs.md](../../references/scenario-docs.md).
 
-**가장 먼저 Phase E 환경 세팅을 끝낸다.** 0단계 이전에 [references/environment-setup.md](../../references/environment-setup.md)(SSOT) 체크리스트를 TODO로 만들어 환경(역량·빌드도구·프로파일·실행 JDK)을 **선제적으로 전부 세팅**한다. 여기에 **대상 빌드 능력(JaCoCo XML 필수·PITest opt-in)과 의존성 캐시 프라이밍**(0.6단계, E11·E12)이 포함된다. `detect_build_capabilities(..., require_pitest=mutation.enabled)`로 필요한 항목만 `detect→approve→inject`한다([references/build-provisioning.md](../../references/build-provisioning.md)). 미충족 필수 항목이 있으면 파이프라인을 시작하지 않지만, 기본 `mutation.enabled:false`에서의 PITest 누락은 미충족이 아니다.
+**가장 먼저 E-verify 세팅 검증 게이트를 통과시킨다 (v0.24.0 — 세팅과 실행의 분리).** **환경 세팅(E1~E10 + 상태줄)의 수행 주체는 [`setup-harness`](../setup-harness/SKILL.md) 스킬이며, 이 파이프라인은 환경을 세팅하지 않는다.** 0단계 이전에 [references/environment-setup.md](../../references/environment-setup.md)(SSOT) 「E-verify 검증 프로브」만 실행해 세팅 완료를 **확인**하고, 미충족이면 파이프라인을 **시작하지 않고** `status:"failed"` + `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"`로 하드 중단한다(자동 세팅·자동 위임 금지). 다만 **대상 빌드 능력(JaCoCo XML 필수·PITest opt-in)과 의존성 캐시 프라이밍**(0.6단계, E11·E12)은 `mutation.enabled` 인터뷰 결과에 의존하므로 종전대로 `configure-harness` 0.6단계에서 처리한다 — `detect_build_capabilities(..., require_pitest=mutation.enabled)`로 필요한 항목만 `detect→approve→inject`한다([references/build-provisioning.md](../../references/build-provisioning.md)). 기본 `mutation.enabled:false`에서의 PITest 누락은 미충족이 아니다.
 
 ---
 
@@ -27,7 +27,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 | 단계 | 필수 수행 주체 | 산출물(`_workspace/`) |
 |---|---|---|
-| 0 | `configure-harness` **스킬 호출** (E1~E10 인라인 수행 금지) | `00_config-harness.json` |
+| 0 | `configure-harness` **스킬 호출** (E1~E10 **세팅** 수행 금지 — `setup-harness` 소관. E-verify **프로브만** 허용) | `00_config-harness.json` |
 | 1 | `Task(subagent_type="spec-reviewer")` | `01_spec-reviewer_criteria.json` |
 | 2 | `Task(subagent_type="ast-structure-analyzer")` | `02_ast_targets.json` |
 | 3 | `Task(subagent_type="source-code-analyzer")` | `03_source_seams.json` |
@@ -107,7 +107,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 | `javaVersion` | `string` | 아니오 | `"미지정"` → 0단계 #13 확정 | `17`–`26` |
 | `springVersion` | `string` | 아니오 | `"미지정"` → 0단계 #4·#13 확정 | Spring Boot 버전 (예: `3.4.5`) |
 | `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
-| `lspAvailable` | `boolean` | 아니오 | `true` | JDT LS 연결 여부. E7(JDT LS)은 Phase E 필수 항목이므로 통과 시 항상 `true` — 미가용이면 Phase E에서 하드 중단 |
+| `lspAvailable` | `boolean` | 아니오 | `true` | JDT LS 연결 여부. E7(JDT LS)은 `setup-harness`의 필수 항목이므로 통과 시 항상 `true` — 미가용이면 **E-verify 게이트에서 하드 중단**(세팅은 `setup-harness` 소관) |
 | `maxRepairRetries` | `integer` | 아니오 | `3` | repair-tests **진전 추적 단위**(고정 상한 아님 — #12 무진전 판정 기준 "동일 실패 3회 연속"과 정렬) |
 | `domainKeywords` | `string[]` | 아니오 | `[]` | 스펙 검색 힌트 |
 | `mutation` | `object` | 아니오 | `{ "enabled": false }` | PITest 선택 설정. `enabled:true`일 때만 plugin/JUnit/XML 능력 검사와 9단계 실행; 세부값은 configure-harness가 병합 |
@@ -144,7 +144,7 @@ testScope         = 입력값 또는 "mixed"
 javaVersion       = 입력값 또는 "미지정"
 springVersion     = 입력값 또는 "미지정"
 stylePolicy       = 입력값 또는 "google-java"
-lspAvailable      = 입력값 또는 configure-harness E7 통과값(Phase E 통과 시 항상 true — E7은 필수 항목이며, 미가용이면 Phase E에서 하드 중단하므로 false로 이 단계에 도달하지 않는다)
+lspAvailable      = 입력값 또는 E7 통과값(항상 true — E7은 setup-harness의 필수 항목이고, 미가용이면 E-verify 게이트에서 하드 중단하므로 false로 이 단계에 도달하지 않는다)
 maxRepairRetries  = 입력값 또는 3   # 진전 추적 단위(#12 무진전 3회 연속과 정렬)
 domainKeywords    = 입력값 또는 []
 mutationRequest   = 입력 mutation 객체 또는 {}  # 입력 존재 여부를 보존: 대화형 미지정이면 configure-harness가 질문
@@ -159,16 +159,20 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 
 ---
 
-### Phase E: 환경 세팅 (0단계 이전 — 선행 필수)
+### Phase E-verify: 환경 세팅 검증 게이트 (0단계 이전 — 선행 필수)
 
-전처리 직후, 0단계 진입 **전에** `configure-harness`를 호출해 Phase E 체크리스트(E1~E10)를 통과시킨다. **수행 주체는 configure-harness다** — configure-harness는 [references/environment-setup.md](../../references/environment-setup.md) 체크리스트를 **TodoWrite로 만들어 전부 통과**시킨다(항목별 감지·세팅 명령·대화형/CI 분기의 실행 절차는 그 스킬의 Preflight 절, 항목 정의·통과 기준·degrade 금지 원칙은 environment-setup.md(SSOT)와 fallback-policy #2·#3·#20이 정본). **오케스트레이터가 configure-harness 호출 없이 E 항목을 인라인 수행하거나, `AskUserQuestion`만 직접 던지고 0단계를 대체하는 것은 계약 위반이다** — `_workspace/00_config-harness.json`(`springProfile` 포함 HarnessConfig) 없이는 1단계 이후 산출물 기록이 훅에 차단된다.
+**이 파이프라인은 환경을 세팅하지 않는다.** 세팅(E1~E10 + 상태줄)의 수행 주체는 [`setup-harness`](../setup-harness/SKILL.md) 스킬이며, 사용자가 명시적으로 실행한다. 오케스트레이터는 **세팅 완료 여부를 검증**하기만 한다. 정본 프로브 목록·판정: [references/environment-setup.md](../../references/environment-setup.md)(SSOT) 「**E-verify 검증 프로브**」.
 
-- **대상 항목**: E1 Python 3.10+ · E2 MCP SDK · E3 MCP 서버 등록 · **E3b MCP 라이브 연결 검증(`health` 3종 호출)** · E4 JDK 21+ · E5 mvnw 동봉 · E6 JavaParser jar · E7 JDT LS+Java21 · E10 테스트 실행 JDK 호환. (E8·E9는 0.5단계, **E11 JaCoCo XML + 활성화된 경우의 PITest plugin/JUnit/XML·E12 캐시는 0.6단계**에서 확정.)
-- **세팅 방식**: 자동 가능 항목(E1·E2·E6·E7)은 **대화형=항목별 `AskUserQuestion` 후 함께 세팅 / CI=자동 실행**(E1+E2는 v0.15.0+ `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only`로 질문 없이 자동(전 OS) — Python 없으면 uv 무-sudo 설치 + venv 의존성, 실패 시에만 수동 폴백 질문, E6은 `cd mcp/javaparser-cli && ./mvnw -q -DskipTests package`, E7은 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py`). assist 항목(E4 JDK 21+·E10)은 대화형=설치/런타임 안내 질문, CI=미충족 시 하드 중단. **E3b·E6·E7은 필수** — 미가용이면 자동 세팅을 시도하고, 실패 시 하드 중단한다(degrade 진행 없음).
-- **검증 후 체크**: 각 세팅 뒤 재감지로 통과 확인 후 `completed` 표시. **E3b는 "도구가 응답했다"만으로 검증 완료로 간주하지 않는다** — `health` 3종(repo-ast·build-test·spec-doc)을 실제 호출해 응답 필드를 확인한다.
-- **게이트** (정본: [environment-setup.md](../../references/environment-setup.md) 「통과 기준」): 필수 항목 **E1·E2·E3·E3b(런타임·MCP 라이브 연결) + E4(JDK 21+)·E5(mvnw)·E6(JavaParser jar)·E7(JDT LS) + E10(실행 JDK 호환)**(그리고 0.5단계에서 확정되는 **E8·E9 빌드도구·프로파일**)이 통과하지 못하면 0단계로 진행하지 않고 `status:"failed"` + remediation으로 중단한다(정규식·AST-only degrade로 진행하지 않는다).
+- **(i) 통상 경로 (0단계를 실행하는 경우)**: 검증은 0단계 `configure-harness` 호출 **내부의 Preflight(E-verify)**에서 수행된다. 오케스트레이터는 별도로 프로브를 돌리지 않고, configure-harness의 `status`로 판정한다. **오케스트레이터가 configure-harness 호출 없이 E 항목을 인라인 수행하거나, `AskUserQuestion`만 직접 던지고 0단계를 대체하는 것은 계약 위반이다** — `_workspace/00_config-harness.json`(`springProfile` 포함 HarnessConfig) 없이는 1단계 이후 산출물 기록이 훅에 차단된다.
+- **(ii) 재사용·재개 경로 (0단계를 건너뛰는 경우)**: 이미 통과한 `_workspace/00_config-harness.json`을 재사용하거나 Phase 0 durable resume으로 **configure-harness를 호출하지 않는 경우**, 그 세션에서는 아무도 환경을 검증하지 않은 상태가 된다(MCP 등록은 **세션 단위**라 이전 실행의 통과가 이번 세션을 보장하지 않는다). 따라서 이 경우에는 **오케스트레이터가 직접 E-verify 프로브를 실행**한 뒤 1단계로 진입한다. 프로브는 **검증이지 세팅이 아니므로** 단계 계약(위임 필수)에 위배되지 않는다 — 표의 "E-verify 프로브만 허용" 예외가 이것이다.
+- **(iii) 게이트**: 프로브가 하나라도 실패하면 대화형·CI 동일하게 파이프라인을 **시작하지 않고**(`status:"failed"`) 아래 고정 안내를 remediation에 담아 중단한다.
 
-이 오케스트레이터는 위 절차를 **재수행하지 않고 산출물로만 판정**한다: 이미 통과한 `_workspace/00_config-harness.json`이 있으면 재사용(중복 실행 금지), 없으면 configure-harness 호출, 필수 항목 미충족이면 0단계로 진행하지 않고 `status:"failed"` + remediation으로 중단.
+```
+먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요
+```
+
+- **금지 사항**: 프로브 실패를 오케스트레이터가 스스로 고치지 않는다 — `--ensure-only`·`./mvnw package`·`setup_jdtls.py`(설치 모드) 실행 금지, `setup-harness` 자동 위임 금지(사용자가 명시적으로 실행해야 한다), 정규식·AST-only degrade 금지(fallback-policy #2·#3·#20).
+- **범위 밖**: E8·E9(빌드도구·프로파일)는 configure-harness **0.5단계**, **E11(JaCoCo XML + 활성화된 경우의 PITest plugin/JUnit/XML)·E12(캐시)는 0.6단계**에서 확정한다(`mutation.enabled` 의존).
 
 ---
 
@@ -765,7 +769,7 @@ Markdown 보고서는 아래 구조로 출력한다.
 
 | 상황 | 처리 방식 |
 |---|---|
-| **Phase E·E3b MCP 연결 검증 실패 (#20)** | 대화형·CI 양 모드 `status:"failed"` + remediation(플러그인 활성화 확인 → `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` → `/reload-plugins`/재시작). **파이프라인을 시작하지 않는다.** Grep/Read 대체 금지 |
+| **E-verify·E3b 검증 실패 (#20)** | 대화형·CI 양 모드 `status:"failed"` + remediation `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"`. **파이프라인을 시작하지 않는다.** 오케스트레이터가 직접 세팅하거나 setup-harness를 자동 위임하지 않는다. Grep/Read 대체 금지 |
 | **파이프라인 도중 MCP 도구 호출 실패 또는 `JAVAPARSER_REQUIRED`/`degraded:true` 수신 (#20/#2)** | 즉시 중단(`status:"failed"` + remediation). **Grep/Read/직접 파싱으로 대체 생성 금지** — MCP 도구는 필수 경로다 |
 | 1·2단계(병렬) 모두 `failed` | 3단계 이후 중단, `status: "failed"` 반환 |
 | 1단계만 `failed` | specResult 없이 진행, `status: "partial"` |

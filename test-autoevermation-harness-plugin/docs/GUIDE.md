@@ -83,11 +83,12 @@ test-autoevermation-harness-plugin/
 최소화된 read-only/write 분리), **MCP 서버 = 결정적 도구**(같은 입력이면 같은 출력 — 빌드 실행,
 XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 
-### 2.2 Skills (14종)
+### 2.2 Skills (15종)
 
 | Skill | 파이프라인 단계 | 역할 |
 |---|---|---|
-| `configure-harness` | Phase E + 0/0.5/0.6 | 환경 세팅 → Spring 프로파일 감지 → 4항목 인터뷰 → `HarnessConfig` 생성 |
+| **`setup-harness`** | **사전(선행)** | **환경 세팅 전용 — E1~E10(Python·MCP 런타임·MCP 라이브 연결·JDK 21+·JavaParser jar·JDT LS) + 상태줄 설치.** 플러그인 설치 후 최초 1회 실행, 멱등 재실행 가능 |
+| `configure-harness` | E-verify + 0/0.5/0.6 | **세팅 검증 게이트(E-verify)** → Spring 프로파일 감지 → 4항목 인터뷰 → `HarnessConfig` 생성 (**환경을 세팅하지 않는다**) |
 | `full-pipeline` | 전체 | end-to-end 오케스트레이션(아래 §3) |
 | `ingest-specs` | 1 | 스펙 문서 인덱싱·acceptance criteria(Given/When/Then) 정규화 |
 | `analyze-ast` | 2 | JavaParser 기반 AST 구조·테스트 대상 추출 |
@@ -100,7 +101,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `measure-coverage` | 8 | JaCoCo near-100% 게이트 루프 |
 | `mutation-test` | 9(선택) | `mutation.enabled:true`일 때 PITest 뮤테이션 강화 루프 |
 | `verify-scenarios` | 10 | 시나리오 적합성 검증 + `test_docs/` 정리 |
-| `setup-statusline` | (부가) | Claude Code statusLine에 Test-AutoEverMation 진행률 줄(버전·%·현재 단계) 설치/제거 |
+| `setup-statusline` | (부가) | Claude Code statusLine에 Test-AutoEverMation 진행률 줄(버전·%·현재 단계) 설치/제거 (`setup-harness` S1과 동일 스크립트) |
 
 모든 스킬은 단독 호출도 가능하다(`/test-autoevermation-harness-plugin:<skill>`). `full-pipeline`은 이들을 순서·병렬
 전략에 따라 조합한다.
@@ -139,7 +140,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `spec-doc` | `index_docs` · `search_requirements` · `extract_acceptance_criteria` · `health` | 스펙 문서 청크 인덱싱·요구사항 검색·Given/When/Then criteria 추출. 경로 allowlist(`SPEC_DOC_ALLOWLIST`) + 민감정보 redaction |
 | `build-test` | `detect_build_tool` · `detect_spring_profile` · `detect_build_capabilities` · `check_dependency_cache` · `list_test_tasks` · `run_targeted_tests` · `parse_junit_xml` · `parse_jacoco_report` · `parse_pitest_report` · `coverage_gate` · `detect_pipeline_state` · `health` | Gradle/Maven 감지, Boot 프로파일 감지, 필수 JaCoCo XML + 선택적 PITest(plugin/JUnit/XML) 능력 감지, 캐시 신호, 대상 한정 테스트 실행, 리포트 파싱, 커버리지 게이트, 영속 증거 기반 상태 복원 |
 
-파이프라인 시작 전 Phase E `E3b`가 `health` 3종을 실호출해 세션에 실제로 연결됐는지 검증한다
+`setup-harness`의 `E3b`가 `health` 3종을 실호출해 세션에 실제로 연결됐는지 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브가 이를 재확인한다
 (실패 시 하드 중단 — [environment-setup.md](../references/environment-setup.md)).
 
 각 서버는 보조 MCP 리소스(`ast://index`, `spec://glossary`, `build://metadata` 등)와 프롬프트도 노출한다.
@@ -165,7 +166,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 `.lsp.json`은 Eclipse JDT LS(`jdtls`)를 등록한다(Java 21+ 런타임 필요, v0.16.0부터 **필수**). `command`는
 node 래퍼 `mcp/jdtls-launcher.cjs`를 거쳐 PATH → 프로비저닝 경로 순으로 `jdtls` 실행 파일을 찾는다.
 미설치 시 `scripts/setup_jdtls.py`가 PATH → brew(macOS) → eclipse.org milestone tarball
-(`${CLAUDE_PLUGIN_DATA}/jdtls`) 순으로 자동 설치를 시도하며, 그래도 실패하면 (Phase E·E7) 하드 중단한다 —
+(`${CLAUDE_PLUGIN_DATA}/jdtls`) 순으로 자동 설치를 시도하며, 그래도 실패하면 (`setup-harness`·E7) 하드 중단한다 —
 AST-only degrade는 더 이상 허용되지 않는다.
 
 ---
@@ -184,11 +185,12 @@ AST-only degrade는 더 이상 허용되지 않는다.
 - 각 서브에이전트의 `total_tokens`/`duration_ms`는 완료 시점에 `_workspace/timing.json`에 즉시 누적한다
   (병목 단계 식별용, 헬퍼: `scripts/record-timing.py`).
 
-### 3.2 단계 흐름 (Phase E → 0 → … → 10)
+### 3.2 단계 흐름 (setup-harness → E-verify → 0 → … → 10)
 
 | 단계 | 스킬 / 에이전트 | 하는 일 | 산출물 |
 |---|---|---|---|
-| **Phase E** | configure-harness | 환경 세팅 체크리스트 E1~E12를 TodoWrite로 만들어 **선제 통과**. 필수: E1 Python·E2 MCP SDK·E3 서버등록·**E3b MCP 라이브 연결 검증(`health` 3종 실호출)**·**E4 JDK 21+**·**E5/mvnw**·**E6 JavaParser jar**·**E7 JDT LS**·E10 실행JDK↔Mockito. v0.16.0부터 선택 항목 없음 — 미충족이면 파이프라인 **미시작**(하드 중단) | — |
+| **사전(선행)** | **setup-harness** | 환경 세팅 체크리스트 E1~E10을 TodoWrite로 만들어 **세팅**(설치·빌드·프로비저닝). 필수: E1 Python·E2 MCP SDK·E3 서버등록·**E3b MCP 라이브 연결 검증(`health` 3종 실호출)**·**E4 JDK 21+**·**E5/mvnw**·**E6 JavaParser jar**·**E7 JDT LS**·E10 실행JDK↔Mockito. 추가로 S1 상태줄 설치(선택). **사용자가 명시적으로 1회 실행** | — |
+| **E-verify** | configure-harness (Preflight) / full-pipeline(재사용·재개 경로) | 세팅 완료를 **검증만** 한다(프로브: `health`×3 · `java -version` · jar 존재 · `setup_jdtls.py --check-only` · 실행JDK↔Mockito). **세팅하지 않는다** — 미충족이면 파이프라인 **미시작**(하드 중단) + `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"` | — |
 | **0** | configure-harness | 4항목 인터뷰(스펙 경로/대상 선별/PITest 사용 여부·세부값/커버리지 임계) → `HarnessConfig` | `00_config-harness.json` |
 | **0.5** | configure-harness | `detect_spring_profile`로 Boot 2.0–4.x 프로파일 확정. 미감지→질문(CI 중단), 충돌→확정 질문. **가정 금지** | (HarnessConfig에 병합) |
 | **0.6** | configure-harness | `mutation.enabled` opt-in 확정 → JaCoCo XML 필수 검사 + 활성화된 PITest(plugin/JUnit/XML)만 `detect→approve→inject` → 캐시 프라이밍 결정 | `00b_build_provision.json` |
@@ -298,7 +300,7 @@ uv(무-sudo; POSIX `install.sh` / Windows `install.ps1`)로 관리형 Python을 
 python3 -m pip install -r mcp/requirements.txt    # mcp[cli]>=1.2.0, Python 3.10+
 ```
 
-Phase E의 자동 세팅 범위는 Python 런타임에 그치지 않는다 — **E6**이 `mcp/javaparser-cli`에서
+`setup-harness`의 자동 세팅 범위는 Python 런타임에 그치지 않는다 — **E6**이 `mcp/javaparser-cli`에서
 `./mvnw -q -DskipTests package`(동봉된 Maven Wrapper, 시스템 Maven 불요)로 JavaParser jar를 자동
 빌드하고, **E7**이 `scripts/setup_jdtls.py`로 JDT LS를 자동 설치한다(PATH → brew(macOS) →
 eclipse.org milestone tarball). 두 단계 모두 v0.16.0부터 **필수**이며, 실패 시 remediation과 함께
@@ -310,7 +312,7 @@ jdtls 사전 설치로 대체한다.
 
 정밀 AST를 위해 jar 빌드가 **필수**다(JDK 21+). 시스템 Maven은 불요 — Maven Wrapper(`mvnw`)가
 `mcp/javaparser-cli`에 동봉되어 있다. `.mcp.json` 기본값이 `REPO_AST_REQUIRE_JAVAPARSER=1`이라
-jar가 없으면 정규식 fallback 없이 하드실패(`JAVAPARSER_REQUIRED`)한다. Phase E·E6이 자동 빌드하므로
+jar가 없으면 정규식 fallback 없이 하드실패(`JAVAPARSER_REQUIRED`)한다. `setup-harness`의 E6이 자동 빌드하므로
 보통 손으로 할 필요는 없다.
 
 ```bash
@@ -321,13 +323,17 @@ cd mcp/javaparser-cli && ./mvnw -q -DskipTests package     # → target/astcli-1
 ### 4.4 JDT LS (필수, v0.16.0+)
 
 semantic 분석 보강용. `jdtls`가 PATH에 있고 Java 21+ 런타임이 있으면 `.lsp.json`(node 경유
-`mcp/jdtls-launcher.cjs`)으로 자동 연결된다. 없으면 Phase E·E7의 `scripts/setup_jdtls.py`가
+`mcp/jdtls-launcher.cjs`)으로 자동 연결된다. 없으면 `setup-harness` E7의 `scripts/setup_jdtls.py`가
 PATH → brew(macOS) → eclipse.org milestone tarball(`${CLAUDE_PLUGIN_DATA}/jdtls`) 순으로 자동
 설치를 시도하고, 그래도 실패하면 하드 중단한다 — AST-only degrade는 더 이상 허용되지 않는다.
 
-> 위 4.2~4.4는 수동 명령이지만, 실제로는 **Phase E가 시작 시 감지해서 대화형이면 "지금 함께
-> 세팅할까요?"로 묻고, CI면 결정적 항목(pip/mvnw/jdtls 설치)을 자동 수행**한다 — 보통 손으로
+> 위 4.2~4.4는 수동 명령이지만, 실제로는 **`/test-autoevermation-harness-plugin:setup-harness`가 감지해서
+> 대화형이면 "지금 함께 세팅할까요?"로 묻고, CI면 결정적 항목(pip/mvnw/jdtls 설치)을 자동 수행**한다 — 보통 손으로
 > 미리 할 필요가 없다. 자동 세팅이 실패하면(오프라인 등) 하드 중단 + remediation이 표시된다.
+>
+> **v0.24.0부터 환경 세팅은 `full-pipeline`이 아니라 `setup-harness`가 수행한다.** 플러그인 설치 후 최초 1회
+> `/test-autoevermation-harness-plugin:setup-harness`를 실행하면 된다. `full-pipeline`/`configure-harness`는
+> 시작 시 **검증(E-verify)만** 하고, 미완료면 이 명령을 안내하며 중단한다(자동 세팅·자동 위임 없음).
 
 ### 4.5 제거
 
@@ -412,7 +418,7 @@ Spring 프로젝트를 연 Claude Code 세션에서:
 
 이후 하네스가 묻는 것들(전형적 순서):
 
-1. **Phase E**: 미충족 환경 항목별 "지금 함께 세팅할까요?" (MCP SDK 설치, jar 빌드 등)
+1. **(사전) `setup-harness`**: 미충족 환경 항목별 "지금 함께 세팅할까요?" (MCP SDK 설치, jar 빌드, JDT LS 설치 등) — `full-pipeline`은 이 세팅이 끝나 있어야 시작된다(E-verify 게이트)
 2. **0.5**: Boot 버전을 감지 못했거나 충돌하면 메이저 버전/우선 기준 선택
 3. **0.6**: PITest 사용 여부를 먼저 확정한다. JaCoCo XML은 필수, PITest는 켠 경우에만 plugin/JUnit/XML 스니펫 주입 여부를 묻고 콜드 캐시 프라이밍을 결정한다.
 4. **인터뷰 4항목**: 스펙 문서 경로 / 테스트 대상 / PITest 사용 여부·활성화 시 깊이 / 커버리지 임계값·제외
@@ -643,10 +649,10 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | 증상 | 원인 | 해결 |
 |---|---|---|
 | MCP 서버 3종이 연결 안 됨 | (자동 설치 실패 — 오프라인/`node` 부재/`HARNESS_AUTO_PYTHON=0`) | **세션 시작 화면에 표시된 수동 폴백 명령**(v0.13.1+, SessionStart 훅 exit 2 안내)을 따른다: Python 3.10+ 설치 → `python3 -m pip install -r mcp/requirements.txt` (Windows: `py -3 -m pip ...`) → `/reload-plugins`. 상세 진단은 `mcp-logs-plugin-*` 로그의 `launch`/`bootstrap` 줄 |
-| Phase E `E3b`에서 하드 중단(`health` 3종 호출 실패) | 플러그인 비활성/MCP 서버 미등록/세션에 도구 미노출 | 플러그인 활성화 여부 확인 → `node mcp/launch.cjs <server>.py`로 `--ensure-only` 수동 실행 → `/reload-plugins`(또는 Claude Code 재시작) |
+| `E3b`/E-verify에서 하드 중단(`health` 3종 호출 실패) | 플러그인 비활성/MCP 서버 미등록/세션에 도구 미노출 | `/test-autoevermation-harness-plugin:setup-harness` 실행 → 그래도 실패하면 플러그인 활성화 여부 확인 → `node mcp/launch.cjs --ensure-only` 수동 실행 → `/reload-plugins`(또는 Claude Code 재시작) |
 | 플러그인 스킬이 아예 안 보임 / 설치 상태가 깨짐 | 플러그인 캐시 손상 | 공식 트러블슈팅: `rm -rf ~/.claude/plugins/cache` → Claude Code 재시작 → 재설치(§4.6) |
 | `JAVAPARSER_REQUIRED`로 하드 중단 | JavaParser jar 빌드 실패/JDK 21+ 없음 | §4.3대로 `./mvnw -q -DskipTests package` 재시도 또는 `REPO_AST_JAVAPARSER_JAR` 사전 지정. JDK 21+ 미탐지가 원인이면 먼저 JDK를 설치 |
-| `java -version`가 21 미만/미탐지로 Phase E(E4) 중단 | JDK 21+ 미설치 또는 PATH에 구버전 JDK만 존재 | JDK 21+ 설치 후 PATH 갱신(jar 빌드 17+ ⊂ JDT LS 21+를 아우르는 단일 기준) — E10(대상 프로젝트 테스트 실행 JDK)과는 별개 |
+| `java -version`가 21 미만/미탐지로 `setup-harness`(E4) 중단 | JDK 21+ 미설치 또는 PATH에 구버전 JDK만 존재 | JDK 21+ 설치 후 PATH 갱신(jar 빌드 17+ ⊂ JDT LS 21+를 아우르는 단일 기준) — E10(대상 프로젝트 테스트 실행 JDK)과는 별개 |
 | 커버리지(8)가 리포트를 못 찾음 | Gradle JaCoCo XML 기본 OFF | 0.6단계 JaCoCo 주입 승인 또는 provisioning 스니펫 반영 |
 | 활성화한 뮤테이션(9)이 리포트를 못 찾음 | PITest 플러그인/JUnit 어댑터 또는 XML 출력 누락(PIT 기본은 HTML) | `mutation.enabled` 확인 후 0.6단계 PITest 스니펫(plugin/JUnit/XML) 반영 |
 | 첫 실행(6)에서 의존성 해석 실패 | 콜드 캐시 + 기본 오프라인 | 1회 온라인 프라이밍 승인 / CI는 사전 `dependency:go-offline` 또는 `BUILD_TEST_ALLOW_NETWORK=1` |
@@ -668,7 +674,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | [docs/pipeline-flow.md](./pipeline-flow.md) | 전체 흐름 Mermaid 다이어그램 |
 | [skills/full-pipeline/SKILL.md](../skills/full-pipeline/SKILL.md) | 오케스트레이션 정본(단계별 Task 호출·실패표) |
 | [skills/full-pipeline/references/orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) | `_workspace/` 규약·부분 재실행 매트릭스·timing |
-| [references/environment-setup.md](../references/environment-setup.md) | Phase E 체크리스트(E1~E12) SSOT |
+| [references/environment-setup.md](../references/environment-setup.md) | 환경 세팅 체크리스트(E1~E12) + **E-verify 검증 프로브** SSOT |
 | [references/fallback-policy.md](../references/fallback-policy.md) | fallback 정책 SSOT |
 | [references/scenario-docs.md](../references/scenario-docs.md) | `test_docs/`·승인·적합성 검증 SSOT |
 | [references/refactor-advisory.md](../references/refactor-advisory.md) | 3.5단계 판정 기준·임계값 SSOT |

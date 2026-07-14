@@ -17,7 +17,7 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 파이프라인 시작 전 Phase E·E3b(`health` 3종 호출)에서 선검증된다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 진행을 금지하고 즉시 중단한다(fallback-policy #3 개정). 단, 이 MCP 가용성 요구는 **판정 자체의 실패(허위 양성 억제, 근거 부족 시 미플래그 등)가 non-blocking(#19)인 것과는 별개**다 — MCP 미가용은 하드 중단, 판정 보수성은 기존 정책대로 유지한다.
+이 스킬은 `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 `setup-harness`(E3b)가 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브(`health` 3종 호출)가 재확인한다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 진행을 금지하고 즉시 중단한다(fallback-policy #3 개정). 단, 이 MCP 가용성 요구는 **판정 자체의 실패(허위 양성 억제, 근거 부족 시 미플래그 등)가 non-blocking(#19)인 것과는 별개**다 — MCP 미가용은 하드 중단, 판정 보수성은 기존 정책대로 유지한다.
 
 ---
 
