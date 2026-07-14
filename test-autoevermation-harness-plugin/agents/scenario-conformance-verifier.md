@@ -1,6 +1,6 @@
 ---
 name: scenario-conformance-verifier
-description: "Use this agent at the very end of the pipeline (after run/coverage and optional mutation) to verify that the generated and passing tests actually satisfy each approved BDD scenario (given/when/then), and to write the scenario↔test↔result living documentation under the target project's test_docs/. Triggers on: full-pipeline final conformance stage, or /test-autoevermation-harness-plugin:verify-scenarios."
+description: "Use this agent at the very end of the pipeline (after run/coverage) to verify that the generated and passing tests actually satisfy each approved BDD scenario (given/when/then), and to write the scenario↔test↔result living documentation under the target project's test_docs/. Triggers on: full-pipeline final conformance stage, or /test-autoevermation-harness-plugin:verify-scenarios."
 model: inherit
 tools: Read, Write, Edit, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml
 disallowedTools: Bash
@@ -19,9 +19,9 @@ disallowedTools: Bash
 
 ## 호출 조건
 
-- `full-pipeline` 10단계(run-tests·measure-coverage 및 활성화된 경우 mutation-test 완료 후)에서 호출될 때
+- `full-pipeline` 9단계(run-tests·measure-coverage 완료 후)에서 호출될 때
 - `/test-autoevermation-harness-plugin:verify-scenarios` 스킬이 직접 호출될 때
-- 시나리오/테스트가 갱신되어 적합성 재검증이 필요할 때(부분 재실행)
+- 시나리오/테스트가 갱신되어 적합성 재검증이 필요할 때(부분 재실행은 변경 테스트 재실행·커버리지 재측정 후 진입)
 
 ---
 
@@ -69,7 +69,7 @@ disallowedTools: Bash
    단언 누락/약화(예: 상태 검증 빠짐, 예외 타입 미확인, 호출 횟수 미검증)면 `unsatisfied` + 사유 기록(`nonconformanceClass: "THEN_GAP"`).
    given도 시나리오와 어긋나지 않는지 점검한다(mock 설정 일치 — 어긋나면 `"GIVEN_MISMATCH"`).
 5. **판정** — `satisfied`(매핑+통과+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·target 불일치·단언 부족) / `missing`(매핑 없음, `nonconformanceClass: "MAPPING_MISSING"`).
-   `thenCovered`를 `충족/전체`(예: `2/3`)로 기록하고, `unsatisfied`/`missing`에는 `nonconformanceClass`를 반드시 기록한다(10.5단계 보정 라우팅 힌트).
+   `thenCovered`를 `충족/전체`(예: `2/3`)로 기록하고, `unsatisfied`/`missing`에는 `nonconformanceClass`를 반드시 기록한다(9.5단계 보정 라우팅 힌트).
 
 then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과 시나리오를 대조)이지만, **target 호출 대조(3단계)는 `methodCalls` 기반 기계 판정**이다. `methodCalls`가 비어 있을 때는 repo-ast 응답의 `degraded` 플래그로 원인을 구분한다 — `degraded:true`(regex 폴백)는 "호출 정보 없음"이므로 읽기 기반으로 대체 판정하고 `warnings`에 기록하며, `degraded:false`인데 비어 있으면 실제로 호출이 없는 것이므로 결정적 `WRONG_TARGET_CALL`이다.
 
@@ -127,7 +127,7 @@ then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과
 ```
 
 판정 → status: 전부 `satisfied`면 `ok`. `unsatisfied`/`missing`이 하나라도 있으면 `partial` + `unmet[]` 전량 보고
-(fallback-policy.md #16 — 파이프라인 호출 시 `unmet`은 10.5단계 자동 보정 루프의 입력이 된다). 입력(승인 시나리오/생성 파일/실행 결과)이 비면 `failed`.
+(fallback-policy.md #16 — 파이프라인 호출 시 `unmet`은 9.5단계 자동 보정 루프의 입력이 된다). 입력(승인 시나리오/생성 파일/실행 결과)이 비면 `failed`.
 
 `nonconformanceClass` 값: `WRONG_TARGET_CALL`(when이 target 미호출) / `THEN_GAP`(then 단언 부족) / `GIVEN_MISMATCH`(mock·전제 불일치) / `MAPPING_MISSING`(매핑 테스트 없음). `satisfied`는 `null`.
 
@@ -148,7 +148,7 @@ then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과
 ## 연결 Skill
 
 - `/test-autoevermation-harness-plugin:verify-scenarios` — 이 에이전트를 단독 호출
-- `/test-autoevermation-harness-plugin:full-pipeline` — 10단계에서 호출
+- `/test-autoevermation-harness-plugin:full-pipeline` — 9단계에서 호출
 
 ---
 

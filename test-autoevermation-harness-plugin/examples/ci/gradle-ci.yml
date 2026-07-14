@@ -53,12 +53,6 @@ jobs:
           # 타임존 고정: 날짜 의존 flaky 방지
           TZ: UTC
 
-      # 선택 기능: 저장소 변수 RUN_PITEST=true인 PR에서만 실행한다.
-      # mutation.enabled=false(기본)인 저장소는 변수를 만들지 않아도 된다.
-      - name: Mutation testing (PITest)
-        if: github.event_name == 'pull_request' && vars.RUN_PITEST == 'true'
-        run: ./gradlew pitest --no-daemon
-
       - name: Upload test reports (항상 업로드 — 실패 시 디버깅용)
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,14 +70,6 @@ jobs:
           name: jacoco-coverage-gradle
           path: |
             build/reports/jacoco/test/
-          retention-days: 14
-
-      - name: Upload mutation report (PITest)
-        if: always() && hashFiles('build/reports/pitest/**') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: pitest-mutation-gradle
-          path: build/reports/pitest/
           retention-days: 14
 
       # SARIF 파일이 존재할 때만 업로드 (SpotBugs/ErrorProne 등 정적 분석 도구 연동 시)

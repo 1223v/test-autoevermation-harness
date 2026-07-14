@@ -49,11 +49,6 @@ jobs:
           # Maven 옵션: 빌드 재현성 및 메모리 설정
           MAVEN_OPTS: "-Xmx1g -Djava.awt.headless=true"
 
-      # 선택 기능: 저장소 변수 RUN_PITEST=true인 PR에서만 실행한다.
-      - name: Mutation testing (PITest)
-        if: github.event_name == 'pull_request' && vars.RUN_PITEST == 'true'
-        run: mvn -B test-compile org.pitest:pitest-maven:mutationCoverage --no-transfer-progress
-
       - name: Upload test reports (항상 업로드 — 실패 시 디버깅용)
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,14 +65,6 @@ jobs:
         with:
           name: jacoco-coverage-maven
           path: "**/target/site/jacoco/"
-          retention-days: 14
-
-      - name: Upload mutation report (PITest)
-        if: always() && hashFiles('**/target/pit-reports/**') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: pitest-mutation-maven
-          path: "**/target/pit-reports/"
           retention-days: 14
 
       # SARIF 파일이 존재할 때만 업로드 (SpotBugs/ErrorProne 등 정적 분석 도구 연동 시)

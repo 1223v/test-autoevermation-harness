@@ -98,37 +98,6 @@
       </executions>
     </plugin>
 
-    <!-- 선택적 PITest(mutation.enabled=true일 때만 유지); 실행: mvn -DwithHistory test-compile org.pitest:pitest-maven:mutationCoverage -->
-    <plugin>
-      <groupId>org.pitest</groupId>
-      <artifactId>pitest-maven</artifactId>
-      <version>1.19.0</version>
-      <dependencies>
-        <!-- JUnit5 지원 (pitest-junit5-plugin 1.0.0+) -->
-        <dependency>
-          <groupId>org.pitest</groupId>
-          <artifactId>pitest-junit5-plugin</artifactId>
-          <version>1.2.1</version>
-        </dependency>
-      </dependencies>
-      <configuration>
-        <targetClasses><param>com.example.*</param></targetClasses>
-        <targetTests><param>com.example.*Test</param></targetTests>
-        <excludedClasses>
-          <param>com.example.*Application</param>
-          <param>com.example.config.*</param>
-          <param>com.example.*.dto.*</param>
-        </excludedClasses>
-        <mutators><mutator>DEFAULTS</mutator></mutators>
-        <mutationThreshold>80</mutationThreshold>
-        <threads>2</threads>
-        <!-- PIT 기본은 HTML뿐이므로 mutations.xml 소비를 위해 XML을 명시 -->
-        <outputFormats><value>XML</value><value>HTML</value></outputFormats>
-        <timestampedReports>false</timestampedReports>
-        <!-- 리포트: target/pit-reports/ → parse_pitest_report 소비 -->
-      </configuration>
-    </plugin>
-
   </plugins>
 </build>
 

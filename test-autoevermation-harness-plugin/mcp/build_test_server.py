@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""build_test_server.py — REAL build-test MCP server (coverage/mutation-aware engine).
+"""build_test_server.py — REAL build-test MCP server (coverage-aware engine).
 
-FastMCP server named "build-test". Coverage/mutation-aware test execution engine for
+FastMCP server named "build-test". Coverage-aware test execution engine for
 the Spring test-harness plugin.
 
 Design source of truth:
-  - RESEARCH_NOTES.md  (§1 FastMCP API, §3 JaCoCo 0.8.12, §4 PITest, §6 near-100% policy;
+  - RESEARCH_NOTES.md  (§1 FastMCP API, §3 JaCoCo 0.8.12, §6 near-100% policy;
                         build-test-mcp design + TestRunResult schema)
-  - Build-tool detection and JUnit/JaCoCo/PITest report parsing are implemented inline.
+  - Build-tool detection and JUnit/JaCoCo report parsing are implemented inline.
 
 Standard library only (subprocess, xml.etree, json, os, shlex). Python 3.10+.
 
@@ -53,7 +53,6 @@ DEFAULT_LINE = 0.95
 DEFAULT_BRANCH = 0.90
 DEFAULT_METHOD = 0.95
 DEFAULT_CLASS = 1.0
-DEFAULT_MUTATION = 0.80
 
 # Subprocess wall-clock cap (seconds) so a hung build can't block the server.
 _RUN_TIMEOUT = 1800
@@ -169,12 +168,6 @@ _JACOCO_REL = (
     ("target", "site", "jacoco", "jacoco.xml"),
     ("*", "build", "reports", "jacoco", "test", "jacocoTestReport.xml"),
     ("*", "target", "site", "jacoco", "jacoco.xml"),
-)
-_PITEST_REL = (
-    ("build", "reports", "pitest", "mutations.xml"),
-    ("target", "pit-reports", "mutations.xml"),
-    ("*", "build", "reports", "pitest", "mutations.xml"),
-    ("*", "target", "pit-reports", "mutations.xml"),
 )
 
 
@@ -329,63 +322,6 @@ def _parse_jacoco(jacoco_path: str) -> dict:
         "overall": overall,
         "perClass": per_class,
         "uncovered": uncovered,
-    }
-
-
-def _find_pitest_xml(root: str) -> str | None:
-    """Locate PITest mutations.xml for Gradle or Maven (incl. one submodule level)."""
-    found = _find_reports(root, _PITEST_REL, "mutations.xml")
-    return found[0] if found else None
-
-
-def _parse_pitest(pitest_path: str) -> dict:
-    """Parse a PITest mutations.xml -> mutationScore + survivedMutants[]."""
-    root_el, err = _safe_parse_xml(pitest_path)  # <mutations>
-    if err:
-        return {"status": "failed", "error": "PITEST_PARSE_FAILED",
-                "message": err, "reportPath": pitest_path}
-    total = 0
-    killed = 0
-    survived_mutants: list[dict] = []
-
-    # status values: KILLED, SURVIVED, NO_COVERAGE, TIMED_OUT, MEMORY_ERROR, RUN_ERROR.
-    # PIT counts a mutation as *detected* (killed) whenever a test run against it
-    # fails or aborts abnormally — KILLED, TIMED_OUT, MEMORY_ERROR, RUN_ERROR.
-    # Only SURVIVED / NO_COVERAGE are undetected. Matching PIT's own definition
-    # avoids understating mutationScore and spurious MUTATION-gate failures.
-    _surviving_statuses = ("SURVIVED", "NO_COVERAGE")
-    _detected_statuses = ("KILLED", "TIMED_OUT", "MEMORY_ERROR", "RUN_ERROR")
-
-    for mut in root_el.findall("mutation"):
-        total += 1
-        status = (mut.get("status") or "").upper()
-        if status in _detected_statuses:
-            killed += 1
-
-        if status in _surviving_statuses:
-            def _text(tag: str) -> str:
-                el = mut.find(tag)
-                return el.text if el is not None and el.text is not None else ""
-
-            survived_mutants.append({
-                "class": _text("mutatedClass"),
-                "method": _text("mutatedMethod"),
-                "line": int(_text("lineNumber") or "0"),
-                "mutator": _text("mutator"),
-                "status": status,
-                "description": _text("description"),
-            })
-
-    mutation_score = round((killed / total), 6) if total > 0 else 1.0
-
-    return {
-        "status": "ok",
-        "reportPath": pitest_path,
-        "mutationScore": mutation_score,
-        "totalMutations": total,
-        "killed": killed,
-        "survived": len(survived_mutants),
-        "survivedMutants": survived_mutants,
     }
 
 
@@ -692,7 +628,6 @@ def list_test_tasks(root: str = ".") -> dict:
             {"task": "test", "desc": "Run JUnit Platform unit/slice tests"},
             {"task": "jacocoTestReport", "desc": "Generate JaCoCo XML/HTML coverage report"},
             {"task": "jacocoTestCoverageVerification", "desc": "Enforce coverage gate"},
-            {"task": "pitest", "desc": "Run PITest mutation testing"},
             {"task": "integrationTest", "desc": "Run integration tests (if configured)"},
         ]
     else:  # maven
@@ -701,7 +636,6 @@ def list_test_tasks(root: str = ".") -> dict:
             {"task": "verify", "desc": "Run Failsafe integration tests + checks"},
             {"task": "jacoco:report", "desc": "Generate JaCoCo XML/HTML coverage report"},
             {"task": "jacoco:check", "desc": "Enforce coverage gate"},
-            {"task": "org.pitest:pitest-maven:mutationCoverage", "desc": "Run PITest mutation testing"},
         ]
 
     return {"status": "ok", "buildTool": tool, "wrapper": det["wrapper"], "tasks": tasks}
@@ -780,7 +714,7 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
     BUILD_TEST_ALLOW_NETWORK is set.
 
     `online=True` requests a one-time NETWORK-ON run so a COLD dependency cache (or
-    newly added JaCoCo/PITest plugins) can be resolved — Gradle `--offline` fails fast
+    newly added JaCoCo plugins) can be resolved — Gradle `--offline` fails fast
     when a required module is not cached (Gradle Dependency Caching). The caller (skill)
     decides this after `check_dependency_cache` + user approval (fallback-policy.md #18);
     once primed, subsequent runs go offline again.
@@ -907,28 +841,13 @@ def parse_jacoco_report(root: str = ".") -> dict:
 
 
 @mcp.tool()
-def parse_pitest_report(root: str = ".") -> dict:
-    """Parse a PITest mutations.xml report -> mutationScore + survivedMutants[].
-
-    Gradle: build/reports/pitest/mutations.xml ; Maven: target/pit-reports/mutations.xml.
-    Surviving mutants (SURVIVED/NO_COVERAGE) include class/method/line/mutator/status
-    so a mutation-analyst can target them.
-    """
-    root = os.path.abspath(root)
-    pitest_path = _find_pitest_xml(root)
-    if pitest_path is None:
-        return {"status": "failed", "error": "PITEST_REPORT_NOT_FOUND",
-                "message": f"no mutations.xml found under: {root}"}
-    return _parse_pitest(pitest_path)
-
-
-@mcp.tool()
-def detect_pipeline_state(root: str = ".") -> dict:
+def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.0,
+                          method: float = 1.0, klass: float = 1.0) -> dict:
     """Reconstruct full-pipeline progress from DURABLE on-disk evidence (not _workspace/).
 
     `_workspace/` intermediate artifacts are .gitignored and ephemeral, so after a fresh
     clone / git checkout / new session / workspace rotation the pipeline cannot tell that
-    tests, approved scenarios, and coverage/mutation reports already exist — full-pipeline
+    tests, approved scenarios, and coverage reports already exist — full-pipeline
     Phase 0 would then misclassify the project as a first run and restart from stage 0.
     This tool scans the durable, committable evidence and maps it to the highest completed
     pipeline stage so Phase 0 can resume at the right stage.
@@ -939,7 +858,6 @@ def detect_pipeline_state(root: str = ".") -> dict:
       src/test/java/**/*Test(s).java       -> stage 5 (tests generated) — ONLY with provenance
       JUnit XML report                     -> stage 6 (tests run)
       JaCoCo XML report                    -> stage 8 (coverage measured)
-      PITest mutations.xml report          -> stage 9 (mutation measured)
 
     PROVENANCE GATE: a bare *Test*.java proves a test exists, not that THIS harness wrote
     it. Harness-authored tests are evidenced by test_docs/ (scenario docs / INDEX.md). When
@@ -953,7 +871,10 @@ def detect_pipeline_state(root: str = ".") -> dict:
     Every probe is fail-safe: any error yields a null/empty field (detection must never
     break the pipeline — same posture as guard-gate-artifacts fail-open). Returns
     `highestCompletedStage` + `recommendedEntryStage` so CI has a deterministic default;
-    interactive mode may still ask the user which stage to resume from.
+    interactive mode may still ask the user which stage to resume from. The coverage
+    thresholds default to 1.0 so a root-only durable scan cannot skip stage 8 when the
+    previous/current HarnessConfig is unknown. Callers with a schema-v2 config should pass
+    its LINE/BRANCH/METHOD/CLASS thresholds explicitly.
     """
     root = os.path.abspath(root)
 
@@ -993,17 +914,30 @@ def detect_pipeline_state(root: str = ".") -> dict:
     ra_paths = _safe(lambda: glob.glob(os.path.join(ra_dir, "RA-*.md")), []) or []
     has_index = os.path.isfile(os.path.join(root, "test_docs", "INDEX.md"))
 
-    # --- reports (stages 6 / 8 / 9), reusing existing parsers, fail-safe ---
+    # --- reports (stages 6 / 8), reusing existing parsers, fail-safe ---
     junit = _safe(lambda: parse_junit_xml(root), None)
     jacoco = _safe(lambda: parse_jacoco_report(root), None)
-    pitest = _safe(lambda: parse_pitest_report(root), None)
+    jacoco_gate = _safe(
+        lambda: coverage_gate(root, line=line, branch=branch, method=method, klass=klass),
+        None,
+    )
 
     def _report_ok(r):
         return bool(r) and r.get("status") in ("ok", "partial")
 
     junit_ok = _report_ok(junit)
+    junit_green = (
+        isinstance(junit, dict)
+        and junit.get("status") == "ok"
+        and not junit.get("failed")
+    )
     jacoco_ok = _report_ok(jacoco)
-    pitest_ok = _report_ok(pitest)
+    jacoco_gate_ok = (
+        jacoco_ok
+        and isinstance(jacoco_gate, dict)
+        and jacoco_gate.get("status") == "ok"
+        and jacoco_gate.get("pass") is True
+    )
 
     junit_summary = {"present": False}
     if junit_ok:
@@ -1014,11 +948,8 @@ def detect_pipeline_state(root: str = ".") -> dict:
         overall = (jacoco.get("overall") or {})
         jacoco_summary = {"present": True,
                           "line": (overall.get("LINE") or {}).get("ratio"),
-                          "branch": (overall.get("BRANCH") or {}).get("ratio")}
-    pitest_summary = {"present": False}
-    if pitest_ok:
-        pitest_summary = {"present": True, "mutationScore": pitest.get("mutationScore")}
-
+                          "branch": (overall.get("BRANCH") or {}).get("ratio"),
+                          "gatePassed": jacoco_gate_ok}
     # --- existing _workspace/ artifacts (partial-restore hint) ---
     ws_dir = os.path.join(root, "_workspace")
     ws_artifacts = sorted(
@@ -1051,16 +982,20 @@ def detect_pipeline_state(root: str = ".") -> dict:
         highest = "6"
     if harness_tests and jacoco_ok:
         highest = "8"
-    if harness_tests and pitest_ok:
-        highest = "9"
-
     # recommended entry stage (deterministic CI default):
-    #  - harness-authored tests exist -> durable resume from 6(run)->8->9->10, no regen.
+    #  - green JUnit + JaCoCo gate evidence -> re-verify conformance at stage 9.
+    #  - green JUnit evidence -> re-measure coverage at stage 8.
+    #  - failed/partial or missing JUnit -> rerun tests at stage 6.
+    #  - harness-authored tests exist -> rerun tests at stage 6, no regeneration.
     #  - scenarios approved but tests missing -> enter at 5(generate).
     #  - foreign-tests-only OR nothing durable -> initial full run (stage 0). When foreign
     #    tests are present, the pipeline threads them as existingTestPaths so generate-tests
     #    augments coverage gaps instead of clobbering the hand-written tests.
-    if harness_tests:
+    if harness_tests and junit_green and jacoco_gate_ok:
+        recommended = 9
+    elif harness_tests and junit_green:
+        recommended = 8
+    elif harness_tests:
         recommended = 6
     elif not has_tests and approved_scen > 0:
         recommended = 5
@@ -1090,7 +1025,6 @@ def detect_pipeline_state(root: str = ".") -> dict:
         "refactorAdvisories": len(ra_paths),
         "junitReport": junit_summary,
         "jacocoReport": jacoco_summary,
-        "pitestReport": pitest_summary,
         "workspaceArtifacts": ws_artifacts,
         "highestCompletedStage": highest,
         "recommendedEntryStage": recommended,
@@ -1100,26 +1034,18 @@ def detect_pipeline_state(root: str = ".") -> dict:
             "refactorDir": ra_dir if ra_paths else None,
             "junitReportPaths": (junit.get("reportPaths") if junit_ok else []) or [],
             "jacocoPath": _safe(lambda: _find_jacoco_xml(root), None),
-            "pitestPath": _safe(lambda: _find_pitest_xml(root), None),
         },
     }
 
 
 @mcp.tool()
 def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = DEFAULT_BRANCH,
-                  method: float = DEFAULT_METHOD, klass: float = DEFAULT_CLASS,
-                  mutation: float = DEFAULT_MUTATION, require_pitest: bool = False) -> dict:
-    """Combine JaCoCo + PITest parse and return pass/fail per counter + gaps.
+                  method: float = DEFAULT_METHOD, klass: float = DEFAULT_CLASS) -> dict:
+    """Parse JaCoCo and return pass/fail per counter plus actionable gaps.
 
     Returns overall pass flag plus a per-counter breakdown with the actual ratio,
-    the required threshold, and pass/fail. Includes uncovered classes and surviving
-    mutants as actionable gaps.
-
-    ``require_pitest`` (default False): PITest is opt-in. With the default, the
-    mutation report is ignored even if a stale ``mutations.xml`` exists, so stage 8
-    and a mutation-disabled pipeline are based only on JaCoCo. Pass true only after
-    an enabled stage 9; then a missing report is an error and an existing report is
-    evaluated as the MUTATION counter.
+    the required threshold, and pass/fail. Includes uncovered classes and methods
+    as actionable gaps.
 
     Note: `klass` (CLASS counter) defaults to 1.0 per the near-100% policy. On a
     narrowly-targeted run whose JaCoCo report scope still includes uncovered sibling
@@ -1129,10 +1055,9 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
     root = os.path.abspath(root)
 
     jacoco_path = _find_jacoco_xml(root)
-    pitest_path = _find_pitest_xml(root) if require_pitest else None
 
     counters_result: dict[str, dict] = {}
-    gaps: dict = {"uncovered": [], "survivedMutants": []}
+    gaps: dict = {"uncovered": []}
     missing: list[str] = []
 
     if jacoco_path is None:
@@ -1158,20 +1083,6 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
                     }
             gaps["uncovered"] = jr["uncovered"]
 
-    if require_pitest and pitest_path is None:
-        missing.append("PITEST_REPORT_NOT_FOUND")
-    elif require_pitest and pitest_path is not None:
-        pr = _parse_pitest(pitest_path)
-        if pr.get("status") != "ok":
-            missing.append(pr.get("error", "PITEST_PARSE_FAILED"))
-        else:
-            actual = pr["mutationScore"]
-            counters_result["MUTATION"] = {
-                "actual": actual, "threshold": mutation,
-                "pass": actual >= mutation,
-            }
-            gaps["survivedMutants"] = pr["survivedMutants"]
-
     all_pass = bool(counters_result) and all(c["pass"] for c in counters_result.values())
 
     if not counters_result:
@@ -1188,38 +1099,24 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
         "gaps": gaps,
         "missingReports": missing,
         "jacocoPath": jacoco_path,
-        "pitestPath": pitest_path,
     }
 
 
 # ---------------------------------------------------------------------------
 # Build-capability provisioning (F1) + dependency-cache priming (F2)
 #
-# These tools EXPOSE SIGNALS ONLY (no file writes). JaCoCo XML is required for stage 8;
-# PITest plugin/JUnit/XML capabilities are required only when the caller opts in with
-# require_pitest=True. Per fallback-policy.md #17/#18 the consuming skill detects only
-# required gaps, asks for approval (interactive) or stops with remediation (CI), then
-# applies the minimal build change itself. Sources: references/build-provisioning.md.
+# These tools EXPOSE SIGNALS ONLY (no file writes). JaCoCo XML is required for stage 8.
+# Per fallback-policy.md #17/#18 the consuming skill detects required gaps, asks for
+# approval (interactive) or stops with remediation (CI), then applies the minimal build
+# change itself. Sources: references/build-provisioning.md.
 # ---------------------------------------------------------------------------
 
 # JaCoCo XML toggle is OFF by default for the Gradle plugin, so the harness's
 # parse_jacoco_report finds no jacoco.xml unless this is set explicitly.
 _GRADLE_JACOCO_PLUGIN_RE = re.compile(r"""(?:id\s*\(?\s*['"]jacoco['"]|apply\s+plugin:\s*['"]jacoco['"])""")
 _GRADLE_JACOCO_XML_RE = re.compile(r"""xml\s*\.\s*(?:required|enabled)\s*(?:\.\s*set\s*\(\s*)?=?\s*true""")
-_GRADLE_PITEST_PLUGIN_RE = re.compile(r"""info\.solidsoft\.pitest""")
-_GRADLE_PITEST_JUNIT5_RE = re.compile(r"""junit5PluginVersion|pitest-junit5-plugin""")
-_GRADLE_PITEST_XML_RE = re.compile(
-    r"""outputFormats\s*(?:(?:\.\s*set)\s*\(|=)?[\s\S]{0,256}?['\"]XML['\"]""",
-    re.IGNORECASE,
-)
 _MAVEN_JACOCO_RE = re.compile(r"""jacoco-maven-plugin""")
 _MAVEN_JACOCO_REPORT_GOAL_RE = re.compile(r"""<goal>\s*report\s*</goal>""")
-_MAVEN_PITEST_RE = re.compile(r"""pitest-maven""")
-_MAVEN_PITEST_JUNIT5_RE = re.compile(r"""pitest-junit5-plugin""")
-_MAVEN_PITEST_XML_RE = re.compile(
-    r"""<outputFormats\b[^>]*>[\s\S]*?<(?:param|value)>\s*XML\s*</(?:param|value)>[\s\S]*?</outputFormats>""",
-    re.IGNORECASE,
-)
 
 
 def _gradle_build_text(root: str) -> tuple[str, str]:
@@ -1231,20 +1128,14 @@ def _gradle_build_text(root: str) -> tuple[str, str]:
     return "", ""
 
 
-def _gradle_capabilities(root: str, jupiter: bool, require_pitest: bool = False) -> tuple:
-    """Return required capabilities and changes for a Gradle target build."""
+def _gradle_capabilities(root: str) -> tuple:
+    """Return required JaCoCo capabilities and changes for a Gradle target build."""
     text, fname = _gradle_build_text(root)
     kts = fname.endswith(".kts")
     fref = fname or "build.gradle[.kts]"
     caps = {
         "jacoco": bool(_GRADLE_JACOCO_PLUGIN_RE.search(text)),
         "jacocoXml": bool(_GRADLE_JACOCO_XML_RE.search(text)),
-        "pitest": bool(_GRADLE_PITEST_PLUGIN_RE.search(text)),
-        "pitestJunit5": (not jupiter) or bool(_GRADLE_PITEST_JUNIT5_RE.search(text)),
-        "pitestXml": bool(
-            _GRADLE_PITEST_PLUGIN_RE.search(text)
-            and _GRADLE_PITEST_XML_RE.search(text)
-        ),
     }
     missing: list[str] = []
     proposed: list[dict] = []
@@ -1270,57 +1161,15 @@ def _gradle_capabilities(root: str, jupiter: bool, require_pitest: bool = False)
             "reason": "JaCoCo XML 기본 OFF → parse_jacoco_report가 XML 미발견(HTML만 생성)",
             "source": "https://docs.gradle.org/current/userguide/jacoco_plugin.html",
         })
-    if require_pitest and not caps["pitest"]:
-        missing.append("PITEST_PLUGIN_MISSING")
-        proposed.append({
-            "file": fref,
-            "anchor": "plugins { }",
-            "snippet": (
-                'id("info.solidsoft.pitest") version "1.19.0"'
-                if kts else
-                "id 'info.solidsoft.pitest' version '1.19.0'"
-            ),
-            "reason": "PITest 플러그인 미적용 → pitest 태스크 없음(Task 'pitest' not found)",
-            "source": "https://gradle-pitest-plugin.solidsoft.info/",
-        })
-    if require_pitest and not caps["pitestJunit5"]:
-        missing.append("PITEST_JUNIT5_MISSING")
-        proposed.append({
-            "file": fref,
-            "anchor": "pitest { }",
-            "snippet": (
-                'pitest { junit5PluginVersion.set("1.0.0") }'
-                if kts else
-                "pitest { junit5PluginVersion = '1.0.0' }"
-            ),
-            "reason": "JUnit5(Jupiter) 테스트는 pitest-junit5-plugin 필요",
-            "source": "https://github.com/pitest/pitest-junit5-plugin",
-        })
-    if require_pitest and not caps["pitestXml"]:
-        missing.append("PITEST_XML_DISABLED")
-        proposed.append({
-            "file": fref,
-            "anchor": "pitest { }",
-            "snippet": (
-                'pitest { outputFormats.set(setOf("XML", "HTML")) }'
-                if kts else
-                "pitest { outputFormats = ['XML', 'HTML'] }"
-            ),
-            "reason": "PIT 기본 출력은 HTML → parse_pitest_report가 mutations.xml을 읽으려면 XML 출력 필요",
-            "source": "https://gradle-pitest-plugin.solidsoft.info/",
-        })
     return caps, missing, proposed
 
 
-def _maven_capabilities(root: str, jupiter: bool, require_pitest: bool = False) -> tuple:
-    """Return required capabilities and changes for a Maven target build."""
+def _maven_capabilities(root: str) -> tuple:
+    """Return required JaCoCo capabilities and changes for a Maven target build."""
     pom = _read_text(os.path.join(root, "pom.xml"))
     caps = {
         "jacoco": bool(_MAVEN_JACOCO_RE.search(pom)),
         "jacocoXml": bool(_MAVEN_JACOCO_RE.search(pom) and _MAVEN_JACOCO_REPORT_GOAL_RE.search(pom)),
-        "pitest": bool(_MAVEN_PITEST_RE.search(pom)),
-        "pitestJunit5": (not jupiter) or bool(_MAVEN_PITEST_JUNIT5_RE.search(pom)),
-        "pitestXml": bool(_MAVEN_PITEST_RE.search(pom) and _MAVEN_PITEST_XML_RE.search(pom)),
     }
     missing: list[str] = []
     proposed: list[dict] = []
@@ -1340,61 +1189,19 @@ def _maven_capabilities(root: str, jupiter: bool, require_pitest: bool = False) 
             "reason": "jacoco-maven-plugin prepare-agent+report 미바인딩 → jacoco.xml 미생성",
             "source": "https://www.eclemma.org/jacoco/trunk/doc/maven.html",
         })
-    if require_pitest and not caps["pitest"]:
-        missing.append("PITEST_PLUGIN_MISSING")
-        proposed.append({
-            "file": "pom.xml",
-            "anchor": "<build><plugins>",
-            "snippet": (
-                "<plugin><groupId>org.pitest</groupId>"
-                "<artifactId>pitest-maven</artifactId><version>1.19.0</version>"
-                "</plugin>"
-            ),
-            "reason": "pitest-maven 미적용 → mutationCoverage 골 없음",
-            "source": "https://pitest.org/quickstart/maven/",
-        })
-    if require_pitest and not caps["pitestJunit5"]:
-        missing.append("PITEST_JUNIT5_MISSING")
-        proposed.append({
-            "file": "pom.xml",
-            "anchor": "pitest-maven <dependencies>",
-            "snippet": (
-                "<dependency><groupId>org.pitest</groupId>"
-                "<artifactId>pitest-junit5-plugin</artifactId><version>1.0.0</version>"
-                "</dependency>"
-            ),
-            "reason": "JUnit5(Jupiter) 테스트는 pitest-junit5-plugin 필요",
-            "source": "https://github.com/pitest/pitest-junit5-plugin",
-        })
-    if require_pitest and not caps["pitestXml"]:
-        missing.append("PITEST_XML_DISABLED")
-        proposed.append({
-            "file": "pom.xml",
-            "anchor": "pitest-maven <configuration>",
-            "snippet": (
-                "<outputFormats><value>XML</value><value>HTML</value></outputFormats>"
-            ),
-            "reason": "PIT 기본 출력은 HTML → parse_pitest_report가 mutations.xml을 읽으려면 XML 출력 필요",
-            "source": "https://pitest.org/quickstart/maven/",
-        })
     return caps, missing, proposed
 
 
 @mcp.tool()
-def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter",
-                              require_pitest: bool = False) -> dict:
-    """Detect required JaCoCo-XML and optional PITest capabilities (signal only).
+def detect_build_capabilities(root: str = ".") -> dict:
+    """Detect required JaCoCo XML capabilities (signal only).
 
     The coverage gate (parse_jacoco_report) needs a JaCoCo **XML** report, but the Gradle
     JaCoCo plugin emits HTML only by default (`reports { xml.required = true }` required);
-    When ``require_pitest`` is false (the default), PITest gaps are informational and do not
-    enter ``missing[]`` or change ``status``. When true, the PITest task, JUnit5 adapter, and
-    XML output are required because ``parse_pitest_report`` consumes ``mutations.xml``. This
-    tool reads the build file and reports each capability plus a minimal, source-cited
+    this tool reads the build file and reports each capability plus a minimal, source-cited
     ``proposedChanges[]`` snippet for required gaps. It does NOT modify any file.
 
-    Returns {status, buildTool, pitestRequired,
-    capabilities{jacoco,jacocoXml,pitest,pitestJunit5,pitestXml}, missing[],
+    Returns {status, buildTool, capabilities{jacoco,jacocoXml}, missing[],
     proposedChanges[], remediation}.
     """
     root = os.path.abspath(root)
@@ -1402,12 +1209,11 @@ def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter",
     if det.get("status") != "ok":
         return det
     tool = det["buildTool"]
-    jupiter = (junit_engine or "jupiter").strip().lower() != "junit4"
 
     if tool == "gradle":
-        caps, missing, proposed = _gradle_capabilities(root, jupiter, require_pitest)
+        caps, missing, proposed = _gradle_capabilities(root)
     else:  # maven
-        caps, missing, proposed = _maven_capabilities(root, jupiter, require_pitest)
+        caps, missing, proposed = _maven_capabilities(root)
 
     all_ok = not missing
     remediation = ("" if all_ok else
@@ -1417,8 +1223,6 @@ def detect_build_capabilities(root: str = ".", junit_engine: str = "jupiter",
     return {
         "status": "ok" if all_ok else "partial",
         "buildTool": tool,
-        "junitEngine": "junit4" if not jupiter else "jupiter",
-        "pitestRequired": bool(require_pitest),
         "capabilities": caps,
         "missing": missing,
         "proposedChanges": proposed,
@@ -1431,8 +1235,8 @@ def check_dependency_cache(build_tool: str = "", root: str = ".") -> dict:
     """Best-effort signal: is the dependency cache likely PRIMED, or COLD? (F2, signal only).
 
     Network is OFF by default (`--offline`/`-o`), and Gradle fails fast when a required
-    module is not cached. A cold cache (or a build file just given new JaCoCo/optional
-    PITest plugins) therefore breaks the first offline run. This heuristic checks the shared
+    module is not cached. A cold cache (or a build file just given a new JaCoCo plugin)
+    therefore breaks the first offline run. This heuristic checks the shared
     Gradle/Maven caches; it cannot guarantee per-project completeness, so when COLD it
     recommends a one-time online priming run (run_targeted_tests(online=True)) gated by
     approval (fallback-policy.md #18). It does NOT touch the network or any file.
@@ -1488,12 +1292,11 @@ def build_metadata() -> str:
 
 @mcp.resource("build://test-reports")
 def test_reports() -> str:
-    """Discovered test/coverage/mutation report paths for the CWD (JSON)."""
+    """Discovered test and coverage report paths for the CWD (JSON)."""
     root = os.getcwd()
     return json.dumps({
         "junitXml": _find_junit_xml(root),
         "jacocoXml": _find_jacoco_xml(root),
-        "pitestXml": _find_pitest_xml(root),
     }, indent=2)
 
 
@@ -1517,7 +1320,7 @@ def suggest_test_command(build_tool: str = "auto", test_pattern: str = "") -> st
         "Run the NARROWEST possible test scope with the network OFF.\n"
         f"Suggested command: {cmd}\n"
         "Then parse JUnit XML (parse_junit_xml), coverage (parse_jacoco_report), "
-        "and optional mutation (parse_pitest_report), and evaluate with coverage_gate."
+        "and evaluate with coverage_gate."
     )
 
 

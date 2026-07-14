@@ -20,7 +20,7 @@
      (승인 게이트는 본질적으로 대화형 전용이다. fallback-policy.md #15.)
 2. **시나리오는 대상 프로젝트의 `test_docs/`에 `.md`로 저장한다.** 시나리오별 파일 + 인덱스 구조.
    `test_docs/`는 플러그인 저장소가 아니라 **분석 대상 프로젝트 루트**(`projectRoot`) 아래에 만든다.
-3. **필수 과정(생성·실행·커버리지)과 선택된 경우의 뮤테이션이 끝나면 시나리오 적합성을 검증한다.** 생성·통과한 테스트가
+3. **필수 과정(생성·실행·커버리지)이 끝나면 시나리오 적합성을 검증한다.** 생성·통과한 테스트가
    각 (승인된) 시나리오의 given/when/then을 **실제로 만족**하는지 확인한다(단순 통과 여부가 아니라 시나리오 충족 여부).
 4. **결과를 `test_docs/`에 시나리오 ↔ 테스트코드 ↔ 결과로 정리한다.** 각 시나리오 파일과 인덱스에 매핑·검증 결과를 기록한다.
 
@@ -72,7 +72,7 @@ approvedAt: 2026-06-27
 - 파일: `src/test/java/com/example/order/OrderServiceTest.java`
 - 메서드: `sc001_재고부족시_주문생성_실패()`
 
-## 검증 결과            <!-- 10단계(적합성 검증) 후 채움 -->
+## 검증 결과            <!-- 9단계(적합성 검증) 후 채움 -->
 - 적합성: ✅ satisfied        (satisfied | unsatisfied | missing)
 - 실행: passed               (passed | failed | not-run)
 - then 단언 커버: 2/2
@@ -123,9 +123,9 @@ approvedAt: 2026-06-27
 
 ---
 
-## 4. 적합성 검증 (10단계 — 마지막)
+## 4. 적합성 검증 (9단계 — 마지막)
 
-커버리지 게이트(8단계)와 활성화된 경우의 뮤테이션 강화(9단계)가 끝난 뒤, `verify-scenarios` 스킬이
+커버리지 게이트(8단계)가 끝난 뒤, `verify-scenarios` 스킬이
 `scenario-conformance-verifier` 에이전트로 **승인된 각 시나리오가 실제로 충족되었는지** 검증한다.
 
 검증 절차(시나리오 1건당):
@@ -139,7 +139,7 @@ approvedAt: 2026-06-27
 4. **then 충족**: 테스트 본문의 `// then` 단언이 시나리오 `then` 항목을 **빠짐없이** 반영하는지 확인한다
    (단언 누락·약화 시 `unsatisfied` + `THEN_GAP`, 사유 기록). given도 시나리오와 일치하는지 점검한다(`GIVEN_MISMATCH`).
 5. **판정**: `satisfied`(매핑+통과+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·target 불일치·단언 부족) / `missing`(매핑 테스트 없음, `MAPPING_MISSING`).
-   `unsatisfied`/`missing`에는 `nonconformanceClass`를 기록한다(10.5단계 보정 라우팅 힌트).
+   `unsatisfied`/`missing`에는 `nonconformanceClass`를 기록한다(9.5단계 보정 라우팅 힌트).
 
 산출 후:
 - 각 `scenarios/<id>.md`의 "테스트 코드 매핑"·"검증 결과" 섹션을 채우고 `INDEX.md`를 갱신한다.
@@ -147,12 +147,12 @@ approvedAt: 2026-06-27
 
 ### 4.1 게이트 (fallback-policy.md #16)
 
-- `missing` 또는 `unsatisfied` 시나리오가 하나라도 있으면 **full-pipeline 10.5단계 적합성 자동 보정 루프**가
+- `missing` 또는 `unsatisfied` 시나리오가 하나라도 있으면 **full-pipeline 9.5단계 적합성 자동 보정 루프**가
   대화형·CI 동일하게 자동 수행된다: unsatisfied→`test-fixer` 모드 B(`SCENARIO_NONCONFORMANT`),
-  missing→`test-code-generator` 부분 재생성 → 6단계 재실행 → 10단계 재검증.
+  missing→`test-code-generator` 부분 재생성 → 6단계 재실행 → 9단계 재검증.
   **최대 3라운드, 직전 라운드와 동일 unmet 집합이면 즉시 무진전 중단**(#12의 명시적 예외 — 적합성 판정은 일부 LLM 판단).
 - 루프 소진 후 잔여가 있으면 `status: "partial"`로 잔여를 전량 명시한다. 전부 `satisfied`라야 `status: "ok"`.
-  임의 제외·무시 금지(커버리지/뮤테이션 게이트와 동일 정책).
+  임의 제외·무시 금지.
 - 소진 후 대화형: 잔여에 대해 `AskUserQuestion`("수동 보정 계속 / partial로 종료"). CI: `partial`로 보고 후 종료.
 
 ### 4.2 `ConformanceResult` 스키마
@@ -187,6 +187,6 @@ approvedAt: 2026-06-27
 
 ## 5. `_workspace/`·부분 재실행 연계
 
-- `04_scenario_set.json`(설계) → `04b_approval.json`(승인/제외 결과) → … → `10_conformance.json`(적합성) → `10b_conformance_repair.json`(10.5단계 보정 라운드 로그, unmet 존재 시).
+- `04_scenario_set.json`(설계) → `04b_approval.json`(승인/제외 결과) → … → `09_conformance.json`(적합성) → `09b_conformance_repair.json`(9.5단계 보정 라운드 로그, unmet 존재 시).
 - 승인 결과(`04b_approval.json`)는 5단계 입력 필터로 쓰고, 부분 재실행("이 패키지만", "시나리오 다시")에서 재사용한다.
 - `test_docs/`는 대상 프로젝트의 영속 산출물, `_workspace/*.json`은 감사용 중간 산출물(서로 다른 위치).

@@ -3,7 +3,7 @@ r"""guard-gate-artifacts.py
 
 PreToolUse hook for the Spring Test Harness plugin (matcher: ``Write|Edit``).
 
-v0.22.0: 8/9단계 게이트 필드 불변식(#21)에 더해, **위임(delegation)·산출물 순서를
+v0.25.0: 8단계 커버리지 게이트 필드 불변식(#21)에 더해, **위임(delegation)·산출물 순서를
 물리 강제**한다. record-run-context.py가 남기는 ``_workspace/.markers/`` 증거
 (run.json / spawn-<agent>.json / pipeline-state.detected.json)를 판정에 사용한다.
 배경: v0.21.0 SSOT 통합 이후 오케스트레이터가 서브에이전트 위임과 산출물 영속화를
@@ -12,20 +12,16 @@ v0.22.0: 8/9단계 게이트 필드 불변식(#21)에 더해, **위임(delegatio
 Decision table:
 
 Zone A — ``_workspace`` 단계 산출물 (basename 매칭):
-  * 오케스트레이터 소유 산출물(00/03c/04b/10b/_resume/timing)
-      - 00_config-harness.json: Write가 JSON 객체 + "springProfile" 포함 필수
+  * 오케스트레이터 소유 산출물(00/03c/04b/09b/_resume/timing/result)
+      - 00_config-harness.json: Write가 schemaVersion=2 JSON 객체 + "springProfile" 포함 필수
         (빈 껍데기 config 차단), Edit는 deny. 그 외 -> allow
       - 나머지 -> allow
-  * producer 산출물(01/02/03/03b/04/05/06/07/10) 및 08/09:
+  * producer 산출물(01/02/03/03b/04/05/06/07/09) 및 08:
       - Edit                                    -> deny (전체 Write만 — 검증 불가)
       - Write, 내용이 JSON 객체 아님             -> deny
-  * 08/09 필드 불변식(#21)                       -> 기존 로직 유지 (아래 참조)
+  * 08 필드 불변식(#21)                          -> 기존 로직 유지 (아래 참조)
   * 08: gatePassed=false && iterations>=1 && spawn-coverage-closer 부재
                                                 -> deny (루프 증거 위조 — 미위임)
-  * 09: status=skipped + reason=PITEST_DISABLED + null 측정값
-                                                -> allow (명시적 선택 기능 비활성)
-  * 09: 그 외 thresholdMet=false && iterations>=1 && spawn-mutation-analyst 부재
-                                                -> deny (동일)
   * producer 산출물 provenance:
       - agent_type == producer                  -> allow (자기 산출물)
       - 메인 에이전트 + stub(content.source=="durable-scan" &&
@@ -35,15 +31,15 @@ Zone A — ``_workspace`` 단계 산출물 (basename 매칭):
       - 그 외                                    -> deny (위임 없이 산출물 기록)
   * 순서 게이트(run-active일 때만, stub 면제):
       01|02 without 00 / 05 without 04∧04b / 06 without 05
-      / 08 without 06 / 09 without 08           -> deny
+      / 08 without 06 / 09 without 08 / 09b without 09 -> deny
 
 Zone B — ``src/test/java/**`` (run-active일 때만; 비활성 = 일반 개발 세션 -> allow):
   * 04_scenario_set.json 또는 04b_approval.json 부재
                                                 -> deny (4.5 승인 전 기록 금지 — 누구든)
-  * agent_type ∈ {test-code-generator, coverage-closer,
-    mutation-analyst, test-fixer}               -> allow
+  * agent_type ∈ {test-code-generator, coverage-closer, test-fixer}
+                                                -> allow
   * 메인 에이전트 + Edit + spawn-test-fixer 마커(세션 일치)
-                                                -> allow (7/10.5단계 patch-apply)
+                                                -> allow (7/9.5단계 patch-apply)
   * 그 외                                        -> deny (오케스트레이터 인라인 작성 금지)
 
 Zone C — ``test_docs/**`` (run-active일 때만):
@@ -76,7 +72,7 @@ import os
 import sys
 
 COVERAGE_ARTIFACT = "08_coverage_result.json"
-MUTATION_ARTIFACT = "09_mutation_result.json"
+PIPELINE_SCHEMA_VERSION = 2
 
 MARKERS_DIR = ".markers"
 RUN_MARKER = "run.json"
@@ -92,7 +88,7 @@ PRODUCERS = {
     "05_test-gen_files.json": "test-code-generator",
     "06_run_result.json": "test-runner",
     "07_repair_result.json": "test-fixer",
-    "10_conformance.json": "scenario-conformance-verifier",
+    "09_conformance.json": "scenario-conformance-verifier",
 }
 
 # 오케스트레이터가 직접 기록하는 산출물 (위임 검사 대상 아님)
@@ -100,7 +96,8 @@ ORCHESTRATOR_ARTIFACTS = {
     "00_config-harness.json",
     "03c_advisory_gate.json",
     "04b_approval.json",
-    "10b_conformance_repair.json",
+    "09b_conformance_repair.json",
+    "pipeline_result.json",
     "_resume.json",
     "timing.json",
 }
@@ -112,17 +109,26 @@ SEQUENCE_PRECONDITIONS = {
     "05_test-gen_files.json": ("04_scenario_set.json", "04b_approval.json"),
     "06_run_result.json": ("05_test-gen_files.json",),
     COVERAGE_ARTIFACT: ("06_run_result.json",),
-    MUTATION_ARTIFACT: (COVERAGE_ARTIFACT,),
+    "09_conformance.json": (COVERAGE_ARTIFACT,),
+    "09b_conformance_repair.json": ("09_conformance.json",),
+}
+
+# 영속 증거에서 안전하게 복원할 수 있는 단계만 durable-scan stub을 허용한다.
+# 9단계 적합성 검증은 매 재개마다 다시 실행해야 하므로 복원 대상이 아니다.
+DURABLE_STUB_ARTIFACTS = {
+    "04_scenario_set.json",
+    "05_test-gen_files.json",
+    "06_run_result.json",
+    COVERAGE_ARTIFACT,
 }
 
 # run-active 세션에서 src/test/java 기록이 허용되는 subagent_type
-TEST_WRITE_AGENTS = {"test-code-generator", "coverage-closer", "mutation-analyst", "test-fixer"}
+TEST_WRITE_AGENTS = {"test-code-generator", "coverage-closer", "test-fixer"}
 
 _CONTRACT_HINT = (
-    "(fallback-policy.md #21) 게이트 미달 시 coverage-closer/mutation-analyst "
-    "루프를 실제 수행한 뒤 잔여를 전량 보고하고 기록하라. RA advisory는 "
-    "8단계와 활성화된 9단계 게이트의 면제·스킵 사유가 아니며, '구조적 커버리지 한계' 판단은 "
-    "에이전트의 remainingGaps[].reason/survivingMutants[]로만 성립한다. "
+    "(fallback-policy.md #21) 게이트 미달 시 coverage-closer 루프를 실제 수행한 뒤 "
+    "잔여를 전량 보고하고 기록하라. RA advisory는 8단계 게이트의 면제·스킵 사유가 "
+    "아니며, '구조적 커버리지 한계' 판단은 에이전트의 remainingGaps[].reason으로만 성립한다. "
     "스코프 제외는 HarnessConfig.coverage.excludes(사용자 승인)로만 가능하다."
 )
 
@@ -211,20 +217,14 @@ def _artifact_exists(workspace: str, basename: str) -> bool:
     return os.path.isfile(os.path.join(workspace, basename))
 
 
-def _configured_mutation_enabled(workspace: str):
-    """Read opt-in: no config is unknown; a legacy config without the field is disabled."""
-    config = _read_json_file(os.path.join(workspace, "00_config-harness.json"))
-    if not isinstance(config, dict):
-        return None
-    if "mutation" not in config:
+def _inside_workspace(abs_path: str, workspace: str) -> bool:
+    """대상 경로가 실제 `_workspace/` 내부인지 확인한다."""
+    try:
+        path = os.path.normcase(os.path.abspath(abs_path))
+        root = os.path.normcase(os.path.abspath(workspace))
+        return os.path.commonpath((path, root)) == root
+    except (OSError, ValueError):
         return False
-    mutation = config.get("mutation")
-    if not isinstance(mutation, dict):
-        return None
-    if "enabled" not in mutation:
-        return False
-    enabled = mutation.get("enabled")
-    return enabled if isinstance(enabled, bool) else None
 
 
 def _parse_content(tool_input: dict):
@@ -235,16 +235,68 @@ def _parse_content(tool_input: dict):
     return data if isinstance(data, dict) else None
 
 
-def _is_stub(data, workspace: str, session_id: str) -> bool:
+def _is_stub(basename: str, data, workspace: str, session_id: str) -> bool:
     """durable-resume 복원 stub: source=="durable-scan" + detect 호출 증거(세션 일치)."""
     return (
-        isinstance(data, dict)
+        basename in DURABLE_STUB_ARTIFACTS
+        and isinstance(data, dict)
         and data.get("source") == "durable-scan"
         and _marker_session_matches(workspace, DETECT_MARKER, session_id)
     )
 
 
-# ---------------------------------------------------------- 08/09 필드 불변식 (#21)
+def _check_pipeline_result(data: dict, workspace: str) -> str:
+    """PipelineResult v2의 최소 완료 계약을 검사한다."""
+    status = data.get("status")
+    if status not in {"ok", "partial", "failed"}:
+        return "pipeline_result.json status는 ok|partial|failed 중 하나여야 한다."
+    stages = data.get("stages")
+    if not isinstance(stages, dict) or not isinstance(stages.get("verifyScenarios"), dict):
+        return ("pipeline_result.json은 stages.verifyScenarios 객체를 포함해야 한다 — "
+                "schemaVersion만 있는 완료 표시는 허용되지 않는다.")
+    if not isinstance(data.get("summary"), str) or not data["summary"].strip():
+        return "pipeline_result.json은 비어 있지 않은 summary를 포함해야 한다."
+    if status == "failed" and not _nonempty_list(data.get("errors")):
+        return "failed pipeline_result.json은 errors에 실패 원인을 포함해야 한다."
+
+    verify = stages["verifyScenarios"]
+    verify_status = verify.get("status")
+    conformance_path = os.path.join(workspace, "09_conformance.json")
+    conformance = _read_json_file(conformance_path)
+
+    if conformance is None:
+        if status == "ok":
+            return "pipeline_result.json의 ok 집계 전에 09_conformance.json이 있어야 한다."
+        if verify_status not in {"skipped", "blocked"}:
+            return ("9단계 전 partial/failed 결과는 stages.verifyScenarios.status를 "
+                    "skipped 또는 blocked로 기록해야 한다.")
+        return ""
+
+    if verify_status not in {"ok", "partial", "failed"}:
+        return "09 산출물이 있으면 stages.verifyScenarios.status는 ok|partial|failed여야 한다."
+    counts = {name: verify.get(name) for name in
+              ("approved", "satisfied", "unsatisfied", "missing")}
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0
+           for value in counts.values()):
+        return "stages.verifyScenarios의 네 집계값은 0 이상의 정수여야 한다."
+    if counts["approved"] != (
+        counts["satisfied"] + counts["unsatisfied"] + counts["missing"]
+    ):
+        return "stages.verifyScenarios 집계 합계가 approved와 일치하지 않는다."
+
+    totals = conformance.get("totals") if isinstance(conformance, dict) else None
+    if not isinstance(totals, dict) or any(totals.get(name) != value
+                                            for name, value in counts.items()):
+        return "stages.verifyScenarios 집계가 09_conformance.json totals와 일치해야 한다."
+    if status == "ok":
+        if verify_status != "ok" or conformance.get("status") != "ok":
+            return "ok PipelineResult는 적합성 결과도 ok여야 한다."
+        if counts["unsatisfied"] != 0 or counts["missing"] != 0:
+            return "ok PipelineResult에는 unsatisfied/missing이 남아 있을 수 없다."
+    return ""
+
+
+# ------------------------------------------------------------- 08 필드 불변식 (#21)
 
 
 def _nonempty_list(value) -> bool:
@@ -277,47 +329,6 @@ def _check_coverage(data: dict) -> str:
     )
 
 
-def _check_mutation(data: dict, mutation_enabled=None, enforce_config: bool = False) -> str:
-    """Return a deny message for an invalid 09 artifact, or '' to allow."""
-    if data.get("status") == "skipped":
-        valid_disabled = (
-            data.get("reason") == "PITEST_DISABLED"
-            and data.get("mutationScore") is None
-            and data.get("thresholdMet") is None
-            and data.get("iterations") == 0
-        )
-        if valid_disabled:
-            if mutation_enabled is True or (enforce_config and mutation_enabled is None):
-                return (
-                    "게이트 미수행 산출물: 활성 파이프라인에서 "
-                    "HarnessConfig.mutation.enabled=false가 확인되지 않아 "
-                    "PITEST_DISABLED skip을 기록할 수 없다. 설정을 확인하거나 9단계를 수행하라."
-                )
-            return ""
-        return (
-            "게이트 미수행 산출물: 09_mutation_result.json의 skipped 상태는 "
-            "HarnessConfig.mutation.enabled=false일 때 reason=PITEST_DISABLED, "
-            "mutationScore=null, thresholdMet=null, iterations=0 계약으로만 허용된다."
-        )
-    if data.get("status") == "failed":
-        return ""
-    if data.get("thresholdMet") is True:
-        return ""
-    problems = []
-    if not _loop_ran(data):
-        problems.append("iterations<1 (mutation-analyst 루프 미수행)")
-    if not _nonempty_list(data.get("survivingMutants")):
-        problems.append("survivingMutants 누락/빈 배열 (잔여 survivor 전량 보고 위반 — 임의 무시 금지)")
-    if not problems:
-        return ""
-    return (
-        "게이트 미수행 산출물: 09_mutation_result.json이 thresholdMet=false인데 "
-        + ", ".join(problems)
-        + ". "
-        + _CONTRACT_HINT
-    )
-
-
 # ------------------------------------------------------------------- Zone A
 
 
@@ -325,15 +336,32 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
             session_id: str, agent_type: str) -> str:
     """_workspace 단계 산출물 판정. deny 메시지 또는 ''(allow)."""
     if basename in ORCHESTRATOR_ARTIFACTS:
-        if basename == "00_config-harness.json":
+        if basename in {"00_config-harness.json", "_resume.json", "pipeline_result.json"}:
             if tool_name == "Edit":
-                return ("00_config-harness.json은 Edit로 부분 수정할 수 없다 — "
-                        "configure-harness로 HarnessConfig 전체를 Write하라.")
+                return ("스키마 산출물(%s)은 Edit로 부분 수정할 수 없다 — "
+                        "전체 JSON을 Write하라." % basename)
             data = _parse_content(tool_input)
-            if data is None or "springProfile" not in data:
+            if data is None or data.get("schemaVersion") != PIPELINE_SCHEMA_VERSION:
+                return ("%s은 schemaVersion=%d인 JSON 객체여야 한다."
+                        % (basename, PIPELINE_SCHEMA_VERSION))
+            if basename == "00_config-harness.json" and "springProfile" not in data:
                 return ("00_config-harness.json이 유효한 HarnessConfig JSON이 아니다"
                         "(springProfile 필수) — configure-harness를 호출해 Phase E "
                         "체크리스트 통과 후 생성된 config를 기록하라.")
+            if basename == "pipeline_result.json":
+                message = _check_pipeline_result(data, workspace)
+                if message:
+                    return message
+        if basename == "09b_conformance_repair.json" and _parse_content(tool_input) is None:
+            return "09b_conformance_repair.json은 유효한 JSON 객체여야 한다."
+        if basename == "09b_conformance_repair.json" and _run_active(workspace, session_id):
+            missing = [
+                pre for pre in SEQUENCE_PRECONDITIONS[basename]
+                if not _artifact_exists(workspace, pre)
+            ]
+            if missing:
+                return ("순서 게이트: %s 기록 전에 선행 산출물(%s)이 있어야 한다."
+                        % (basename, ", ".join(missing)))
         return ""
 
     if tool_name == "Edit":
@@ -349,26 +377,14 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
             "스키마로 기록하라." % basename
         )
 
-    stub = _is_stub(data, workspace, session_id)
+    stub = _is_stub(basename, data, workspace, session_id)
 
-    # 08/09: 필드 불변식 + 루프 증거 위조 검출
-    if basename in (COVERAGE_ARTIFACT, MUTATION_ARTIFACT):
-        message = (
-            _check_coverage(data)
-            if basename == COVERAGE_ARTIFACT
-            else _check_mutation(
-                data,
-                _configured_mutation_enabled(workspace)
-                if _run_active(workspace, session_id) else None,
-                enforce_config=_run_active(workspace, session_id),
-            )
-        )
+    # 08: 필드 불변식 + 루프 증거 위조 검출
+    if basename == COVERAGE_ARTIFACT:
+        message = _check_coverage(data)
         if message:
             return message
-        if basename == COVERAGE_ARTIFACT:
-            gate_failed, loop_agent = data.get("gatePassed") is not True, "coverage-closer"
-        else:
-            gate_failed, loop_agent = data.get("thresholdMet") is not True, "mutation-analyst"
+        gate_failed, loop_agent = data.get("gatePassed") is not True, "coverage-closer"
         if (
             data.get("status") != "failed"
             and gate_failed
@@ -432,7 +448,7 @@ def _zone_b(tool_name: str, workspace: str, session_id: str, agent_type: str) ->
     if agent_type in TEST_WRITE_AGENTS:
         return ""
     if not agent_type and tool_name == "Edit" and _spawned(workspace, "test-fixer", session_id):
-        return ""  # 7/10.5단계: test-fixer patch를 오케스트레이터가 적용
+        return ""  # 7/9.5단계: test-fixer patch를 오케스트레이터가 적용
     if agent_type:
         return (
             "하네스 활성 세션에서 %s 에이전트는 src/test/java를 기록할 수 없다 "
@@ -498,8 +514,11 @@ def main() -> int:
         workspace = _workspace_root(abs_path, cwd)
 
         message = ""
-        if basename in PRODUCERS or basename in ORCHESTRATOR_ARTIFACTS or basename in (
-            COVERAGE_ARTIFACT, MUTATION_ARTIFACT
+        if (
+            _inside_workspace(abs_path, workspace)
+            and (basename in PRODUCERS
+                 or basename in ORCHESTRATOR_ARTIFACTS
+                 or basename == COVERAGE_ARTIFACT)
         ):
             message = _zone_a(basename, tool_name, tool_input, workspace, session_id, agent_type)
         elif "/src/test/java/" in abs_path:

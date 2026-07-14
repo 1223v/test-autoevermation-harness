@@ -20,8 +20,8 @@
    `.md` 저장·`AskUserQuestion` 게이트·대상 필터링은 `full-pipeline` 오케스트레이터(3.5단계)가 수행한다
    (4.5 시나리오 승인 게이트의 scenario-generator ↔ full-pipeline 분업과 동일).
 4. **제외는 삭제가 아니다.** 제외된 대상은 `decision: excluded`로 파일에 보존하고, 4단계 입력에서만 필터링한다(추적성 유지).
-   **advisory의 하류 효과는 여기까지다 — 8단계와 활성화된 9단계 게이트와 무관하다(fallback-policy.md #21).** included 대상은 HIGH advisory라도
-   완전한 커버리지 의무와 `mutation.enabled:true`일 때의 뮤테이션 의무를 지며, advisory를 근거로 coverage-closer 또는 활성화된 mutation-analyst 루프를 건너뛰는 것은 계약 위반이다.
+   **advisory의 하류 효과는 여기까지다 — 8단계 커버리지 게이트와 무관하다(fallback-policy.md #21).** included 대상은 HIGH advisory라도
+   완전한 커버리지 의무를 지며, advisory를 근거로 coverage-closer 루프를 건너뛰는 것은 계약 위반이다.
    "구조적으로 커버 불가"는 해당 에이전트가 루프 수행 후 `remainingGaps[].reason`으로만 판정하고, 스코프 제외는
    `HarnessConfig.coverage.excludes`(사용자 승인)로만 한다.
 5. **비대화형·CI 기본값은 "포함+경고"다.** 결정할 사람이 없으므로 전 대상을 생성에 포함하되 권고 `.md`는 그대로 작성한다

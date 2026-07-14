@@ -13,7 +13,7 @@ mcp/javaparser-cli/dependency-reduced-pom.xml
 # JDT LS workspace
 .jdt-workspace/
 
-# Build/coverage/mutation outputs (generated in target projects)
+# Build and coverage outputs (generated in target projects)
 build/
 target/
 

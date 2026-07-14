@@ -89,7 +89,7 @@ disallowedTools: Write, Edit, Bash
           "id": { "type": "string" },
           "title": { "type": "string" },
           "type": { "enum": ["unit", "slice", "integration"] },
-          "target": { "type": "string", "description": "대상 FQCN#method — 클래스 FQCN + '#' + 검증 대상 메서드 단순명 (예: com.example.order.OrderService#createOrder). 5단계 targetCallCheck와 10단계 기계 대조가 '#' 뒤 메서드명을 파싱하므로 클래스만 쓰면 게이트가 무효화된다" },
+          "target": { "type": "string", "description": "대상 FQCN#method — 클래스 FQCN + '#' + 검증 대상 메서드 단순명 (예: com.example.order.OrderService#createOrder). 5단계 targetCallCheck와 9단계 기계 대조가 '#' 뒤 메서드명을 파싱하므로 클래스만 쓰면 게이트가 무효화된다" },
           "priority": { "enum": ["P0", "P1", "P2"] },
           "given": {
             "type": "array",

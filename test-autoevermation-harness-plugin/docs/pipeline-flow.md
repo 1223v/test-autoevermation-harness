@@ -19,7 +19,7 @@ flowchart TD
     A(["HarnessRequest 입력"]) --> P0{"Phase 0 — 컨텍스트 확인<br/>_workspace/ 존재? 요청 유형?"}
     P0 -- "있음 + 부분 요청" --> PR["부분 재실행<br/>영향 단계만 재호출 · 나머지 Read 재사용 (§부분 재실행 매트릭스)"]
     P0 -- "없음/불완전 → detect_pipeline_state" --> P0R{"영속 증거(테스트·시나리오·리포트)<br/>resumable?"}
-    P0R -- "예 (상태 복원)" --> PRES["stub 재구성 + _resume.json 기록<br/>대화형=AskUserQuestion(6/8/(enabled면 9)/4) · CI=recommendedEntryStage<br/>기본 6→8→(enabled면 9)→10"]
+    P0R -- "예 (상태 복원)" --> PRES["stub 재구성 + _resume.json 기록<br/>대화형=AskUserQuestion(6/8/9/4) · CI=recommendedEntryStage<br/>JUnit 없음·실패=6 · green JUnit=8 · 현재 커버리지 게이트 통과=9"]
     PRES -. "재진입(대표: run-tests)" .-> L
     PR -. "재진입(영향 단계)" .-> L
     P0R -- "아니오 (초기 실행)" --> B["전처리: 입력 정규화"]
@@ -30,7 +30,7 @@ flowchart TD
     D -- "아니오" --> X1(["status: failed — 파이프라인 미시작<br/>'먼저 /…:setup-harness 를 실행해 환경 세팅을 완료하세요'<br/>(자동 세팅·자동 위임 없음)"])
     D -- "예" --> E["0단계 — configure-harness<br/>0.5 프로파일 감지 → 인터뷰 → HarnessConfig"]
 
-    E --> E6{"0.6 PITest opt-in + 빌드 능력/캐시<br/>JaCoCo 필수 · PITest는 enabled일 때만 필수"}
+    E --> E6{"0.6 빌드 능력/캐시<br/>JaCoCo XML 필수"}
     E6 -. "필수 누락: 대화형=승인 주입 / CI=remediation 중단" .-> E6
     E6 --> F1["1단계 — ingest-specs<br/>(spec-reviewer)"]
     E6 --> F2["2단계 — analyze-ast<br/>(ast-structure-analyzer)"]
@@ -51,28 +51,22 @@ flowchart TD
     N -. "그린까지 재시도<br/>(무진전 3회 → partial)" .-> L
     M -- "아니오 (그린)" --> O["8단계 — measure-coverage<br/>(coverage-closer) near-100% 게이트 루프"]
 
-    O --> PE{"mutation.enabled?"}
-    PE -- "false (기본)" --> PS["9단계 — status: skipped<br/>reason: PITEST_DISABLED"]
-    PE -- "true" --> P["9단계 — mutation-test<br/>(mutation-analyst) PITest 강화 루프"]
-    P --> Q["10단계 — verify-scenarios<br/>(scenario-conformance-verifier)<br/>target 호출 methodCalls 기계 대조"]
-    PS --> Q
+    O --> Q["9단계 — verify-scenarios<br/>(scenario-conformance-verifier)<br/>target 호출 methodCalls 기계 대조"]
     Q --> R{"승인 시나리오 전부 satisfied?<br/>given/when/then 충족"}
-    R -- "아니오 (unmet)" --> S105["10.5단계 — 적합성 자동 보정 루프<br/>unsatisfied→test-fixer(모드 B) / missing→부분 재생성<br/>최대 3라운드 · 동일 unmet 즉시 무진전 중단"]
-    S105 -. "보정 → 6단계 재실행 → 10단계 재검증" .-> L
+    R -- "아니오 (unmet)" --> S105["9.5단계 — 적합성 자동 보정 루프<br/>unsatisfied→test-fixer(모드 B) / missing→부분 재생성<br/>최대 3라운드 · 동일 unmet 즉시 무진전 중단"]
+    S105 -. "보정 → 6단계 재실행 → 9단계 재검증" .-> L
     S105 -- "라운드 소진 후 잔여 unmet<br/>(대화형=수동 보정 질문 / CI=partial)" --> S(["status: partial<br/>잔여 전량 보고 + test_docs/ 갱신"])
     S105 -- "unmet 해소" --> T
     R -- "예" --> T(["status: ok<br/>PipelineResult + 보고서 + test_docs/INDEX.md"])
 
     O -. "미달 시 추가 테스트 → 재측정" .-> O
-    P -. "survivor 강화 → 재실행" .-> P
 ```
 
 > 1·2단계는 **병렬**(서브에이전트 팬아웃)이라 `E`에서 두 갈래로 갈라져 `G`(3단계)에서 합류한다.
 > 3.5단계는 플래그 0건이거나 `refactorAdvisory.enabled: false`면 게이트 없이 3→4로 직결된다(상세: §3).
-> 7·8단계와 **활성화된 9단계**는 게이트 충족까지 반복하며, 직전과 동일한 실패/gap/survivor가 3회 연속(무진전)이면 `partial`로 중단한다(fallback-policy.md #12).
-> 10.5단계 적합성 보정 루프는 #12의 **명시적 예외**로 **최대 3라운드 하드 캡**을 적용한다(적합성 판정은 일부 LLM 판단이라 진동 위험 — #16).
-> 8단계와 활성화된 9단계 루프는 임의 스킵 불가(#21)다. 단, `mutation.enabled:false`일 때의 정확한 `PITEST_DISABLED` skip 산출물은 정상이다.
-> 8단계 또는 활성화된 9단계에서 테스트가 추가·수정되면 수렴 후 6단계로 회귀 실행해 그린을 확인하고 최종 `runResult`를 10단계에 전달한다.
+> 7·8단계는 게이트 충족까지 반복하며, 직전과 동일한 실패/gap이 3회 연속(무진전)이면 `partial`로 중단한다(fallback-policy.md #12).
+> 9.5단계 적합성 보정 루프는 #12의 **명시적 예외**로 **최대 3라운드 하드 캡**을 적용한다(적합성 판정은 일부 LLM 판단이라 진동 위험 — #16).
+> 8단계에서 테스트가 추가·수정되면 수렴 후 6단계로 회귀 실행해 그린을 확인하고 최종 `runResult`를 9단계에 전달한다.
 
 ---
 
@@ -111,7 +105,7 @@ flowchart TD
 ```
 
 > E8(빌드도구)·E9(Spring 프로파일)는 대상 프로젝트의 **데이터 감지**라 `configure-harness` **0.5단계** 소관이고,
-> E11(빌드 능력)·E12(캐시)는 `mutation.enabled` 인터뷰 결과에 의존하므로 **0.6단계** 소관이다 — 세팅 단계로 앞당길 수 없다.
+> E11(대상 프로젝트 빌드 능력)·E12(캐시)는 **0.6단계** 소관이다 — 하네스 자체 환경 세팅과 분리한다.
 
 ### 2-2. E-verify — 검증 게이트 (`full-pipeline` / `configure-harness`)
 
@@ -191,7 +185,7 @@ flowchart TD
 
 ---
 
-## 5. 10단계 — 시나리오 적합성 검증 (마지막)
+## 5. 9단계 — 시나리오 적합성 검증 (마지막)
 
 ```mermaid
 flowchart TD
@@ -210,7 +204,7 @@ flowchart TD
     Unsat --> Doc
     Sat --> Doc["test_docs/scenarios/&lt;id&gt;.md '테스트 코드 매핑'·'검증 결과' 갱신<br/>+ INDEX.md 매핑표 갱신"]
     Doc --> Gate{"unmet (unsatisfied/missing) 존재?"}
-    Gate -- "예" --> Loop["10.5단계 — 적합성 자동 보정 루프 (대화형·CI 동일)<br/>unsatisfied→test-fixer 모드 B(SCENARIO_NONCONFORMANT)<br/>missing→test-code-generator 부분 재생성<br/>→ 6단계 재실행 → 10단계 재검증"]
+    Gate -- "예" --> Loop["9.5단계 — 적합성 자동 보정 루프 (대화형·CI 동일)<br/>unsatisfied→test-fixer 모드 B(SCENARIO_NONCONFORMANT)<br/>missing→test-code-generator 부분 재생성<br/>→ 6단계 재실행 → 9단계 재검증"]
     Loop -. "최대 3라운드<br/>동일 unmet 집합 즉시 무진전 중단" .-> Map
     Loop -- "unmet 해소" --> Ok
     Loop -- "라운드 소진" --> P{"실행 모드"}
@@ -262,11 +256,10 @@ flowchart LR
 | 6 | run-tests | test-runner | build-test | `06_run_result.json` |
 | 7 | repair-tests | test-fixer | all | `07_repair_result.json` |
 | 8 | measure-coverage | coverage-closer | build-test(JaCoCo) | `08_coverage_result.json` |
-| 9(선택) | mutation-test | enabled면 mutation-analyst, disabled면 오케스트레이터 skip | enabled면 build-test(PITest), disabled면 호출 없음 | `09_mutation_result.json` |
-| 10 | verify-scenarios | scenario-conformance-verifier | repo-ast, build-test | `test_docs/` 갱신, `10_conformance.json` |
-| 10.5 | full-pipeline(적합성 보정 루프) | test-fixer(모드 B) / test-code-generator | all | `10b_conformance_repair.json` |
+| 9 | verify-scenarios | scenario-conformance-verifier | repo-ast, build-test | `test_docs/` 갱신, `09_conformance.json` |
+| 9.5 | full-pipeline(적합성 보정 루프) | test-fixer(모드 B) / test-code-generator | all | `09b_conformance_repair.json` |
 
-> durable resume 시 5·6·8과 **PITest 리포트가 있는 활성화된 9단계** 산출물은 영속 증거로부터 stub 재구성될 수 있다. 비활성화된 9단계는 현재 설정을 확인한 뒤 새 `PITEST_DISABLED` 산출물을 기록한다.
+> durable resume 시 5·6·8단계 산출물은 영속 증거로부터 stub 재구성될 수 있다. 적합성 검증은 8단계 이후 새 9단계 계약으로 실행한다.
 
 ---
 
@@ -281,11 +274,11 @@ flowchart TD
     Docs --> Scn["scenarios/&lt;SC-ID&gt;.md — 시나리오별 (BDD + 매핑 + 검증결과)"]
     Docs --> Ra["refactoring/RA-&lt;ID&gt;.md + INDEX.md — 리팩토링 권고 (근거·수정법·결정)"]
     Root --> Ws["_workspace/ — 중간 JSON (감사용, ignore 대상)"]
-    Ws --> Wsj["00~10_*.json · 10b_conformance_repair.json · timing.json · pipeline_result.json · _resume.json"]
+    Ws --> Wsj["00~09_*.json · 09b_conformance_repair.json · timing.json · pipeline_result.json · _resume.json"]
 ```
 
 `test_docs/`는 사람이 읽는 영속 산출물이라 대상 프로젝트에 커밋될 수 있고, `_workspace/`는 운영 중간 산출물이라 ignore 대상이다.
-`_resume.json`(`{entryStage, entryLabel, ts}`, durable resume 재진입 단계의 SSOT — statusline이 읽어 clamp에 사용)의 스키마·소비 규칙은 [orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1 참조.
+`_resume.json`(`{schemaVersion: 2, entryStage, entryLabel, ts}`, durable resume 재진입 단계의 SSOT — statusline이 읽어 clamp에 사용)의 스키마·소비 규칙은 [orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1 참조.
 
 ---
 

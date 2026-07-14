@@ -1,11 +1,11 @@
-"""환경 세팅(setup-harness) 분리 계약 테스트 (v0.24.0).
+"""환경 세팅(setup-harness) 분리 계약 테스트 (v0.25.0).
 
 세팅과 실행의 분리가 프롬프트 계약 수준에서 실제로 지켜지는지 검증한다:
   - setup-harness 스킬이 E1~E10 + 상태줄(S1)을 소유한다
   - configure-harness/full-pipeline은 세팅하지 않고 E-verify 프로브만 돌린다
   - 미완료 시 고정 안내 문자열로 하드 중단한다
 
-표준 라이브러리만 사용한다(tests/test_optional_pitest.py와 동일 패턴).
+표준 라이브러리만 사용한다.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ class SetupHarnessSkillTests(unittest.TestCase):
         self.assertNotIn("| E1 |", self.text)
 
     def test_does_not_own_build_capability_provisioning(self) -> None:
-        # E11/E12는 mutation.enabled 인터뷰 결과에 의존 → configure-harness 0.6 소관.
+        # E11/E12는 대상 빌드도구·프로파일·승인에 의존 → configure-harness 0.6 소관.
         self.assertNotIn("detect_build_capabilities", self.text)
         self.assertNotIn("check_dependency_cache", self.text)
 
@@ -156,7 +156,7 @@ class JdtlsProbeTests(unittest.TestCase):
 class ManifestAndDocsTests(unittest.TestCase):
     def test_plugin_version_bumped(self) -> None:
         manifest = json.loads(_read(PLUGIN_ROOT / ".claude-plugin" / "plugin.json"))
-        self.assertEqual(manifest["version"], "0.24.0")
+        self.assertEqual(manifest["version"], "0.25.0")
         # 스킬은 skills/ 디렉터리에서 자동 발견된다(공식 플러그인 규약).
         self.assertEqual(manifest["skills"], "./skills")
 
@@ -165,8 +165,8 @@ class ManifestAndDocsTests(unittest.TestCase):
             with self.subTest(doc=rel):
                 self.assertIn("setup-harness", _read(PLUGIN_ROOT / rel))
 
-    def test_changelog_has_0_24_0_entry(self) -> None:
-        self.assertIn("## [0.24.0]", _read(PLUGIN_ROOT / "CHANGELOG.md"))
+    def test_changelog_has_0_25_0_entry(self) -> None:
+        self.assertIn("## [0.25.0]", _read(PLUGIN_ROOT / "CHANGELOG.md"))
 
 
 if __name__ == "__main__":

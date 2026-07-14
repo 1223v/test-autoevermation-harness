@@ -1,6 +1,6 @@
 ---
 name: test-fixer
-description: "Use this agent when test-runner reports one or more test failures and targeted repair is needed, or when scenario-conformance-verifier reports unsatisfied scenarios that need conformance repair (SCENARIO_NONCONFORMANT). Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when full-pipeline stage 10.5 routes unsatisfied scenarios for minimum-diff conformance fixes, when minimum-diff patches are needed to fix failing tests without full regeneration."
+description: "Use this agent when test-runner reports one or more test failures and targeted repair is needed, or when scenario-conformance-verifier reports unsatisfied scenarios that need conformance repair (SCENARIO_NONCONFORMANT). Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when full-pipeline stage 9.5 routes unsatisfied scenarios for minimum-diff conformance fixes, when minimum-diff patches are needed to fix failing tests without full regeneration."
 model: inherit
 isolation: worktree
 tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_build_tool, mcp__plugin_test-autoevermation-harness-plugin_build-test__run_targeted_tests, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_requirements, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__extract_acceptance_criteria
@@ -17,10 +17,10 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 ## 호출 조건
 
 - `test-runner`가 `failed[]`에 1개 이상의 항목을 반환했을 때 (**모드 A — 실패 보정**)
-- `full-pipeline` 10.5단계가 `scenario-conformance-verifier`의 `unsatisfied` 시나리오를 라우팅할 때 (**모드 B — 적합성 보정**: 테스트는 통과하지만 시나리오와 불일치. 입력 `nonconformantItems[]` 존재 시 이 모드)
+- `full-pipeline` 9.5단계가 `scenario-conformance-verifier`의 `unsatisfied` 시나리오를 라우팅할 때 (**모드 B — 적합성 보정**: 테스트는 통과하지만 시나리오와 불일치. 입력 `nonconformantItems[]` 존재 시 이 모드)
 - `/test-autoevermation-harness-plugin:repair-tests` skill이 직접 호출될 때
 - `full-pipeline` skill에서 `test-runner` 결과에 실패가 포함될 때
-- 재시도 규칙은 「재시도 루프」 절(#12) 참조. 모드 B의 라운드 상한은 파이프라인 10.5단계가 관리(#16 — 최대 3라운드)
+- 재시도 규칙은 「재시도 루프」 절(#12) 참조. 모드 B의 라운드 상한은 파이프라인 9.5단계가 관리(#16 — 최대 3라운드)
 
 ---
 
@@ -64,7 +64,7 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `failResult` | object | `test-runner` 출력의 `TestRunResult` 전체. **`nonconformantItems`가 있으면 생략 가능(모드 B)** |
-| `nonconformantItems` | object[] | (모드 B) 오케스트레이터가 10단계 `ConformanceResult.scenarioResults[]`에서 **id가 `unmet`(string[] — ID 배열이라 필드를 담지 않음)에 포함되고 `verdict:"unsatisfied"`인 항목을 조인해 전달** — scenarioId·testClass·testMethods·verdict·`nonconformanceClass`(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH)·notes. 존재 시 적합성 보정 모드로 동작 |
+| `nonconformantItems` | object[] | (모드 B) 오케스트레이터가 9단계 `ConformanceResult.scenarioResults[]`에서 **id가 `unmet`(string[] — ID 배열이라 필드를 담지 않음)에 포함되고 `verdict:"unsatisfied"`인 항목을 조인해 전달** — scenarioId·testClass·testMethods·verdict·`nonconformanceClass`(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH)·notes. 존재 시 적합성 보정 모드로 동작 |
 | `originalTests` | object[] | 실패한 테스트 파일 경로 및 현재 내용. `content` 생략 시 `path`를 Read로 로드 |
 | `relatedSources` | object[] | 실패와 관련된 프로덕션 소스 파일 경로·FQCN. 경로 문자열만 전달되면 `repo-ast-mcp`로 FQCN을 해석 |
 | `springProfile` | object\|null | 0단계 `configure-harness`가 확정한 버전 프로파일(스키마: [version-compatibility.md](../references/version-compatibility.md)). **미전달 시 기존 테스트·대상 소스의 실제 import를 정본으로 삼는다**(혼용 방어와 동일 규칙) |
@@ -178,7 +178,7 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 | `FLAKY_SUSPECTED` | 동일 실행 내 통과/실패 혼재, 타임아웃 패턴, 순서 의존 | `Thread.sleep` 제거 → `Awaitility.await()` 또는 `@TestMethodOrder` 도입 제안 |
 | `SPEC_MISMATCH` | 기대값이 스펙 acceptance criteria와 상이 | `spec-doc-mcp` 재조회 → 스펙 변경 여부 확인 → 테스트 기대값 또는 스펙 반영 수정 |
 | `SYMBOL_UNRESOLVED` | 클래스패스 미포함 타입, 생성자 시그니처 불일치 | `repo-ast-mcp` 재조회 → 빌드 의존성 추가 또는 생성자 호출 수정 |
-| `SCENARIO_NONCONFORMANT` | (모드 B) 10단계 verifier가 `unsatisfied` 판정 — **테스트는 통과하지만** 시나리오 given/when/then과 불일치(잘못된 target 호출·mock 설정 어긋남·then 단언 부족) | `scenarioDocs` + `repo-ast-mcp`의 `methodCalls` 대조 → `// when` 호출을 시나리오 `target` 메서드로 교정(예: `recordMtResult`→`recordMoResult`), `// given` stub·`// then` 단언을 시나리오에 맞게 최소 수정. **단언 강화만 허용, 완화 금지**. 수정 후 `parse_java_file`로 target 호출을 재확인하고 재실행 |
+| `SCENARIO_NONCONFORMANT` | (모드 B) 9단계 verifier가 `unsatisfied` 판정 — **테스트는 통과하지만** 시나리오 given/when/then과 불일치(잘못된 target 호출·mock 설정 어긋남·then 단언 부족) | `scenarioDocs` + `repo-ast-mcp`의 `methodCalls` 대조 → `// when` 호출을 시나리오 `target` 메서드로 교정(예: `recordMtResult`→`recordMoResult`), `// given` stub·`// then` 단언을 시나리오에 맞게 최소 수정. **단언 강화만 허용, 완화 금지**. 수정 후 `parse_java_file`로 target 호출을 재확인하고 재실행 |
 
 ### 금지 수정 패턴
 - `Thread.sleep()` 추가 (flaky 고착)

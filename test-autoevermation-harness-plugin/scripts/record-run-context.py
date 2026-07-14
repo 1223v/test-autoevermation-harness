@@ -18,7 +18,7 @@ guard-gate-artifacts.py가 판정에 사용하는 마커를 ``_workspace/.marker
 Decision table:
   PreToolUse Skill:
     * full-pipeline 아님                        -> allow (무동작)
-    * full-pipeline                             -> 부수효과: 이전 세션 마커 청소 +
+    * full-pipeline                             -> 부수효과: 이전 실행 마커 청소 +
                                                    run.json 기록; allow +
                                                    additionalContext(단계 계약 요약)
   PreToolUse Task|Agent:
@@ -65,7 +65,6 @@ PIPELINE_AGENTS = {
     "test-runner",
     "test-fixer",
     "coverage-closer",
-    "mutation-analyst",
     "scenario-conformance-verifier",
 }
 
@@ -154,19 +153,18 @@ def _handle_skill(payload: dict, tool_input: dict, session_id: str) -> None:
 
     markers = _markers_dir(payload)
     run_path = os.path.join(markers, RUN_MARKER)
-    existing = _read_json(run_path)
-    if not (isinstance(existing, dict) and existing.get("session_id") == session_id):
-        # 새 세션의 run 시작: 이전 세션 스폰/감지 증거는 무효 → 청소
-        try:
-            if os.path.isdir(markers):
-                for entry in os.listdir(markers):
-                    if entry.startswith("spawn-") or entry == DETECT_MARKER:
-                        try:
-                            os.remove(os.path.join(markers, entry))
-                        except OSError:
-                            pass
-        except OSError:
-            pass
+    # 같은 Claude 세션에서 full-pipeline을 다시 호출해도 이전 실행의 spawn/detect
+    # 증거를 재사용할 수 없다. 매 invocation마다 단계 위임 증거를 새로 수집한다.
+    try:
+        if os.path.isdir(markers):
+            for entry in os.listdir(markers):
+                if entry.startswith("spawn-") or entry == DETECT_MARKER:
+                    try:
+                        os.remove(os.path.join(markers, entry))
+                    except OSError:
+                        pass
+    except OSError:
+        pass
     _write_marker(run_path, session_id)
     _allow_with_context(_STAGE_CONTRACT_REMINDER)
 

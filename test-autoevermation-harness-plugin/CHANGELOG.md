@@ -9,6 +9,22 @@
 
 ---
 
+## [0.25.0] - 2026-07-15
+
+### Removed — PITest 기반 뮤테이션 기능 제거
+
+- 선택 기능이던 `mutation-test` 스킬과 `mutation-analyst` 에이전트를 제거했다. 설정 인터뷰와 `HarnessRequest`/`HarnessConfig`의 관련 블록, 최종 `PipelineResult` 단계도 함께 제거했다.
+- `build-test` MCP에서 관련 태스크·리포트 파서·게이트 카운터·빌드 능력 감지를 제거했다. 대상 프로젝트의 빌드 파일과 CI에 이미 추가된 관련 플러그인·태스크·환경 변수는 사용자 자산이므로 자동 삭제하지 않는다. 수동 정리가 필요하면 Gradle의 `info.solidsoft.pitest`와 `pitest { ... }`, Maven의 `org.pitest:pitest-maven`, CI의 `RUN_PITEST`·PIT 실행·리포트 업로드 단계만 제거하고 JaCoCo 설정은 유지한다.
+- 배포 예제와 활성 문서에서 해당 설정 및 실행 경로를 제거했다. 과거 릴리스 기록은 변경하지 않는다.
+
+### Changed — 최종 단계 번호와 산출물 재배치
+
+- 커버리지 게이트(8단계) 다음의 시나리오 적합성 검증을 **9단계**, 조건부 자동 보정 루프를 **9.5단계**로 재배치했다.
+- 중간 산출물은 `10_conformance.json` → `09_conformance.json`, `10b_conformance_repair.json` → `09b_conformance_repair.json`으로 변경했다. 기존 `_workspace/`의 옛 단계 산출물과 `_resume.json`은 새 실행에서 재사용하지 말고 새 계약으로 다시 생성해야 한다.
+- 플러그인/마켓플레이스 버전을 `0.25.0`, MCP 패키지 버전을 `0.11.0`으로 올렸다. 배포 구성은 스킬 14종·에이전트 10종·MCP 서버 3종이다.
+
+---
+
 ## [0.24.0] - 2026-07-15
 
 ### Added — 환경 세팅 전용 스킬 `setup-harness` 분리 (세팅과 실행의 분리)

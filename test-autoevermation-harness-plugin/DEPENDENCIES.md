@@ -37,7 +37,7 @@
 | 상태/체크포인트 | `_workspace/{단계}_{에이전트}_{산출물}.json` 파일 기반 전달 + Phase 0 부분 재실행 (자체 규약) |
 | 작업 추적/타이밍 | `scripts/record-timing.py`로 `timing.json`(total_tokens/duration_ms) 자체 누적 |
 | 인터뷰/질문 | 네이티브 `AskUserQuestion` (`configure-harness`) |
-| 검증 루프 | 생성-검증 패턴을 스킬 본문에 자체 기술(coverage/mutation/repair 루프, 최대 반복 한도) |
+| 검증 루프 | 생성-검증 패턴을 스킬 본문에 자체 기술(coverage/repair/conformance 루프, 최대 반복 한도) |
 
 ## 설치 (OMC 불필요)
 

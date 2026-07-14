@@ -670,7 +670,7 @@ def _method_calls(cls: dict[str, Any]) -> dict[str, list[str]]:
     Names only — never arguments or bodies. Empty lists under the regex
     fallback (only the JavaParser CLI extracts call expressions). Used by the
     scenario target-call conformance gate (test-code-generator Stage 5 /
-    scenario-conformance-verifier Stage 10)."""
+    scenario-conformance-verifier Stage 9)."""
     return {
         m["name"]: list(m.get("invokedMethods") or [])
         for m in cls.get("methods", [])

@@ -1,6 +1,6 @@
 [project]
 name = "test-autoevermation-harness-mcp"
-version = "0.10.0"
+version = "0.11.0"
 description = "Spring 테스트 하네스용 MCP 서버 3종 (repo-ast / spec-doc / build-test). 공식 MCP Python SDK(FastMCP) 기반."
 requires-python = ">=3.10"
 dependencies = [

@@ -40,6 +40,7 @@ PLUGIN_KEY_PREFIX = "test-autoevermation-harness-plugin@"
 OWNER_MARK = "test-autoevermation-statusline"
 
 DELEGATE_TIMEOUT_SEC = 8
+PIPELINE_SCHEMA_VERSION = 2
 
 # 단계 산출물 순서. (파일명, 그 산출물 완료 후 표시할 "현재 단계" 라벨)
 # 근거: skills/full-pipeline/references/orchestration-detail.md §2.
@@ -57,18 +58,17 @@ ORDER = [
     ("04b_approval.json", "stage 5: generate-tests"),
     ("05_test-gen_files.json", "stage 6: run-tests"),
     ("06_run_result.json", "stage 8: measure-coverage"),
-    ("08_coverage_result.json", "stage 9: mutation-test"),
-    ("09_mutation_result.json", "stage 10: verify-scenarios"),
-    ("10_conformance.json", "aggregating report"),
+    ("08_coverage_result.json", "stage 9: verify-scenarios"),
+    ("09_conformance.json", "aggregating report"),
 ]
 IDLE_STAGE_LABEL = "stage 0: configure-harness"
 REPAIR_ARTIFACT = "07_repair_result.json"
 REPAIR_BLOCKER = "08_coverage_result.json"  # 8단계 산출물이 생기면 7단계 표시 종료
-# 조건부 10.5단계(적합성 자동 보정): 10b 산출물이 있고 최종 결과가 아직 없으면 표시
-CONFORMANCE_REPAIR_ARTIFACT = "10b_conformance_repair.json"
+# 조건부 9.5단계(적합성 자동 보정): 09b 산출물이 있고 최종 결과가 아직 없으면 표시
+CONFORMANCE_REPAIR_ARTIFACT = "09b_conformance_repair.json"
 RESULT_ARTIFACT = "pipeline_result.json"
 # 상태 복원(durable resume) 포인터. full-pipeline Phase 0가 _workspace/ 휘발 후 영속 증거로
-# 재구성할 때 남긴다({entryStage, entryLabel, ts}). 존재 시 표시 stage를 재진입 지점으로
+# 재구성할 때 남긴다({schemaVersion:2, entryStage, entryLabel, ts}). 존재 시 표시 stage를 재진입 지점으로
 # clamp하고 "↩ resumed @" 를 붙여, 재개 지점보다 뒤의 stale 산출물 과대표시를 막는다.
 # 규약 정본: skills/full-pipeline/references/orchestration-detail.md §2-1.
 RESUME_ARTIFACT = "_resume.json"
@@ -221,13 +221,68 @@ def self_heal(cfg, stdin_bytes):
 # ─────────────────────────── 진행률 라인 ───────────────────────────
 
 def _read_resume(workspace):
-    """_workspace/_resume.json을 읽어 dict로 반환. 없거나 파손이면 None(상태줄 불파괴)."""
+    """schema v2 _resume.json만 반환한다. 구 stage 9 의미는 재사용하지 않는다."""
     try:
         with open(os.path.join(workspace, RESUME_ARTIFACT), encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else None
+        if isinstance(data, dict) and data.get("schemaVersion") == PIPELINE_SCHEMA_VERSION:
+            return data
+        return None
     except Exception:
         return None
+
+
+def _valid_pipeline_result(result, workspace):
+    """schema v2 완료 결과의 최소 구조와 적합성 선행 증거를 확인한다."""
+    if not isinstance(result, dict) or result.get("schemaVersion") != PIPELINE_SCHEMA_VERSION:
+        return False
+    status = result.get("status")
+    stages = result.get("stages")
+    if status not in {"ok", "partial", "failed"}:
+        return False
+    if not isinstance(stages, dict) or not isinstance(stages.get("verifyScenarios"), dict):
+        return False
+    if not isinstance(result.get("summary"), str) or not result["summary"].strip():
+        return False
+    if status == "failed" and not isinstance(result.get("errors"), list):
+        return False
+    if status == "failed" and not result["errors"]:
+        return False
+
+    verify = stages["verifyScenarios"]
+    verify_status = verify.get("status")
+    conformance_path = os.path.join(workspace, "09_conformance.json")
+    try:
+        with open(conformance_path, encoding="utf-8") as f:
+            conformance = json.load(f)
+    except Exception:
+        conformance = None
+
+    if not isinstance(conformance, dict):
+        return status in {"partial", "failed"} and verify_status in {"skipped", "blocked"}
+    if verify_status not in {"ok", "partial", "failed"}:
+        return False
+    names = ("approved", "satisfied", "unsatisfied", "missing")
+    counts = {name: verify.get(name) for name in names}
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0
+           for value in counts.values()):
+        return False
+    if counts["approved"] != (
+        counts["satisfied"] + counts["unsatisfied"] + counts["missing"]
+    ):
+        return False
+    totals = conformance.get("totals")
+    if not isinstance(totals, dict) or any(totals.get(name) != value
+                                            for name, value in counts.items()):
+        return False
+    if status == "ok":
+        return (
+            verify_status == "ok"
+            and conformance.get("status") == "ok"
+            and counts["unsatisfied"] == 0
+            and counts["missing"] == 0
+        )
+    return True
 
 
 def _resume_order_index(resume):
@@ -264,13 +319,15 @@ def harness_line(cfg, stdin_bytes):
     if not os.path.isdir(workspace):
         return prefix  # 파이프라인 없음 — 버전만 표시
 
-    if os.path.exists(os.path.join(workspace, RESULT_ARTIFACT)):
+    result_path = os.path.join(workspace, RESULT_ARTIFACT)
+    if os.path.exists(result_path):
         try:
-            with open(os.path.join(workspace, RESULT_ARTIFACT), encoding="utf-8") as f:
-                status = json.load(f).get("status", "?")
+            with open(result_path, encoding="utf-8") as f:
+                result = json.load(f)
         except Exception:
-            status = "?"
-        return "%s 100%% | done (%s)" % (prefix, status)
+            result = None
+        if _valid_pipeline_result(result, workspace):
+            return "%s 100%% | done (%s)" % (prefix, result.get("status", "?"))
 
     done = 0
     stage = IDLE_STAGE_LABEL
@@ -283,9 +340,9 @@ def harness_line(cfg, stdin_bytes):
         os.path.join(workspace, REPAIR_BLOCKER)
     ):
         stage = "stage 7: repair-tests"
-    # 조건부 10.5단계: 적합성 자동 보정 루프 진행 중(RESULT_ARTIFACT 부재는 위에서 보장)
+    # 조건부 9.5단계: 적합성 자동 보정 루프 진행 중
     if os.path.exists(os.path.join(workspace, CONFORMANCE_REPAIR_ARTIFACT)):
-        stage = "stage 10.5: conformance-repair"
+        stage = "stage 9.5: conformance-repair"
 
     # 상태 복원(durable resume): _resume.json이 있으면 표시 stage를 재진입 지점으로 clamp하고
     # "↩ resumed @" 를 붙인다 — 재개 지점보다 뒤의 stale 산출물이 있어도 과대표시하지 않는다.

@@ -15,7 +15,7 @@ description: Spring 테스트 하네스를 돌리기 위한 환경 세팅(Phase 
 담당하지 **않는** 범위(경계):
 
 - **E8·E9**(빌드도구·Spring 프로파일 감지) → `configure-harness` **0.5단계**. 대상 프로젝트의 데이터 감지라 세팅이 아니다.
-- **E11·E12**(빌드 능력 프로비저닝·의존성 캐시 프라이밍) → `configure-harness` **0.6단계**. 인터뷰 결과 `mutation.enabled`에 따라 검사 항목이 달라지므로 세팅 시점으로 앞당길 수 없다.
+- **E11·E12**(대상 프로젝트의 JaCoCo 능력 프로비저닝·의존성 캐시 프라이밍) → `configure-harness` **0.6단계**. 대상 빌드도구·프로파일·사용자 승인에 의존하므로 플러그인 환경 세팅 시점으로 앞당길 수 없다.
 
 정본(SSOT): 항목 정의·감지 명령·세팅 명령·통과 기준은 [references/environment-setup.md](../../references/environment-setup.md). 이 스킬은 그 체크리스트의 **실행 절차**를 정의한다. 정책: [fallback-policy.md](../../references/fallback-policy.md) #2·#3·#20 — **degrade 금지**(정규식·AST-only 대체 없음).
 
@@ -144,7 +144,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/
     "E1": "ok (python 3.12.4)",
     "E2": "ok (mcp[cli] 1.4.1 @ plugin venv)",
     "E3": "ok (repo-ast, spec-doc, build-test)",
-    "E3b": "ok (health x3, pluginVersion 0.24.0)",
+    "E3b": "ok (health x3, pluginVersion 0.25.0)",
     "E4": "ok (java 21.0.3)",
     "E5": "ok (bundled mvnw)",
     "E6": "ok (target/astcli-1.0.0-shaded.jar — built)",

@@ -89,7 +89,7 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
          "id": string,
          "title": string,
          "type": "unit" | "slice" | "integration",
-         "target": string,   // "FQCN#method" 형식 필수 — '#' 뒤 메서드 단순명을 5단계 targetCallCheck·10단계 기계 대조가 파싱
+         "target": string,   // "FQCN#method" 형식 필수 — '#' 뒤 메서드 단순명을 5단계 targetCallCheck·9단계 기계 대조가 파싱
          "priority": "P0" | "P1" | "P2",
          "given": [string],
          "when": string,

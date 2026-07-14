@@ -66,32 +66,9 @@
       </executions>
     </plugin>
 
-    <!-- 선택적 PITest(mutation.enabled=true): JUnit5(Jupiter) 어댑터. 순수 JUnit4(Boot 2.0/2.1) 프로파일이면
-         pitest-junit5-plugin 의존성을 제거(내장 JUnit4 지원). -->
-    <plugin>
-      <groupId>org.pitest</groupId>
-      <artifactId>pitest-maven</artifactId>
-      <version>1.9.11</version>
-      <dependencies>
-        <dependency>
-          <groupId>org.pitest</groupId>
-          <artifactId>pitest-junit5-plugin</artifactId>
-          <version>1.0.0</version>
-        </dependency>
-      </dependencies>
-      <configuration>
-        <targetClasses><param>com.example.*</param></targetClasses>
-        <targetTests><param>com.example.*Test</param></targetTests>
-        <mutationThreshold>80</mutationThreshold>
-        <outputFormats><value>XML</value><value>HTML</value></outputFormats>
-        <timestampedReports>false</timestampedReports>
-      </configuration>
-    </plugin>
-
   </plugins>
 </build>
 
 <!-- JUnit4 폴백 (Boot 2.0 / 2.1):
      · 테스트는 @RunWith(SpringRunner.class) + org.junit.Test (version-compatibility.md §2-C)
-     · 레거시 JUnit4를 Platform과 함께 돌리려면 junit-vintage-engine 의존성 추가
-     · pitest: pitest-junit5-plugin 의존성 제거 -->
+     · 레거시 JUnit4를 Platform과 함께 돌리려면 junit-vintage-engine 의존성 추가 -->

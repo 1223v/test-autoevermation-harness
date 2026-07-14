@@ -9,8 +9,6 @@ plugins {
     id 'jacoco'
     id 'org.springframework.boot' version '2.7.18'
     id 'io.spring.dependency-management' version '1.0.15.RELEASE'
-    // 선택 기능: mutation.enabled=true일 때만 유지. Gradle 5.x면 호환 버전 폴백 또는 비활성화.
-    id 'info.solidsoft.pitest' version '1.9.11'
 }
 
 group = 'com.example'
@@ -85,22 +83,8 @@ jacocoTestCoverageVerification {
 
 check.dependsOn jacocoTestCoverageVerification
 
-// 선택적 PITest 뮤테이션. 비활성화 시 플러그인과 이 블록을 제거해도 된다.
-pitest {
-    junit5PluginVersion = '1.0.0'
-    targetClasses = ['com.example.*']
-    targetTests = ['com.example.*Test']
-    mutators = ['DEFAULTS']
-    mutationThreshold = 80
-    threads = 2
-    outputFormats = ['XML', 'HTML']
-    timestampedReports = false
-}
-
 // ──────────────────────────────────────────────────────────────────────────
 // JUnit4 폴백 (Boot 2.0 / 2.1, 순수 JUnit 4)
 //   - test { useJUnit() }              // useJUnitPlatform() 대신
 //   - 테스트는 @RunWith(SpringRunner.class) + org.junit.Test 사용 (version-compatibility.md §2-C)
-//   - pitest: junit5PluginVersion 줄 삭제 (PIT 내장 JUnit4 지원)
-//   - 매우 오래된 Gradle(5.x)이면 gradle-pitest 1.7.4로 낮추거나 뮤테이션 단계 생략
 // ──────────────────────────────────────────────────────────────────────────

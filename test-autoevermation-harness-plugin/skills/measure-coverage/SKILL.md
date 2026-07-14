@@ -40,7 +40,7 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
 ## 절차
 1. **측정 실행**: test-runner(또는 build-test `run_targeted_tests(with_coverage=true)`)로 타깃 범위 테스트 + JaCoCo 리포트 생성. 네트워크 off, 최소 범위.
 2. **파싱**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_jacoco_report(root)` → 카운터별 overall + per-class + `uncovered[]`.
-3. **게이트**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate(root, line, branch, method, klass, mutation)` → counter별 pass/fail + gaps. (서버 파라미터명은 `klass`.) **`require_pitest`는 생략(기본 False)** — PITest는 선택 기능이고 8단계에서는 리포트 부재가 정상이다. 후속 종합 확인도 `mutation.enabled:true`로 9단계를 실제 실행한 경우에만 `require_pitest=True`로 호출한다.
+3. **게이트**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate(root, line, branch, method, klass)` → JaCoCo counter별 pass/fail + gaps. (서버 파라미터명은 `klass`.)
 4. **분기**:
    - 게이트 통과 → 상태 `ok`, 종료.
    - 미달 → `uncovered[]`를 **coverage-closer** 에이전트에 구조화 입력으로 전달(에이전트 입력 스키마와 1:1):
@@ -81,7 +81,7 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
   "warnings": [], "errors": [], "nextActions": []
 }
 ```
-> `addedTests`(경로 배열)는 coverage-closer 출력 `addedTests[]`(object — `{path, action, addedMethods, targetsUncovered}`)에서 `path`만 **flatten**한 것이다. 다음 반복의 `existingTestPaths`와 full-pipeline의 회귀 실행·10단계 `generatedFiles` 병합에 쓰인다.
+> `addedTests`(경로 배열)는 coverage-closer 출력 `addedTests[]`(object — `{path, action, addedMethods, targetsUncovered}`)에서 `path`만 **flatten**한 것이다. 다음 반복의 `existingTestPaths`와 full-pipeline의 회귀 실행·9단계 `generatedFiles` 병합에 쓰인다.
 
 ## 실패 유형
 - `BUILD_TOOL_UNDETECTED` / `TEST_COMPILE_FAILED` / `TEST_RUNTIME_FAILED` → run-tests/repair-tests로 위임 후 재측정.
@@ -95,4 +95,4 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
 ## 연결
 - 에이전트: `coverage-closer`
 - MCP: build-test(`run_targeted_tests`, `parse_jacoco_report`, `coverage_gate`), repo-ast(대상 메서드 시그니처 확인)
-- 후속: 게이트 통과 시 `[[../mutation-test/SKILL.md]]` 로 진행.
+- 후속: 게이트 통과 시 `[[../verify-scenarios/SKILL.md]]` 로 진행.

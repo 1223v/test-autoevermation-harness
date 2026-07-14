@@ -180,14 +180,6 @@ java { sourceCompatibility = JavaVersion.VERSION_1_8 }
 
 Surefire는 JUnit Platform(2.22+)·JUnit4 모두 지원. JaCoCo 플러그인 `0.8.12` 동일.
 
-### 5-D. PITest 폴백
-
-| 환경 | gradle-pitest | junit5 어댑터 |
-|---|---|---|
-| Gradle 6.4+ (2.4+/3.x/4.x) | `1.19.0` | `junit5PluginVersion="1.0.0"`(또는 최신) |
-| Gradle 5.x (구 2.0/2.1) | `1.7.4` 폴백 | 순수 JUnit4면 어댑터 불필요 |
-| 불확실 | — | **뮤테이션 단계 graceful skip + warning** (커버리지 게이트는 유지) |
-
 ---
 
 ## 6. 생성기 분기 의사코드

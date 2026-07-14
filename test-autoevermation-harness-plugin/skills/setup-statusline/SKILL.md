@@ -111,6 +111,6 @@ echo '{"workspace":{"current_dir":"'$PWD'"}}' | node "${CLAUDE_CONFIG_DIR:-$HOME
 - 표시 단계 라벨↔산출물 매핑의 SSOT는 `skills/full-pipeline/references/orchestration-detail.md` §2이며, 래퍼
   스크립트 상단 `ORDER` 리스트가 이를 미러링한다. 파이프라인 산출물 규약 변경 시 `ORDER`도 함께 갱신한다.
 - **상태 복원(durable resume) 표시**: `_workspace/`가 휘발한 뒤 full-pipeline Phase 0가 영속 증거로 재개하면
-  `_workspace/_resume.json`(`{entryStage, entryLabel, ts}`, 규약 SSOT: orchestration-detail.md §2-1)을 남긴다.
+  `_workspace/_resume.json`(`{schemaVersion: 2, entryStage, entryLabel, ts}`, 규약 SSOT: orchestration-detail.md §2-1)을 남긴다.
   상태줄은 이를 읽어 표시 단계를 재진입 지점으로 clamp하고 `↩ resumed @ <단계>`로 표기한다 — 재개 지점보다
   뒤의 stale 산출물이 있어도 과대표시하지 않는다. `pipeline_result.json`이 생기면 `100% | done`이 우선한다.

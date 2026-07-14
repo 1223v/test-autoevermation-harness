@@ -43,14 +43,6 @@
 - Maven: `org.jacoco:jacoco-maven-plugin:0.8.12`, goals `prepare-agent` + `report` + **`check`**(rule가 위반되면 빌드 실패). XML 리포트 위치: `target/site/jacoco/jacoco.xml`.
 - 제외 allowlist: 생성코드/DTO/config/`*Application` 등은 `excludes`로 제외(near-100% 현실화).
 
-## 4. 뮤테이션: PITest
-- 하네스 정책: **선택 기능**, `HarnessConfig.mutation.enabled` 기본 `false`. 활성화된 경우에만 플러그인·JUnit 어댑터·XML 출력과 9단계 게이트를 요구한다.
-- Gradle: **`info.solidsoft.pitest` 1.19.0**, `pitest { junit5PluginVersion = "1.0.0" }`. 공식: [gradle-pitest-plugin](https://gradle-pitest-plugin.solidsoft.info/), [szpak/gradle-pitest-plugin](https://github.com/szpak/gradle-pitest-plugin)
-- Maven: `org.pitest:pitest-maven` + `org.pitest:pitest-junit5-plugin`.
-- 핵심 옵션: `targetClasses`, `targetTests`, `mutators`(기본/STRONGER), `mutationThreshold`, `threads`, `timestampedReports=false`, `withHistory=true`(증분), **`outputFormats`에 XML 포함**. PIT 기본 출력은 HTML이므로 XML을 명시해야 MCP가 `mutations.xml`을 소비할 수 있다. 리포트: `build/reports/pitest/`.
-- JUnit5 지원: `pitest-junit5-plugin **1.0.0+**` (PIT 1.9.0+ 요구). 공식: [pitest/pitest-junit5-plugin](https://github.com/pitest/pitest-junit5-plugin)
-- 해석: line/branch 100%여도 살아남은 mutant가 있으면 **assertion 부재/약함** → mutation-analyst가 테스트 강화.
-
 ## 5. Spring 최신 테스트 API (Boot 4.1.0 = "latest" 프로파일)
 - Boot 4.1.0 / Framework 7.0.8+ / Java 17–26 / Gradle 8.14+(9.x) / Maven 3.6.3+. 공식: [System Requirements](https://docs.spring.io/spring-boot/system-requirements.html)
 - BOM 관리: JUnit Jupiter/Platform **6.0.x**, Mockito **5.2x** (정확 patch는 resolved BOM에서 확인). 공식: [Dependency Versions](https://docs.spring.io/spring-boot/appendix/dependency-versions/index.html)
@@ -80,25 +72,22 @@
 1. **네임스페이스**: Boot 2.x = `javax.persistence/validation/servlet`, Boot 3.x+ = `jakarta.*`. 생성 코드 import·엔티티 참조에 직접 영향.
 2. **JUnit 엔진**: `junit4`(=`@RunWith(SpringRunner.class)`+`org.junit.Test`, `@DisplayName` 없음) vs `jupiter`(`@ExtendWith`/`@Test`+`@DisplayName`). 2.0–2.1 기본 junit4; 2.2+ jupiter. 단 프로젝트가 vintage/junit:junit을 쓰면 junit4 유지.
 3. **Mock 애노테이션**: Boot ≤3.3 = `@MockBean`(boot.test.mock.mockito), 3.4+ = `@MockitoBean`(test.context.bean.override.mockito). 4.0에서 `@MockBean` 제거.
-4. **빌드/툴 베이스라인**: Java 8(2.x)/17(3.x+); Gradle `useJUnit()`(순수 junit4) vs `useJUnitPlatform()`; JaCoCo/PITest 버전 폴백(§아래).
+4. **빌드/툴 베이스라인**: Java 8(2.x)/17(3.x+); Gradle `useJUnit()`(순수 junit4) vs `useJUnitPlatform()`; JaCoCo 버전 폴백(§아래).
 
-**JaCoCo / PITest 버전 폴백** (Java 베이스라인별)
+**JaCoCo 버전 폴백** (Java 베이스라인별)
 - JaCoCo: **0.8.12**는 Java 8 런타임에서도 정상(바이트코드 5–23 지원). 매우 오래된 Gradle(≤6.x)이면 `toolVersion`만 0.8.8+로 낮춰도 됨. 공식: [JaCoCo Releases](https://www.jacoco.org/jacoco/trunk/doc/changes.html)
-- PITest(Gradle, opt-in): `info.solidsoft.pitest` **1.19.0**은 Gradle 6.4+ 필요. Gradle 5.x면 호환 버전으로 폴백하거나 `mutation.enabled:false`로 전환해 **graceful skip + warning**. JUnit5는 `pitest-junit5-plugin`, **순수 JUnit4면 어댑터 불필요**(PIT 내장).
-- 뮤테이션 단계는 advanced·선택. 버전 폴백이 불확실하면 측정만 스킵하고 커버리지 게이트는 유지.
 
 ## 6. near-100% 커버리지 정책(현실화)
-- 목표 게이트(기본, 런타임 조정 가능): LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS ≥ 1.00. PITest를 활성화한 경우에만 mutationThreshold ≥ 0.80.
+- 목표 게이트(기본, 런타임 조정 가능): LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS ≥ 1.00.
 - 제외 allowlist(기본 제안): `**/*Application*`, `**/config/**`, `**/dto/**`, `**/generated/**`, lombok/MapStruct 생성물, `equals/hashCode/toString` 자동생성.
-- 게이트 미달 시: coverage-closer/mutation-analyst가 gap을 받아 추가 테스트 생성 → 재측정 루프.
+- 게이트 미달 시: coverage-closer가 gap을 받아 추가 테스트 생성 → 재측정 루프.
 
-## 7. 런타임 인터뷰(AskUserQuestion) 항목 — 4종 전부 채택
+## 7. 런타임 인터뷰(AskUserQuestion) 항목 — 3종 전부 채택
 1. 스펙 문서 경로 추가 입력 → spec-doc.index_docs
 2. 테스트 생성 대상 폴더/패키지/클래스 선별 → 대상 스코프 한정
-3. 뮤테이션 테스트 깊이/대상(mutators 세트, targetClasses, mutationThreshold)
-4. 커버리지 임계값 + 제외 규칙(allowlist)
+3. 커버리지 임계값 + 제외 규칙(allowlist)
 - 제약: AskUserQuestion은 **interactive CLI에서만** 의미. 비대화형/CI(`claude -p`)에서는 HarnessRequest JSON + 기본값으로 대체(=인터뷰 스킵).
-- 3.5단계 리팩토링 권고 게이트(#19)의 포함/제외 질문은 인터뷰 4종과 별개의 **파이프라인 중간 게이트**이며 `HarnessConfig.refactorAdvisory`는 인터뷰 항목이 아니다(비침습 기본값).
+- 3.5단계 리팩토링 권고 게이트(#19)의 포함/제외 질문은 인터뷰 3종과 별개의 **파이프라인 중간 게이트**이며 `HarnessConfig.refactorAdvisory`는 인터뷰 항목이 아니다(비침습 기본값).
 
 ## 9. 리팩토링 권고 게이트(3.5단계) 기준 근거 — 공식/1차 문서 (2026-07-02 검증)
 
