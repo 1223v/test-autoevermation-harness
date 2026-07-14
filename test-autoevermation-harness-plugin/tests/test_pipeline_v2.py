@@ -61,7 +61,31 @@ class RemovedComponentContractTests(unittest.TestCase):
         manifest = json.loads(
             (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual("0.25.0", manifest["version"])
+        self.assertEqual("0.25.1", manifest["version"])
+
+    def test_conformance_repair_contract_rechecks_6_then_8_then_9(self) -> None:
+        full_pipeline = (PLUGIN_ROOT / "skills" / "full-pipeline" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        fallback = (PLUGIN_ROOT / "references" / "fallback-policy.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("3. 8단계 measure-coverage", full_pipeline)
+        self.assertIn("각 라운드는 반드시 6→8→9 순서", full_pipeline)
+        self.assertIn("6단계 테스트 → 8단계 커버리지 → 9단계 적합성", fallback)
+
+    def test_inventory_and_statusline_docs_do_not_use_stale_counts(self) -> None:
+        envelope = (PLUGIN_ROOT / "references" / "agent-result-envelope.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("10개 서브에이전트", envelope)
+        for rel in ("README.md", "docs/GUIDE.md", "skills/setup-statusline/SKILL.md"):
+            text = (PLUGIN_ROOT / rel).read_text(encoding="utf-8")
+            with self.subTest(path=rel):
+                self.assertIn("<progress>%", text)
+                self.assertNotIn("71% | ↩ resumed", text)
+                self.assertNotIn("79% | ↩ resumed", text)
 
 
 class ArtifactSequenceTests(unittest.TestCase):
@@ -161,6 +185,33 @@ class ArtifactSequenceTests(unittest.TestCase):
                     )
                     self.assertIn("schemaVersion=2", message)
 
+    def test_valid_schema_v2_ignores_legacy_mutation_true_and_false_equally(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp, "_workspace")
+            workspace.mkdir()
+            messages = []
+            for enabled in (False, True):
+                messages.append(
+                    gate_guard._zone_a(
+                        "00_config-harness.json",
+                        "Write",
+                        {
+                            "content": json.dumps(
+                                {
+                                    "schemaVersion": 2,
+                                    "springProfile": {},
+                                    "mutation": {"enabled": enabled},
+                                }
+                            )
+                        },
+                        str(workspace),
+                        "session",
+                        "",
+                    )
+                )
+
+        self.assertEqual(["", ""], messages)
+
     def test_durable_stub_cannot_forge_stage_9(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp, "_workspace")
@@ -179,7 +230,100 @@ class ArtifactSequenceTests(unittest.TestCase):
                 "",
             )
 
-        self.assertIn("위임 없이 산출물 기록", message)
+        self.assertIn("허용되지 않은 durable-scan stub", message)
+
+    def test_unlisted_durable_coverage_stub_cannot_fall_back_to_normal_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp, "_workspace")
+            workspace.mkdir()
+            self._activate_run(workspace)
+            (workspace / "06_run_result.json").write_text("{}", encoding="utf-8")
+            (workspace / ".markers" / "pipeline-state.detected.json").write_text(
+                json.dumps(
+                    {
+                        "session_id": "session",
+                        "allowedArtifacts": ["06_run_result.json"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            message = gate_guard._zone_a(
+                "08_coverage_result.json",
+                "Write",
+                {
+                    "content": json.dumps(
+                        {
+                            "source": "durable-scan",
+                            "status": "reused",
+                            "gatePassed": True,
+                        }
+                    )
+                },
+                str(workspace),
+                "session",
+                "",
+            )
+
+        self.assertIn("허용되지 않은 durable-scan stub", message)
+
+    def test_durable_coverage_stub_is_invalidated_when_config_thresholds_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp, "_workspace")
+            workspace.mkdir()
+            self._activate_run(workspace)
+            (workspace / "00_config-harness.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 2,
+                        "springProfile": {},
+                        "coverage": {
+                            "line": 1.0,
+                            "branch": 1.0,
+                            "method": 1.0,
+                            "class": 1.0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            old_thresholds = {
+                "line": 0.5,
+                "branch": 0.5,
+                "method": 0.5,
+                "klass": 0.5,
+            }
+            (workspace / ".markers" / "pipeline-state.detected.json").write_text(
+                json.dumps(
+                    {
+                        "session_id": "session",
+                        "coverageThresholds": old_thresholds,
+                        "expectedCoverageThresholds": old_thresholds,
+                        "coverageThresholdsMatch": True,
+                        "allowedArtifacts": ["08_coverage_result.json"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            message = gate_guard._zone_a(
+                "08_coverage_result.json",
+                "Write",
+                {
+                    "content": json.dumps(
+                        {
+                            "source": "durable-scan",
+                            "status": "reused",
+                            "gatePassed": True,
+                        }
+                    )
+                },
+                str(workspace),
+                "session",
+                "",
+            )
+
+        self.assertIn("허용되지 않은 durable-scan stub", message)
 
     def test_pipeline_result_requires_stage_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -220,6 +364,49 @@ class ArtifactSequenceTests(unittest.TestCase):
 
         self.assertIn("집계값", message)
 
+    def test_failed_coverage_stub_is_rejected_even_when_detect_allowed_stage_8(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp, "_workspace")
+            workspace.mkdir()
+            self._activate_run(workspace)
+            (workspace / ".markers" / "pipeline-state.detected.json").write_text(
+                json.dumps(
+                    {
+                        "session_id": "session",
+                        "coverageThresholds": {
+                            "line": 1.0,
+                            "branch": 1.0,
+                            "method": 1.0,
+                            "klass": 1.0,
+                        },
+                        "expectedCoverageThresholds": {
+                            "line": 1.0,
+                            "branch": 1.0,
+                            "method": 1.0,
+                            "klass": 1.0,
+                        },
+                        "coverageThresholdsMatch": True,
+                        "allowedArtifacts": ["08_coverage_result.json"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            message = gate_guard._zone_a(
+                "08_coverage_result.json",
+                "Write",
+                {
+                    "content": json.dumps(
+                        {"source": "durable-scan", "status": "failed"}
+                    )
+                },
+                str(workspace),
+                "session",
+                "",
+            )
+
+        self.assertIn("gatePassed:true", message)
+
     def test_pipeline_named_file_outside_workspace_is_not_guarded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp, "config", "pipeline_result.json")
@@ -235,6 +422,82 @@ class ArtifactSequenceTests(unittest.TestCase):
                     gate_guard.main()
 
         self.assertEqual({}, json.loads(output.getvalue()))
+
+    def test_symlink_alias_into_workspace_is_still_guarded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "_workspace"
+            workspace.mkdir()
+            alias = root / "workspace-alias"
+            alias.symlink_to(workspace, target_is_directory=True)
+            payload = {
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": str(alias / "00_config-harness.json"),
+                    "content": "{}",
+                },
+                "session_id": "session",
+                "cwd": tmp,
+            }
+            output = io.StringIO()
+            with mock.patch.object(gate_guard.sys, "stdin", io.StringIO(json.dumps(payload))):
+                with redirect_stdout(output):
+                    gate_guard.main()
+
+        decision = json.loads(output.getvalue())
+        reason = decision["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("schemaVersion=2", reason)
+
+    def test_symlink_alias_into_test_tree_is_still_guarded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "_workspace"
+            workspace.mkdir()
+            self._activate_run(workspace)
+            test_dir = root / "src" / "test" / "java"
+            test_dir.mkdir(parents=True)
+            alias = root / "test-alias"
+            alias.symlink_to(test_dir, target_is_directory=True)
+            payload = {
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": str(alias / "OrderServiceTest.java"),
+                    "content": "class OrderServiceTest {}",
+                },
+                "session_id": "session",
+                "cwd": tmp,
+            }
+            output = io.StringIO()
+            with mock.patch.object(gate_guard.sys, "stdin", io.StringIO(json.dumps(payload))):
+                with redirect_stdout(output):
+                    gate_guard.main()
+
+        decision = json.loads(output.getvalue())
+        reason = decision["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("4.5 승인 게이트", reason)
+
+    def test_hook_owned_marker_files_cannot_be_forged_by_write_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp, "_workspace", ".markers", "pipeline-state.detected.json")
+            payload = {
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": str(marker),
+                    "content": json.dumps(
+                        {"session_id": "session", "allowedArtifacts": ["08_coverage_result.json"]}
+                    ),
+                },
+                "session_id": "session",
+                "cwd": tmp,
+            }
+            output = io.StringIO()
+            with mock.patch.object(gate_guard.sys, "stdin", io.StringIO(json.dumps(payload))):
+                with redirect_stdout(output):
+                    gate_guard.main()
+
+        decision = json.loads(output.getvalue())
+        reason = decision["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("훅 전용 실행 증거", reason)
 
     def test_statusline_uses_new_tail_order(self) -> None:
         self.assertIn(
@@ -346,6 +609,20 @@ class StatuslineMigrationTests(unittest.TestCase):
                 "summary": "all scenarios were excluded before generation",
                 "stages": {"verifyScenarios": {"status": "skipped"}},
             }
+            (workspace / "09_conformance.json").write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "totals": {
+                            "approved": 1,
+                            "satisfied": 1,
+                            "unsatisfied": 0,
+                            "missing": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
             guard_message = gate_guard._zone_a(
                 "pipeline_result.json",
                 "Write",
@@ -436,6 +713,298 @@ class RunMarkerTests(unittest.TestCase):
         self.assertFalse(spawn_exists)
         self.assertFalse(detect_exists)
         self.assertIn("additionalContext", output.getvalue())
+
+    def test_detect_marker_is_bound_to_actual_response_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_skill(
+                    {"cwd": tmp},
+                    {"skill": "test-autoevermation-harness-plugin:full-pipeline"},
+                    "session",
+                )
+            result = {
+                "status": "ok",
+                "root": tmp,
+                "harnessProvenance": True,
+                "hasTests": True,
+                "recommendedEntryStage": 9,
+                "scenarios": {"approved": 1},
+                "junitReport": {"present": True, "passed": 3, "failed": 0},
+                "jacocoReport": {"present": True, "gatePassed": True},
+            }
+            payload = {
+                "cwd": tmp,
+                "tool_use_id": "toolu-detect",
+                "tool_input": {"root": tmp},
+                "tool_response": {
+                    "content": [{"type": "text", "text": json.dumps(result)}]
+                },
+            }
+            output = io.StringIO()
+            with redirect_stdout(output):
+                record_context._handle_detect(payload, "session")
+
+            marker = json.loads(
+                Path(tmp, "_workspace", ".markers", "pipeline-state.detected.json")
+                .read_text(encoding="utf-8")
+            )
+
+        self.assertEqual("toolu-detect", marker["tool_use_id"])
+        self.assertTrue(marker["coverageThresholdsMatch"])
+        self.assertEqual(
+            [
+                "04_scenario_set.json",
+                "05_test-gen_files.json",
+                "06_run_result.json",
+                "08_coverage_result.json",
+            ],
+            marker["allowedArtifacts"],
+        )
+
+    def test_project_root_outside_cwd_receives_run_detect_and_spawn_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp, "session")
+            project = Path(tmp, "project")
+            cwd.mkdir()
+            project.mkdir()
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_skill(
+                    {"cwd": str(cwd)},
+                    {
+                        "skill": "test-autoevermation-harness-plugin:full-pipeline",
+                        "args": json.dumps({"projectRoot": str(project)}),
+                    },
+                    "session",
+                )
+            result = {
+                "status": "ok",
+                "root": str(project),
+                "harnessProvenance": True,
+                "hasTests": True,
+                "recommendedEntryStage": 9,
+                "scenarios": {"approved": 1},
+                "junitReport": {"present": True, "passed": 3, "failed": 0},
+                "jacocoReport": {"present": True, "gatePassed": True},
+            }
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_detect(
+                    {
+                        "cwd": str(cwd),
+                        "tool_use_id": "toolu-project",
+                        "tool_input": {"root": str(project)},
+                        "tool_response": {"content": [{"text": json.dumps(result)}]},
+                    },
+                    "session",
+                )
+                record_context._handle_spawn(
+                    {"cwd": str(cwd)},
+                    {"subagent_type": "scenario-conformance-verifier"},
+                    "session",
+                )
+
+            cwd_run = json.loads(
+                (cwd / "_workspace" / ".markers" / "run.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            target_markers = project / "_workspace" / ".markers"
+            target_run = json.loads(
+                (target_markers / "run.json").read_text(encoding="utf-8")
+            )
+            detect_exists = (target_markers / "pipeline-state.detected.json").exists()
+            spawn_exists = (
+                target_markers / "spawn-scenario-conformance-verifier.json"
+            ).exists()
+            guard_message = gate_guard._zone_a(
+                "09_conformance.json",
+                "Write",
+                {"content": "{}"},
+                str(project / "_workspace"),
+                "session",
+                "scenario-conformance-verifier",
+            )
+
+        self.assertEqual(str(project.resolve()), cwd_run["projectRoot"])
+        self.assertEqual(str(project.resolve()), target_run["projectRoot"])
+        self.assertTrue(detect_exists)
+        self.assertTrue(spawn_exists)
+        self.assertIn("08_coverage_result.json", guard_message)
+
+    def test_detect_coverage_stub_requires_current_config_thresholds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_skill(
+                    {"cwd": tmp},
+                    {"skill": "test-autoevermation-harness-plugin:full-pipeline"},
+                    "session",
+                )
+            workspace = project / "_workspace"
+            (workspace / "00_config-harness.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 2,
+                        "springProfile": {},
+                        "coverage": {
+                            "line": 0.95,
+                            "branch": 0.9,
+                            "method": 0.95,
+                            "class": 1.0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = {
+                "status": "ok",
+                "root": tmp,
+                "harnessProvenance": True,
+                "hasTests": True,
+                "recommendedEntryStage": 9,
+                "scenarios": {"approved": 1},
+                "junitReport": {"present": True, "passed": 3, "failed": 0},
+                "jacocoReport": {"present": True, "gatePassed": True},
+            }
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_detect(
+                    {
+                        "cwd": tmp,
+                        "tool_use_id": "toolu-low-threshold",
+                        "tool_input": {
+                            "root": tmp,
+                            "line": 0.0,
+                            "branch": 0.0,
+                            "method": 0.0,
+                            "klass": 0.0,
+                        },
+                        "tool_response": {"content": [{"text": json.dumps(result)}]},
+                    },
+                    "session",
+                )
+
+            marker = json.loads(
+                (workspace / ".markers" / "pipeline-state.detected.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertFalse(marker["coverageThresholdsMatch"])
+        self.assertEqual(
+            [
+                "04_scenario_set.json",
+                "05_test-gen_files.json",
+                "06_run_result.json",
+            ],
+            marker["allowedArtifacts"],
+        )
+
+    def test_matching_config_thresholds_allow_proven_coverage_stub(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_skill(
+                    {"cwd": tmp},
+                    {"skill": "test-autoevermation-harness-plugin:full-pipeline"},
+                    "session",
+                )
+            workspace = Path(tmp, "_workspace")
+            thresholds = {"line": 0.95, "branch": 0.9, "method": 0.95}
+            (workspace / "00_config-harness.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 2,
+                        "springProfile": {},
+                        "coverage": {**thresholds, "class": 1.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = {
+                "status": "ok",
+                "root": tmp,
+                "harnessProvenance": True,
+                "hasTests": True,
+                "recommendedEntryStage": 9,
+                "scenarios": {"approved": 1},
+                "junitReport": {"present": True, "passed": 3, "failed": 0},
+                "jacocoReport": {"present": True, "gatePassed": True},
+            }
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_detect(
+                    {
+                        "cwd": tmp,
+                        "tool_use_id": "toolu-matching-threshold",
+                        "tool_input": {**thresholds, "klass": 1.0, "root": tmp},
+                        "tool_response": {"content": [{"text": json.dumps(result)}]},
+                    },
+                    "session",
+                )
+            marker = json.loads(
+                (workspace / ".markers" / "pipeline-state.detected.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            message = gate_guard._zone_a(
+                "08_coverage_result.json",
+                "Write",
+                {
+                    "content": json.dumps(
+                        {
+                            "source": "durable-scan",
+                            "status": "reused",
+                            "gatePassed": True,
+                        }
+                    )
+                },
+                str(workspace),
+                "session",
+                "",
+            )
+
+        self.assertIn("08_coverage_result.json", marker["allowedArtifacts"])
+        self.assertEqual("", message)
+
+    def test_detect_response_root_mismatch_invalidates_previous_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_skill(
+                    {"cwd": tmp},
+                    {"skill": "test-autoevermation-harness-plugin:full-pipeline"},
+                    "session",
+                )
+            marker = Path(tmp, "_workspace", ".markers", "pipeline-state.detected.json")
+            marker.write_text(
+                json.dumps(
+                    {
+                        "session_id": "session",
+                        "allowedArtifacts": ["06_run_result.json"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            other = Path(tmp, "other")
+            other.mkdir()
+            result = {
+                "status": "ok",
+                "root": str(other),
+                "harnessProvenance": True,
+                "hasTests": True,
+                "recommendedEntryStage": 8,
+                "scenarios": {"approved": 1},
+                "junitReport": {"present": True, "passed": 1, "failed": 0},
+                "jacocoReport": {"present": False},
+            }
+            with redirect_stdout(io.StringIO()):
+                record_context._handle_detect(
+                    {
+                        "cwd": tmp,
+                        "tool_input": {"root": tmp},
+                        "tool_response": {"content": [{"text": json.dumps(result)}]},
+                    },
+                    "session",
+                )
+            marker_exists = marker.exists()
+
+        self.assertFalse(marker_exists)
 
 
 if __name__ == "__main__":

@@ -48,11 +48,11 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 - `harnessProvenance:false`이면 기존 테스트가 있더라도 초기 실행하며 기존 파일을 덮어쓰지 않는다. `harnessProvenance:true`이면 다음 우선순위로 `recommendedEntryStage`를 정한다.
   - 승인 시나리오만 있음 → 5(generate-tests)
   - 하네스 테스트가 있고 JUnit 결과가 없거나 실패/partial임 → 6(run-tests)
-  - JUnit 결과가 green이고 JaCoCo XML이 없거나 현재 임계값에 미달함 → 8(measure-coverage)
-  - green JUnit과 현재 임계값을 통과한 JaCoCo XML이 모두 유효함 → 9(verify-scenarios)
+  - JUnit 결과가 green(`status:"ok"`, `passed>0`, `failed=[]`)이고 JaCoCo XML이 없거나 현재 임계값에 미달함 → 8(measure-coverage)
+  - green JUnit과 현재 임계값을 통과한 JaCoCo XML이 모두 유효함 → 9(verify-scenarios). 테스트 0개인 JUnit XML은 green이 아니므로 6단계로 재진입한다.
   - 위 증거가 없음 → 0(configure-harness)
 - 대화형은 위 추천값과 `[4 시나리오 재설계] [5 생성] [6 실행] [8 커버리지] [9 적합성 검증]`을 제시하고 사용자가 선택하게 한다. CI는 `recommendedEntryStage`를 그대로 사용한다.
-- 복원 시 `_workspace/_resume.json`을 `{"schemaVersion":2,"entryStage":<n>,"entryLabel":"<label>","ts":"<ISO-8601>"}`로 기록한다. stub은 `source:"durable-scan"`과 detect 마커가 있어야 하며 `04_scenario_set.json`, `05_test-gen_files.json`, `06_run_result.json`, `08_coverage_result.json`에만 허용한다. 9단계 적합성 결과는 복원하지 않고 항상 다시 검증한다. 최종 집계 전에는 `pipeline_result.json`을 쓰지 않는다.
+- 복원 시 `_workspace/_resume.json`을 `{"schemaVersion":2,"entryStage":<n>,"entryLabel":"<label>","ts":"<ISO-8601>"}`로 기록한다. stub은 `source:"durable-scan"`과 **실제 detect 요청 root·임계값 및 응답에서 계산된 `allowedArtifacts` 마커**가 대상 `projectRoot`에 있어야 하며 `04_scenario_set.json`, `05_test-gen_files.json`, `06_run_result.json`, `08_coverage_result.json`에만 허용한다. 08 권한은 호출 임계값이 schema v2 config와 일치할 때만 부여하고(config가 없으면 1.0 네 종), stub은 `status:"reused"`, `gatePassed:true`로 기록한다. 9단계 적합성 결과는 복원하지 않고 항상 다시 검증한다. 최종 집계 전에는 `pipeline_result.json`을 쓰지 않는다.
 
 **단계별 계측(timing.json).** 각 서브에이전트 완료 알림의 `total_tokens`/`duration_ms`는 **그 시점에만** 접근 가능하므로 즉시 `_workspace/timing.json`에 누적 저장한다(느린·비싼 단계 식별용). 헬퍼: `scripts/record-timing.py`.
 
@@ -582,12 +582,14 @@ round = 1..3 (하드 캡):
        scenarios를 missing 시나리오로 한정 — targetCallCheck 게이트 적용으로 재발 방지).
   2. 6단계 run-tests를 영향 클래스 한정으로 재실행. 실패하면 기존 7단계 보정 루프(#12) 재진입
      (적합성 교정이 green→red를 만드는 것은 정상 — 교정된 호출이 실제 결함을 드러낸 것).
-  3. 9단계 verify-scenarios를 영향 시나리오 한정으로 재실행 → unmet 재계산.
+  3. 8단계 measure-coverage를 현재 HarnessConfig 임계값으로 재실행. gap-closing 테스트가 추가되면
+     8단계의 회귀 계약에 따라 6단계를 다시 실행하고 최신 runResult/coverageResult를 재할당.
+  4. 9단계 verify-scenarios를 영향 시나리오 한정으로 재실행 → unmet 재계산.
   중단 조건: unmet == ∅ (성공) / 직전 라운드와 동일한 unmet 집합(무진전 — 즉시 중단) / 3라운드 소진.
 ```
 
 - **하드 캡 3라운드 근거(#12의 명시적 예외)**: #12("진전 있는 한 무제한")는 실패 집합·커버리지 라인 같은 결정적 신호 전제다. 적합성 판정은 일부가 LLM 판단이라 verifier↔fixer 진동으로 unmet 집합이 계속 섞이며 "진전처럼 보일" 수 있어, 하드 캡 + 동일 집합 즉시 중단을 적용한다(#16).
-- **수렴 후 회귀**: 루프 중 테스트가 수정·추가되었으면 6단계 실행과 8단계 커버리지를 회귀 실행하고 `runResult`를 재할당한 뒤 최종 9단계 확인을 1회 수행한다.
+- **매 라운드 회귀**: 테스트를 수정·추가한 각 라운드는 반드시 6→8→9 순서로 재검증한다. 8단계가 테스트를 더 추가하면 그 단계의 내장 계약대로 6단계를 다시 실행한 뒤 9단계로 간다.
 - **소진 후 잔여 unmet**: 대화형 = `AskUserQuestion`("수동 보정 계속 / partial로 종료"). CI = `status: "partial"` + 잔여 전량 보고.
 - 라운드 로그를 `_workspace/09b_conformance_repair.json`에 저장:
 
@@ -731,7 +733,7 @@ Markdown 보고서는 아래 구조로 출력한다.
 | 7단계 보정 루프 (#12) | **그린 될 때까지 재시도**(진전 있는 한 계속). 동일 실패 시그니처 **3회 연속(무진전)**이면 `partial`로 잔여 전량 보고 후 종료 |
 | 8단계 커버리지 게이트 (#12/#21) | 게이트 충족까지 재측정/보정. 동일 미커버 집합 **3회 연속(무진전)**이면 `partial` + `remainingGaps[]` 전량 보고(임의 제외 금지). **RA advisory는 스킵 사유 아님** — `gatePassed:false`∧`iterations<1`(또는 `remainingGaps` 빈 배열)인 결과는 게이트 미수행으로 무효, 8단계 재실행(훅이 기록 차단) |
 | **위임 우회(훅 deny 수신)** | 인라인 수행을 즉시 중단하고 해당 단계를 단계 계약 표의 subagent로 `Task` 위임 재실행. deny는 정상 교정 경로이므로 `warnings`에 기록하지 않는다 |
-| 9단계 적합성 (#16) | `unmet` 존재 시 **9.5단계 자동 보정 루프**(unsatisfied→test-fixer 모드 B / missing→부분 재생성, 최대 3라운드·동일 unmet 집합 즉시 무진전 중단, 대화형·CI 동일 자동 수행) → 소진 후 잔여: 대화형=`AskUserQuestion`(수동 보정 계속/partial 종료), CI=`status: "partial"` + 잔여 전량 보고. 임의 제외 금지 |
+| 9단계 적합성 (#16) | `unmet` 존재 시 **9.5단계 자동 보정 루프**(unsatisfied→test-fixer 모드 B / missing→부분 재생성 → 매 라운드 6→8→9 회귀, 최대 3라운드·동일 unmet 집합 즉시 무진전 중단, 대화형·CI 동일 자동 수행) → 소진 후 잔여: 대화형=`AskUserQuestion`(수동 보정 계속/partial 종료), CI=`status: "partial"` + 잔여 전량 보고. 임의 제외 금지 |
 | junitPolicy `strict-5x` | `warnings`에 버전 충돌 경고 추가 후 진행 |
 
 MCP 필수 경로: 모든 단계에서 MCP 도구(repo-ast·spec-doc·build-test)는 **필수 경로**다 — 미가용·호출 실패·`degraded:true`/`JAVAPARSER_REQUIRED` 응답 시 대체하지 말고 중단한다(fallback-policy.md #20/#2, Grep/Read/직접 파싱 대체 금지).

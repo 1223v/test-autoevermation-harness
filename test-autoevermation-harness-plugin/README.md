@@ -100,8 +100,8 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 출력은 그대로 유지):
 
 ```text
-[Test-AutoEverMation#<version>] 43% | stage 4: generate-scenarios
-[Test-AutoEverMation#<version>] 79% | ↩ resumed @ stage 8: measure-coverage
+[Test-AutoEverMation#<version>] <progress>% | stage 4: generate-scenarios
+[Test-AutoEverMation#<version>] <progress>% | ↩ resumed @ stage 8: measure-coverage
 ```
 
 - **상태 복원 재개(v0.20.0+)**: **하네스가 생성한** 테스트가 있는 프로젝트에서 `_workspace/`가 휘발(fresh
@@ -178,7 +178,7 @@ rm -rf ~/.claude/plugins/cache
 7. 실패 보정 (`repair-tests`) — 실패가 있을 때만
 8. 커버리지 게이트 (`measure-coverage`)
 9. **시나리오 적합성 검증 (`verify-scenarios`)** — 통과한 테스트가 시나리오를 실제로 만족하는지 검증(target 호출은 `methodCalls` 기계 대조) 후 `test_docs/` 정리
-9.5. **적합성 자동 보정 루프** — `unmet`(unsatisfied/missing)이 있으면 자동 보정: unsatisfied→`test-fixer` 모드 B(`SCENARIO_NONCONFORMANT`) / missing→부분 재생성 → 재실행·재검증. 최대 3라운드, 대화형·CI 동일
+9.5. **적합성 자동 보정 루프** — `unmet`(unsatisfied/missing)이 있으면 자동 보정: unsatisfied→`test-fixer` 모드 B(`SCENARIO_NONCONFORMANT`) / missing→부분 재생성 → 6단계 테스트·8단계 커버리지·9단계 적합성 순으로 재검증. 최대 3라운드, 대화형·CI 동일
 
 결과는 Markdown 보고서 + JSON 산출물 + 대상 프로젝트의 `test_docs/`(시나리오↔테스트코드↔결과 living documentation + `refactoring/` 리팩토링 권고)로 저장된다.
 

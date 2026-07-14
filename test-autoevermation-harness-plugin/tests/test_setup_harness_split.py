@@ -156,7 +156,15 @@ class JdtlsProbeTests(unittest.TestCase):
 class ManifestAndDocsTests(unittest.TestCase):
     def test_plugin_version_bumped(self) -> None:
         manifest = json.loads(_read(PLUGIN_ROOT / ".claude-plugin" / "plugin.json"))
-        self.assertEqual(manifest["version"], "0.25.0")
+        self.assertEqual(manifest["version"], "0.25.1")
+        marketplace = json.loads(
+            _read(PLUGIN_ROOT.parent / ".claude-plugin" / "marketplace.json")
+        )
+        self.assertEqual(marketplace["plugins"][0]["version"], manifest["version"])
+        self.assertIn(
+            'version = "0.11.1"',
+            _read(PLUGIN_ROOT / "mcp" / "pyproject.toml"),
+        )
         # 스킬은 skills/ 디렉터리에서 자동 발견된다(공식 플러그인 규약).
         self.assertEqual(manifest["skills"], "./skills")
 
@@ -165,8 +173,8 @@ class ManifestAndDocsTests(unittest.TestCase):
             with self.subTest(doc=rel):
                 self.assertIn("setup-harness", _read(PLUGIN_ROOT / rel))
 
-    def test_changelog_has_0_25_0_entry(self) -> None:
-        self.assertIn("## [0.25.0]", _read(PLUGIN_ROOT / "CHANGELOG.md"))
+    def test_changelog_has_current_release_entry(self) -> None:
+        self.assertIn("## [0.25.1]", _read(PLUGIN_ROOT / "CHANGELOG.md"))
 
 
 if __name__ == "__main__":

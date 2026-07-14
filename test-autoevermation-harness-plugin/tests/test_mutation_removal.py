@@ -54,6 +54,16 @@ def _write_junit_report(root: Path, *, failed: bool = False) -> Path:
     return report
 
 
+def _write_empty_junit_report(root: Path) -> Path:
+    report = root / "build" / "test-results" / "test" / "TEST-Empty.xml"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        '<testsuite name="Empty" tests="0" failures="0"></testsuite>',
+        encoding="utf-8",
+    )
+    return report
+
+
 def _write_stale_report(root: Path) -> Path:
     report = root / "build" / "reports" / "pitest" / "mutations.xml"
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -111,6 +121,24 @@ class PublicApiTests(unittest.TestCase):
 
 
 class BuildSurfaceTests(unittest.TestCase):
+    def test_gradle_maven_and_ci_examples_keep_jacoco_without_mutation_tools(self) -> None:
+        paths = (
+            PLUGIN_ROOT / "examples" / "gradle" / "build.gradle.kts",
+            PLUGIN_ROOT / "examples" / "gradle" / "build-boot2.gradle",
+            PLUGIN_ROOT / "examples" / "maven" / "pom-snippet.xml",
+            PLUGIN_ROOT / "examples" / "maven" / "pom-snippet-boot2.xml",
+            PLUGIN_ROOT / "examples" / "ci" / "gradle-ci.yml",
+            PLUGIN_ROOT / "examples" / "ci" / "maven-ci.yml",
+        )
+        for path in paths:
+            with self.subTest(path=path.relative_to(PLUGIN_ROOT)):
+                text = path.read_text(encoding="utf-8").lower()
+                self.assertIn("jacoco", text)
+                self.assertNotIn("pitest", text)
+                self.assertNotIn("run_pitest", text)
+                self.assertNotIn("mutations.xml", text)
+                self.assertNotIn("mutation", text)
+
     def test_task_lists_do_not_advertise_pit(self) -> None:
         fixtures = {
             "build.gradle.kts": 'plugins { id("java") }',
@@ -279,6 +307,23 @@ class StaleReportTests(unittest.TestCase):
 
         self.assertEqual("8", state["highestCompletedStage"])
         self.assertEqual(1, state["junitReport"]["failed"])
+        self.assertEqual(6, state["recommendedEntryStage"])
+
+    def test_zero_test_junit_report_is_not_green(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            test_file = root / "src" / "test" / "java" / "OrderServiceTest.java"
+            test_file.parent.mkdir(parents=True)
+            test_file.write_text("class OrderServiceTest {}", encoding="utf-8")
+            index = root / "test_docs" / "INDEX.md"
+            index.parent.mkdir(parents=True)
+            index.write_text("# Harness tests", encoding="utf-8")
+            _write_empty_junit_report(root)
+            _write_jacoco_report(root)
+
+            state = build_test.detect_pipeline_state(tmp)
+
+        self.assertEqual(0, state["junitReport"]["passed"])
         self.assertEqual(6, state["recommendedEntryStage"])
 
 

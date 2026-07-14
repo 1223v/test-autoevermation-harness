@@ -1,6 +1,6 @@
 {
   "name": "test-autoevermation-harness-plugin",
-  "version": "0.25.0",
+  "version": "0.25.1",
   "description": "Spring 기반 테스트코드 생성 하네스 (Spring Boot 2.0–4.x 버전 인식). 환경 세팅 전용 명령(setup-harness — MCP 런타임·JavaParser jar·JDT LS·상태줄) 선행 → 버전 프로파일 감지 → 인터랙티브 설정 → 빌드 능력 프로비저닝(JaCoCo XML)·캐시 프라이밍 → AST/소스/스펙 분석 → 리팩토링 권고 게이트(복잡도·비효율·테스트 저해 코드 판정, test_docs/refactoring/ 권고 문서 + 포함/제외 결정) → 시나리오 → 사용자 승인 게이트(test_docs/ 저장) → 테스트 생성(javax/jakarta·JUnit4/5·@MockBean/@MockitoBean 자동 분기, 시나리오 target 호출 자가 검증 게이트) → 실행 → 보정 → near-100% 커버리지 게이트(JaCoCo) → 시나리오 적합성 검증(target 호출 기계 대조) → 적합성 자동 보정 루프 파이프라인을 10개 에이전트와 Python 기반 공유 MCP 3종(JavaParser AST 포함)으로 오케스트레이션한다.",
   "author": { "name": "test-autoevermation-harness-plugin maintainers" },
   "license": "Apache-2.0",

@@ -149,7 +149,7 @@ approvedAt: 2026-06-27
 
 - `missing` 또는 `unsatisfied` 시나리오가 하나라도 있으면 **full-pipeline 9.5단계 적합성 자동 보정 루프**가
   대화형·CI 동일하게 자동 수행된다: unsatisfied→`test-fixer` 모드 B(`SCENARIO_NONCONFORMANT`),
-  missing→`test-code-generator` 부분 재생성 → 6단계 재실행 → 9단계 재검증.
+  missing→`test-code-generator` 부분 재생성 → 6단계 테스트 재실행 → 8단계 커버리지 재검증 → 9단계 적합성 재검증.
   **최대 3라운드, 직전 라운드와 동일 unmet 집합이면 즉시 무진전 중단**(#12의 명시적 예외 — 적합성 판정은 일부 LLM 판단).
 - 루프 소진 후 잔여가 있으면 `status: "partial"`로 잔여를 전량 명시한다. 전부 `satisfied`라야 `status: "ok"`.
   임의 제외·무시 금지.

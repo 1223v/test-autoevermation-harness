@@ -19,7 +19,7 @@ flowchart TD
     A(["HarnessRequest 입력"]) --> P0{"Phase 0 — 컨텍스트 확인<br/>_workspace/ 존재? 요청 유형?"}
     P0 -- "있음 + 부분 요청" --> PR["부분 재실행<br/>영향 단계만 재호출 · 나머지 Read 재사용 (§부분 재실행 매트릭스)"]
     P0 -- "없음/불완전 → detect_pipeline_state" --> P0R{"영속 증거(테스트·시나리오·리포트)<br/>resumable?"}
-    P0R -- "예 (상태 복원)" --> PRES["stub 재구성 + _resume.json 기록<br/>대화형=AskUserQuestion(6/8/9/4) · CI=recommendedEntryStage<br/>JUnit 없음·실패=6 · green JUnit=8 · 현재 커버리지 게이트 통과=9"]
+    P0R -- "예 (상태 복원)" --> PRES["04/05/06/08 stub 재구성 + _resume.json 기록<br/>대화형=AskUserQuestion(4/5/6/8/9) · CI=recommendedEntryStage<br/>JUnit 없음·실패·0 tests=6 · green JUnit=8 · 현재 커버리지 게이트 통과=9"]
     PRES -. "재진입(대표: run-tests)" .-> L
     PR -. "재진입(영향 단계)" .-> L
     P0R -- "아니오 (초기 실행)" --> B["전처리: 입력 정규화"]
@@ -54,7 +54,7 @@ flowchart TD
     O --> Q["9단계 — verify-scenarios<br/>(scenario-conformance-verifier)<br/>target 호출 methodCalls 기계 대조"]
     Q --> R{"승인 시나리오 전부 satisfied?<br/>given/when/then 충족"}
     R -- "아니오 (unmet)" --> S105["9.5단계 — 적합성 자동 보정 루프<br/>unsatisfied→test-fixer(모드 B) / missing→부분 재생성<br/>최대 3라운드 · 동일 unmet 즉시 무진전 중단"]
-    S105 -. "보정 → 6단계 재실행 → 9단계 재검증" .-> L
+    S105 -. "보정 → 6단계 재실행 → 8단계 커버리지 → 9단계 재검증" .-> L
     S105 -- "라운드 소진 후 잔여 unmet<br/>(대화형=수동 보정 질문 / CI=partial)" --> S(["status: partial<br/>잔여 전량 보고 + test_docs/ 갱신"])
     S105 -- "unmet 해소" --> T
     R -- "예" --> T(["status: ok<br/>PipelineResult + 보고서 + test_docs/INDEX.md"])
@@ -204,7 +204,7 @@ flowchart TD
     Unsat --> Doc
     Sat --> Doc["test_docs/scenarios/&lt;id&gt;.md '테스트 코드 매핑'·'검증 결과' 갱신<br/>+ INDEX.md 매핑표 갱신"]
     Doc --> Gate{"unmet (unsatisfied/missing) 존재?"}
-    Gate -- "예" --> Loop["9.5단계 — 적합성 자동 보정 루프 (대화형·CI 동일)<br/>unsatisfied→test-fixer 모드 B(SCENARIO_NONCONFORMANT)<br/>missing→test-code-generator 부분 재생성<br/>→ 6단계 재실행 → 9단계 재검증"]
+    Gate -- "예" --> Loop["9.5단계 — 적합성 자동 보정 루프 (대화형·CI 동일)<br/>unsatisfied→test-fixer 모드 B(SCENARIO_NONCONFORMANT)<br/>missing→test-code-generator 부분 재생성<br/>→ 6단계 재실행 → 8단계 커버리지 재검증 → 9단계 적합성 재검증"]
     Loop -. "최대 3라운드<br/>동일 unmet 집합 즉시 무진전 중단" .-> Map
     Loop -- "unmet 해소" --> Ok
     Loop -- "라운드 소진" --> P{"실행 모드"}
@@ -259,7 +259,7 @@ flowchart LR
 | 9 | verify-scenarios | scenario-conformance-verifier | repo-ast, build-test | `test_docs/` 갱신, `09_conformance.json` |
 | 9.5 | full-pipeline(적합성 보정 루프) | test-fixer(모드 B) / test-code-generator | all | `09b_conformance_repair.json` |
 
-> durable resume 시 5·6·8단계 산출물은 영속 증거로부터 stub 재구성될 수 있다. 적합성 검증은 8단계 이후 새 9단계 계약으로 실행한다.
+> durable resume 시 실제 탐지 응답이 허용한 `04_scenario_set.json`, `05_test-gen_files.json`, `06_run_result.json`, `08_coverage_result.json`만 영속 증거로부터 stub 재구성될 수 있다. green JUnit은 `status:"ok"`, `passed>0`, `failed=[]`을 모두 만족해야 하며, 적합성 검증은 8단계 이후 새 9단계 계약으로 실행한다.
 
 ---
 

@@ -929,6 +929,9 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
     junit_green = (
         isinstance(junit, dict)
         and junit.get("status") == "ok"
+        and isinstance(junit.get("passed"), int)
+        and not isinstance(junit.get("passed"), bool)
+        and junit.get("passed") > 0
         and not junit.get("failed")
     )
     jacoco_ok = _report_ok(jacoco)

@@ -251,6 +251,8 @@ def _valid_pipeline_result(result, workspace):
 
     verify = stages["verifyScenarios"]
     verify_status = verify.get("status")
+    if status in {"partial", "failed"} and verify_status in {"skipped", "blocked"}:
+        return True
     conformance_path = os.path.join(workspace, "09_conformance.json")
     try:
         with open(conformance_path, encoding="utf-8") as f:

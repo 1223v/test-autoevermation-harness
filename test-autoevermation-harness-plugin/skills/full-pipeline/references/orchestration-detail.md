@@ -41,11 +41,11 @@ _workspace/
 
 ### 2-1. 영속 증거 복원
 
-`detect_pipeline_state` 결과는 `harnessProvenance:true`일 때만 stub으로 복원한다. 모든 stub에는 `source:"durable-scan"`을 넣고, 훅이 남긴 detect 마커가 있어야 한다. 아래 표의 네 산출물만 복원할 수 있으며 `09_conformance.json`은 매번 다시 실행한다.
+`detect_pipeline_state` 결과는 `harnessProvenance:true`일 때만 stub으로 복원한다. 모든 stub에는 `source:"durable-scan"`을 넣고, 훅이 **실제 요청 root·임계값과 도구 응답에서 해당 파일을 `allowedArtifacts`로 기록한** 대상 `projectRoot`의 detect 마커가 있어야 한다. 08 권한은 호출 임계값이 schema v2 config와 일치할 때만 생기며(config가 없으면 네 값 모두 1.0), stub은 `status:"reused"`, `gatePassed:true`가 필수다. 아래 표의 네 산출물만 복원할 수 있으며 `04b_approval.json`과 `09_conformance.json`은 stub으로 만들지 않는다. 여기서 **green JUnit**은 파서 결과가 `status:"ok"`, `passed>0`, `failed=[]`인 경우만 뜻하며 테스트가 0개인 XML은 green이 아니다.
 
 | 영속 증거 | 복원 stub | 추천 재진입 |
 |---|---|---|
-| 승인 시나리오만 존재 | `04_scenario_set.json`, `04b_approval.json` | 5 generate-tests |
+| 승인 시나리오만 존재 | `04_scenario_set.json` | 5 generate-tests |
 | 하네스 테스트 존재, JUnit 없음·실패·partial | `05_test-gen_files.json` | 6 run-tests |
 | green JUnit 존재, JaCoCo 없음·현재 임계 미달 | `06_run_result.json` | 8 measure-coverage |
 | green JUnit + 현재 임계 통과 JaCoCo XML | `08_coverage_result.json` | 9 verify-scenarios |

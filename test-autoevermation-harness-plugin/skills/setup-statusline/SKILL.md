@@ -8,10 +8,10 @@ description: TAM 상태줄(플러그인 버전·full-pipeline 진행률·현재 
 Claude Code 상태줄에 아래 형식의 줄을 한 줄 추가한다(공식 문서상 statusLine stdout의 각 줄은 별도 행으로 렌더링됨):
 
 ```
-[Test-AutoEverMation#0.20.1]                                   ← 파이프라인 없음(버전만)
-[Test-AutoEverMation#0.20.1] 43% | stage 4: generate-scenarios ← full-pipeline 진행 중
-[Test-AutoEverMation#0.20.1] 79% | ↩ resumed @ stage 8: measure-coverage ← 상태 복원 재개(durable resume)
-[Test-AutoEverMation#0.20.1] 100% | done (ok)                  ← 완료(pipeline_result.json 존재)
+[Test-AutoEverMation#0.25.1]                                   ← 파이프라인 없음(버전만)
+[Test-AutoEverMation#0.25.1] <progress>% | stage 4: generate-scenarios ← full-pipeline 진행 중
+[Test-AutoEverMation#0.25.1] <progress>% | ↩ resumed @ stage 8: measure-coverage ← 상태 복원 재개(durable resume)
+[Test-AutoEverMation#0.25.1] 100% | done (ok)                  ← 유효한 schema v2 완료 결과
 ```
 
 **대부분 이 스킬을 수동으로 부를 필요가 없다.** 설치 후 첫 세션에서 `SessionStart` 훅
@@ -113,4 +113,4 @@ echo '{"workspace":{"current_dir":"'$PWD'"}}' | node "${CLAUDE_CONFIG_DIR:-$HOME
 - **상태 복원(durable resume) 표시**: `_workspace/`가 휘발한 뒤 full-pipeline Phase 0가 영속 증거로 재개하면
   `_workspace/_resume.json`(`{schemaVersion: 2, entryStage, entryLabel, ts}`, 규약 SSOT: orchestration-detail.md §2-1)을 남긴다.
   상태줄은 이를 읽어 표시 단계를 재진입 지점으로 clamp하고 `↩ resumed @ <단계>`로 표기한다 — 재개 지점보다
-  뒤의 stale 산출물이 있어도 과대표시하지 않는다. `pipeline_result.json`이 생기면 `100% | done`이 우선한다.
+  뒤의 stale 산출물이 있어도 과대표시하지 않는다. `pipeline_result.json`이 있더라도 `schemaVersion:2`, `summary`, `verifyScenarios`와 09 적합성 totals를 검증한 정상 결과(또는 9단계 전 명시적 `skipped|blocked` 조기 종료)만 `100% | done`으로 표시한다.
