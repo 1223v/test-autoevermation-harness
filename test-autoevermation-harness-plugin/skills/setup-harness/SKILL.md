@@ -144,7 +144,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/
     "E1": "ok (python 3.12.4)",
     "E2": "ok (mcp[cli] 1.4.1 @ plugin venv)",
     "E3": "ok (repo-ast, spec-doc, build-test)",
-    "E3b": "ok (health x3, pluginVersion 0.25.1)",
+    "E3b": "ok (health x3, pluginVersion 0.26.0)",
     "E4": "ok (java 21.0.3)",
     "E5": "ok (bundled mvnw)",
     "E6": "ok (target/astcli-1.0.0-shaded.jar — built)",

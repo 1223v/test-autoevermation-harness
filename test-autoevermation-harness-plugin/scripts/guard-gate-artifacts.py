@@ -124,7 +124,9 @@ DURABLE_STUB_ARTIFACTS = {
 }
 
 # run-active 세션에서 src/test/java 기록이 허용되는 subagent_type
-TEST_WRITE_AGENTS = {"test-code-generator", "coverage-closer", "test-fixer"}
+# (test-editor는 파이프라인 밖 사후 편집 전담 — 파이프라인이 돈 세션에서도 사용자
+#  지시로 기존 테스트를 편집할 수 있어야 하므로 허용 목록에 포함한다.)
+TEST_WRITE_AGENTS = {"test-code-generator", "coverage-closer", "test-fixer", "test-editor"}
 
 _CONTRACT_HINT = (
     "(fallback-policy.md #21) 게이트 미달 시 coverage-closer 루프를 실제 수행한 뒤 "

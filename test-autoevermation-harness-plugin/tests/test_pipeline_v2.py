@@ -40,8 +40,8 @@ class RemovedComponentContractTests(unittest.TestCase):
     def test_removed_skill_and_agent_are_absent(self) -> None:
         self.assertFalse((PLUGIN_ROOT / "skills" / "mutation-test").exists())
         self.assertFalse((PLUGIN_ROOT / "agents" / "mutation-analyst.md").exists())
-        self.assertEqual(14, len([p for p in (PLUGIN_ROOT / "skills").iterdir() if p.is_dir()]))
-        self.assertEqual(10, len(list((PLUGIN_ROOT / "agents").glob("*.md"))))
+        self.assertEqual(15, len([p for p in (PLUGIN_ROOT / "skills").iterdir() if p.is_dir()]))
+        self.assertEqual(11, len(list((PLUGIN_ROOT / "agents").glob("*.md"))))
 
     def test_pipeline_contract_has_no_mutation_branch(self) -> None:
         for rel in (
@@ -61,7 +61,7 @@ class RemovedComponentContractTests(unittest.TestCase):
         manifest = json.loads(
             (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual("0.25.1", manifest["version"])
+        self.assertEqual("0.26.0", manifest["version"])
 
     def test_conformance_repair_contract_rechecks_6_then_8_then_9(self) -> None:
         full_pipeline = (PLUGIN_ROOT / "skills" / "full-pipeline" / "SKILL.md").read_text(
@@ -79,13 +79,104 @@ class RemovedComponentContractTests(unittest.TestCase):
         envelope = (PLUGIN_ROOT / "references" / "agent-result-envelope.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("10개 서브에이전트", envelope)
+        self.assertIn("11개 서브에이전트", envelope)
         for rel in ("README.md", "docs/GUIDE.md", "skills/setup-statusline/SKILL.md"):
             text = (PLUGIN_ROOT / rel).read_text(encoding="utf-8")
             with self.subTest(path=rel):
                 self.assertIn("<progress>%", text)
                 self.assertNotIn("71% | ↩ resumed", text)
                 self.assertNotIn("79% | ↩ resumed", text)
+
+
+class TestEditorContractTests(unittest.TestCase):
+    """test-editor 에이전트 + edit-tests 스킬(사후 테스트 편집) 신설 계약."""
+
+    AGENT = PLUGIN_ROOT / "agents" / "test-editor.md"
+    SKILL = PLUGIN_ROOT / "skills" / "edit-tests" / "SKILL.md"
+
+    REPO_AST_TOOLS = (
+        "mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file",
+        "mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol",
+        "mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets",
+    )
+
+    def test_agent_frontmatter_is_valid(self) -> None:
+        self.assertTrue(self.AGENT.is_file())
+        text = self.AGENT.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("---"))
+        self.assertIn("name: test-editor", text)
+        self.assertIn("model: inherit", text)
+        self.assertIn("disallowedTools: Bash", text)
+        for tool in self.REPO_AST_TOOLS:
+            with self.subTest(tool=tool):
+                self.assertIn(tool, text)
+
+    def test_agent_has_no_forbidden_frontmatter(self) -> None:
+        # 플러그인 배포 에이전트는 hooks/mcpServers/permissionMode를 선언할 수 없다(공식 제약).
+        frontmatter = self.AGENT.read_text(encoding="utf-8").split("---", 2)[1]
+        for field in ("hooks:", "mcpServers:", "permissionMode:"):
+            with self.subTest(field=field):
+                self.assertNotIn(field, frontmatter)
+
+    def test_skill_spawns_test_editor(self) -> None:
+        text = self.SKILL.read_text(encoding="utf-8")
+        self.assertIn("name: edit-tests", text)
+        self.assertIn('subagent_type="test-editor"', text)
+
+    def test_skill_triggers_do_not_collide_with_repair_or_pipeline(self) -> None:
+        # edit-tests 트리거는 repair-tests / full-pipeline 소유 문구를 재사용하지 않는다.
+        # 경계 안내 문장과 구분하기 위해 따옴표로 감싼 트리거 원형만 검사한다.
+        text = self.SKILL.read_text(encoding="utf-8")
+        for owned in (
+            '"테스트 수정"', '"테스트 보정"', '"실패 수정"', '"flaky 수정"', '"테스트 고쳐줘"',
+            '"테스트 다시 생성"', '"재실행"', '"커버리지 더 올려"',
+        ):
+            with self.subTest(owned=owned):
+                self.assertNotIn(owned, text)
+
+    def test_agent_is_in_guard_test_write_allowlist(self) -> None:
+        self.assertIn("test-editor", gate_guard.TEST_WRITE_AGENTS)
+
+    def _run_active_test_write(self, agent_type: str) -> dict:
+        """run-active 세션에서 src/test/java 쓰기를 시뮬레이션해 가드 판정을 반환한다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "_workspace"
+            markers = workspace / ".markers"
+            markers.mkdir(parents=True)
+            (markers / "run.json").write_text(
+                json.dumps({"session_id": "session"}), encoding="utf-8"
+            )
+            # Zone B 선행 게이트: 04 시나리오 설계 + 04b 사용자 승인
+            (workspace / "04_scenario_set.json").write_text("{}", encoding="utf-8")
+            (workspace / "04b_approval.json").write_text("{}", encoding="utf-8")
+            test_dir = root / "src" / "test" / "java" / "com" / "example"
+            test_dir.mkdir(parents=True)
+            payload = {
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": str(test_dir / "OrderServiceTest.java"),
+                    "content": "class OrderServiceTest {}",
+                },
+                "session_id": "session",
+                "cwd": tmp,
+                "agent_type": agent_type,
+            }
+            output = io.StringIO()
+            with mock.patch.object(gate_guard.sys, "stdin", io.StringIO(json.dumps(payload))):
+                with redirect_stdout(output):
+                    gate_guard.main()
+            return json.loads(output.getvalue())
+
+    def test_zone_b_allows_test_editor_write_in_run_active_session(self) -> None:
+        # 04/04b 승인이 존재하는 run-active 세션에서 test-editor의 테스트 편집은 허용된다.
+        self.assertEqual({}, self._run_active_test_write("test-editor"))
+
+    def test_zone_b_denies_unlisted_agent_in_run_active_session(self) -> None:
+        decision = self._run_active_test_write("scenario-generator")
+        reason = decision["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("scenario-generator", reason)
+        self.assertIn("test-editor", reason)  # 허용 목록에 test-editor가 표기된다
 
 
 class ArtifactSequenceTests(unittest.TestCase):

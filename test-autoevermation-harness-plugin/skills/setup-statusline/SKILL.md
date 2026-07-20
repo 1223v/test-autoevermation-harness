@@ -8,10 +8,10 @@ description: TAM 상태줄(플러그인 버전·full-pipeline 진행률·현재 
 Claude Code 상태줄에 아래 형식의 줄을 한 줄 추가한다(공식 문서상 statusLine stdout의 각 줄은 별도 행으로 렌더링됨):
 
 ```
-[Test-AutoEverMation#0.25.1]                                   ← 파이프라인 없음(버전만)
-[Test-AutoEverMation#0.25.1] <progress>% | stage 4: generate-scenarios ← full-pipeline 진행 중
-[Test-AutoEverMation#0.25.1] <progress>% | ↩ resumed @ stage 8: measure-coverage ← 상태 복원 재개(durable resume)
-[Test-AutoEverMation#0.25.1] 100% | done (ok)                  ← 유효한 schema v2 완료 결과
+[Test-AutoEverMation#0.26.0]                                   ← 파이프라인 없음(버전만)
+[Test-AutoEverMation#0.26.0] <progress>% | stage 4: generate-scenarios ← full-pipeline 진행 중
+[Test-AutoEverMation#0.26.0] <progress>% | ↩ resumed @ stage 8: measure-coverage ← 상태 복원 재개(durable resume)
+[Test-AutoEverMation#0.26.0] 100% | done (ok)                  ← 유효한 schema v2 완료 결과
 ```
 
 **대부분 이 스킬을 수동으로 부를 필요가 없다.** 설치 후 첫 세션에서 `SessionStart` 훅

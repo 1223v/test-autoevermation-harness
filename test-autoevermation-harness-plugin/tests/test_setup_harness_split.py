@@ -156,7 +156,7 @@ class JdtlsProbeTests(unittest.TestCase):
 class ManifestAndDocsTests(unittest.TestCase):
     def test_plugin_version_bumped(self) -> None:
         manifest = json.loads(_read(PLUGIN_ROOT / ".claude-plugin" / "plugin.json"))
-        self.assertEqual(manifest["version"], "0.25.1")
+        self.assertEqual(manifest["version"], "0.26.0")
         marketplace = json.loads(
             _read(PLUGIN_ROOT.parent / ".claude-plugin" / "marketplace.json")
         )
@@ -174,7 +174,7 @@ class ManifestAndDocsTests(unittest.TestCase):
                 self.assertIn("setup-harness", _read(PLUGIN_ROOT / rel))
 
     def test_changelog_has_current_release_entry(self) -> None:
-        self.assertIn("## [0.25.1]", _read(PLUGIN_ROOT / "CHANGELOG.md"))
+        self.assertIn("## [0.26.0]", _read(PLUGIN_ROOT / "CHANGELOG.md"))
 
 
 if __name__ == "__main__":

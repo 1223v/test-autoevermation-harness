@@ -69,8 +69,8 @@ AST 구조 추출  ───┘                                                 
 ```
 test-autoevermation-harness-plugin/
 ├── .claude-plugin/plugin.json   ← 매니페스트: skills/·.mcp.json·.lsp.json 등록(표준 hooks/hooks.json은 자동 로드)
-├── skills/        (14종)        ← /test-autoevermation-harness-plugin:<name> 명령. 절차(무엇을 어떤 순서로)의 정의
-├── agents/        (10종)        ← Task(subagent_type=...)로 호출되는 서브에이전트. 실제 분석/생성 수행
+├── skills/        (15종)        ← /test-autoevermation-harness-plugin:<name> 명령. 절차(무엇을 어떤 순서로)의 정의
+├── agents/        (11종)        ← Task(subagent_type=...)로 호출되는 서브에이전트. 실제 분석/생성 수행
 ├── mcp/           (서버 3종)    ← Python FastMCP stdio 서버. 결정적 작업(파싱·빌드실행·리포트 해석)
 │   └── javaparser-cli/          ← JavaParser 기반 정밀 AST CLI (mvnw 동봉, 필수 빌드)
 ├── hooks/hooks.json + scripts/  ← 네트워크 가드·경로 가드·시크릿 redaction (런타임 보안)
@@ -83,7 +83,7 @@ test-autoevermation-harness-plugin/
 최소화된 read-only/write 분리), **MCP 서버 = 결정적 도구**(같은 입력이면 같은 출력 — 빌드 실행,
 XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 
-### 2.2 Skills (14종)
+### 2.2 Skills (15종)
 
 | Skill | 파이프라인 단계 | 역할 |
 |---|---|---|
@@ -101,11 +101,12 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `measure-coverage` | 8 | JaCoCo near-100% 게이트 루프 |
 | `verify-scenarios` | 9 | 시나리오 적합성 검증 + `test_docs/` 정리 |
 | `setup-statusline` | (부가) | Claude Code statusLine에 Test-AutoEverMation 진행률 줄(버전·%·현재 단계) 설치/제거 (`setup-harness` S1과 동일 스크립트) |
+| `edit-tests` | 파이프라인 외 (사후) | 사용자가 지목한 기존 테스트를 repo-ast AST 근거로 직접 편집(이름 변경·단언 추가/조정·정리). 실행은 `run-tests`로 안내 |
 
 모든 스킬은 단독 호출도 가능하다(`/test-autoevermation-harness-plugin:<skill>`). `full-pipeline`은 이들을 순서·병렬
 전략에 따라 조합한다.
 
-### 2.3 Agents (10종) — 권한 최소화
+### 2.3 Agents (11종) — 권한 최소화
 
 | Agent | 담당 | 권한 요지 |
 |---|---|---|
@@ -119,6 +120,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `test-fixer` | 7단계 | Read/Write/Edit/Bash + MCP(all) |
 | `coverage-closer` | 8단계 | Read/Write/Edit + MCP — Bash 없음 |
 | `scenario-conformance-verifier` | 9단계 | Read/Write/Edit/Grep/Glob + MCP — 테스트 생성/수정 금지(문서화 전용) |
+| `test-editor` | 파이프라인 외 (사후) | Read/Write/Edit/Grep/Glob + MCP(repo-ast) — Bash 없음(편집만, 실행 안 함) |
 
 권한은 각 `agents/*.md`의 frontmatter `tools:` 목록으로 강제된다. 플러그인 배포 에이전트는
 `hooks`/`mcpServers`/`permissionMode` frontmatter를 선언할 수 없다는 것이 Claude Code 공식 제약이라

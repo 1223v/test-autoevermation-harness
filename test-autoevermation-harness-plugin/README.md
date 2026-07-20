@@ -198,7 +198,7 @@ rm -rf ~/.claude/plugins/cache
 
 ---
 
-## Skills (14종)
+## Skills (15종)
 
 | Skill | 호출 방법 | 역할 |
 |---|---|---|
@@ -216,10 +216,11 @@ rm -rf ~/.claude/plugins/cache
 | `measure-coverage` | `/test-autoevermation-harness-plugin:measure-coverage` | JaCoCo near-100% 커버리지 게이트 루프 |
 | `verify-scenarios` | `/test-autoevermation-harness-plugin:verify-scenarios` | 시나리오 적합성 검증 + `test_docs/` 정리 |
 | `setup-statusline` | `/test-autoevermation-harness-plugin:setup-statusline` | Claude Code 상태줄에 플러그인 버전·진행률·현재 단계 표시(설치/제거 — `setup-harness` S1과 동일 스크립트) |
+| `edit-tests` | `/test-autoevermation-harness-plugin:edit-tests` | **파이프라인 외** — 사용자가 지목한 기존 테스트를 repo-ast AST 근거로 직접 편집(이름 변경·단언 추가/조정·정리). 실행은 하지 않고 `run-tests`로 안내 |
 
 ---
 
-## Agents (10종)
+## Agents (11종)
 
 | Agent | 역할 | 권한 |
 |---|---|---|
@@ -233,6 +234,7 @@ rm -rf ~/.claude/plugins/cache
 | `test-fixer` | 실패 보정 (write+execute) | Read, Write, Edit, Bash, MCP(all) |
 | `coverage-closer` | 미커버 gap 보완 테스트 생성 (write, no Bash) | Read, Write, Edit, MCP(repo-ast, build-test) |
 | `scenario-conformance-verifier` | 시나리오 적합성 검증 + `test_docs/` 기록 (verify+write) | Read, Write, Edit, Grep, Glob, MCP(repo-ast, build-test) |
+| `test-editor` | 사후 사용자 지시 테스트 편집 (write, no Bash) | Read, Write, Edit, Grep, Glob, MCP(repo-ast) |
 
 plugin-shipped subagent는 `hooks`/`mcpServers`/`permissionMode` frontmatter를 선언할 수
 없다(Claude Code 공식 제약). MCP 접근은 공유 `.mcp.json` + skill 라우팅으로 구현한다.
