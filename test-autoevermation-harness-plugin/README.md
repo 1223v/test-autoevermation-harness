@@ -146,11 +146,22 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
 /reload-plugins
 ```
 
-**설치 상태가 깨졌을 때(스킬 미노출·MCP 서버 에러 지속):** 공식 트러블슈팅 절차대로 플러그인 캐시를
-비우고 재설치한다.
+> 공식 규약: 설치본은 `~/.claude/plugins/cache/<마켓>/<플러그인>/<버전>/` **버전 키 스냅샷**이라
+> 소스 리포를 고쳐도 커밋+푸시+버전 bump+`update` 전에는 반영되지 않고, 실행 중인 세션은
+> `/reload-plugins`(또는 재시작) 전에는 이전 버전을 계속 쓴다. 구버전 캐시 디렉토리는 CC가
+> 업데이트 시 orphan으로 표시해 14일 후 자동 삭제한다.
+>
+> **업데이트 후 환경 승계**: MCP venv·JDT LS·JavaParser jar(v0.28.0+)는 모두
+> `${CLAUDE_PLUGIN_DATA}`(업데이트 생존 위치)에 있어 그대로 승계된다. v0.27.x 이하에서
+> 올라온 직후에는 jar가 구버전 캐시에만 있었으므로 **최초 1회
+> `/test-autoevermation-harness-plugin:setup-harness`를 재실행**해 E6이 jar를 영속 위치로
+> 옮기게 한다(이후 업데이트부터는 불필요).
+
+**설치 상태가 깨졌을 때(스킬 미노출·MCP 서버 에러 지속):** 이 플러그인의 캐시만 비우고 재설치한다
+(`plugins/cache` 전체 삭제는 다른 플러그인 설치본까지 지우므로 피한다).
 
 ```bash
-rm -rf ~/.claude/plugins/cache
+rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 ```
 
 이후 Claude Code를 재시작하고 위 [설치](#설치) 절차를 다시 실행한다.
@@ -269,8 +280,10 @@ python3 -m pip install -r mcp/requirements.txt        # mcp[cli]>=1.2.0
 # 2) JavaParser AST 백엔드 빌드 (필수, v0.16.0+)  ── setup-harness·E6이 자동 수행
 #    .mcp.json 기본값이 REPO_AST_REQUIRE_JAVAPARSER=1 — jar가 없으면 정규식 fallback 없이 하드실패한다.
 #    시스템 Maven 불요 — mvnw(Maven Wrapper)가 mcp/javaparser-cli에 동봉되어 있다.
-cd mcp/javaparser-cli && ./mvnw -q -DskipTests package    # JDK 21+
+cd mcp/javaparser-cli && ./mvnw -q -DskipTests package    # JDK 21+ (리포 체크아웃 기준)
 export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"   # 다른 위치를 쓸 때만 필요
+# 설치본(플러그인 캐시)에서는 setup-harness E6이 ${CLAUDE_PLUGIN_ROOT} 앵커로 빌드한 뒤
+# scripts/persist_astcli_jar.py로 ${CLAUDE_PLUGIN_DATA}/javaparser/에 복사한다(업데이트 생존)
 ```
 
 ---

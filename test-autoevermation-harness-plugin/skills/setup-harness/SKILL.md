@@ -68,7 +68,9 @@ S1 상태줄 설치(선택)
 
 - **대화형 — 항목별로 함께 세팅**: 자동으로 고칠 수 있는 항목(E1·E2·E6·E7)은 항목마다
   `AskUserQuestion("〈항목〉이 없습니다. 지금 함께 세팅할까요?")` → "예"면 그 자리에서 설치/빌드 실행
-  (E1+E2=`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only`, E6=`cd mcp/javaparser-cli && ./mvnw -q -DskipTests package`,
+  (E1+E2=`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only`,
+  E6=`cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"`
+  — 반드시 `${CLAUDE_PLUGIN_ROOT}` 앵커(이 스킬의 cwd는 대상 프로젝트다) + persist까지 한 단계(jar를 업데이트 생존 위치 `${CLAUDE_PLUGIN_DATA}/javaparser/`로 복사; `--check`로 `upToDate:true`면 빌드 스킵),
   E7=`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs script ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py`)
   → **재감지 검증** → `completed`. "아니오"면 `status:"failed"` 중단.
   assist 항목(E4 JDK 21+, E10 실행 JDK, 그리고 자동 설치 실패·`HARNESS_AUTO_PYTHON=0`인 E1)은 설치/경로 안내 질문 —
@@ -144,7 +146,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/
     "E1": "ok (python 3.12.4)",
     "E2": "ok (mcp[cli] 1.4.1 @ plugin venv)",
     "E3": "ok (repo-ast, spec-doc, build-test)",
-    "E3b": "ok (health x3, pluginVersion 0.27.0)",
+    "E3b": "ok (health x3, pluginVersion 0.28.0)",
     "E4": "ok (java 21.0.3)",
     "E5": "ok (bundled mvnw)",
     "E6": "ok (target/astcli-1.0.0-shaded.jar — built)",

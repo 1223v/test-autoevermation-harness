@@ -9,6 +9,33 @@
 
 ---
 
+## [0.28.0] - 2026-07-26
+
+### Fixed — 플러그인 업데이트 시 기능 소실(잔존 캐시/산출물 유실) 방지
+- **JavaParser jar 업데이트 생존**: 공식 규약상 설치본은 버전 키 캐시 스냅샷이라 업데이트마다
+  교체·삭제되고(orphan 14일 후 GC), `target/`은 gitignore라 스냅샷에 jar가 없다 — 기존 설계는
+  업데이트 직후 repo-ast가 `JAVAPARSER_REQUIRED`로 하드실패했다("기능이 삭제됨" 체감의 원인).
+  `scripts/persist_astcli_jar.py`가 E6 빌드 산출물을 `${CLAUDE_PLUGIN_DATA}/javaparser/`
+  (업데이트 생존 위치)로 복사하고 소스 지문(`astcli.fingerprint`)을 기록하며, `_locate_jar`가
+  env → `target/`(신선한 빌드) → data(영속 사본) 순으로 해석한다. `health()`가
+  `jarPersisted`/`jarStale`로 상태를 보고하고, E-verify·E6 감지가 이를 사용한다.
+- **E6 cwd-상대 명령 수정**: `cd mcp/javaparser-cli`는 setup-harness의 cwd(대상 프로젝트)에서
+  깨진다 — 런타임 문서 전부를 `${CLAUDE_PLUGIN_ROOT}` 앵커 + persist 단계로 교체
+  (environment-setup·fallback-policy·setup-harness·ast-structure-analyzer + 서버 remediation 2곳).
+- **venv 버전 재검증**: bootstrap 설치 마커에 플러그인 버전을 접어 넣어 업데이트 후 첫
+  SessionStart에서 의존성 재검증(충족 시 빠른 no-op)을 강제. 시스템 인터프리터가 venv를
+  우회할 때 경고 로그를 남긴다.
+- **문서 — 업데이트/정리 절차 정정**: 재설정 가이드에 버전 키 스냅샷·`/reload-plugins` 필요·
+  구버전 캐시 자동 GC(14일)·v0.27.x 이하에서의 최초 1회 setup-harness 재실행(jar 이관)을
+  명문화. `rm -rf ~/.claude/plugins/cache` 전체 삭제 안내를 이 플러그인 캐시로 스코프.
+  완전 삭제 가이드가 data 디렉토리 3종 변형(`<플러그인>-<마켓>`/`-inline`/무접미)을 모두 나열.
+- 회귀 테스트 `tests/test_update_persistence.py`(13건) 추가.
+
+### Changed
+- 플러그인/마켓플레이스 버전 `0.28.0`, MCP 패키지 `0.13.0`(repo-ast health 필드 추가·bootstrap 마커 형식 변경).
+
+---
+
 ## [0.27.0] - 2026-07-26
 
 ### Added — 결과 검증 체인 기계화(2026-07 감사 후속)

@@ -24,7 +24,10 @@ cd mcp/javaparser-cli
 ## 서버 연결
 `repo_ast_server.py`의 jar 탐색 순서:
 1. 환경변수 `REPO_AST_JAVAPARSER_JAR`(명시 경로)
-2. `mcp/javaparser-cli/target/*-shaded.jar` → `*-jar-with-dependencies.jar` → `*.jar`
+2. `mcp/javaparser-cli/target/*-shaded.jar` → `*-jar-with-dependencies.jar` → `*.jar` (신선한 로컬 빌드 우선)
+3. `${CLAUDE_PLUGIN_DATA}/javaparser/*.jar` — `scripts/persist_astcli_jar.py`가 복사해 둔
+   **업데이트 생존 사본**(플러그인 캐시는 버전 키 스냅샷이라 업데이트마다 교체됨). 소스 지문
+   (`astcli.fingerprint`)이 함께 기록되며, repo-ast `health()`가 `jarPersisted`/`jarStale`로 상태를 보고한다.
 
 예:
 ```bash

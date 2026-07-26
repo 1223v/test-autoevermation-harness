@@ -314,9 +314,14 @@ jar가 없으면 정규식 fallback 없이 하드실패(`JAVAPARSER_REQUIRED`)�
 보통 손으로 할 필요는 없다.
 
 ```bash
-cd mcp/javaparser-cli && ./mvnw -q -DskipTests package     # → target/astcli-1.0.0-shaded.jar
+cd mcp/javaparser-cli && ./mvnw -q -DskipTests package     # → target/astcli-1.0.0-shaded.jar (리포 체크아웃 기준)
 # 다른 위치의 jar를 쓰려면: export REPO_AST_JAVAPARSER_JAR=/abs/path/astcli-1.0.0-shaded.jar
 ```
+
+설치본에서는 E6이 `${CLAUDE_PLUGIN_ROOT}` 앵커로 빌드한 뒤 `scripts/persist_astcli_jar.py`로
+`${CLAUDE_PLUGIN_DATA}/javaparser/`에 복사한다 — 플러그인 캐시는 버전 키 스냅샷이라 업데이트마다
+교체되므로, 이 영속 사본이 있어야 업데이트 후에도 jar가 살아남는다(탐색 순서: env →
+`target/` → `${CLAUDE_PLUGIN_DATA}/javaparser/`).
 
 ### 4.4 JDT LS (필수, v0.16.0+)
 
@@ -360,9 +365,14 @@ PATH → brew(macOS) → eclipse.org milestone tarball(`${CLAUDE_PLUGIN_DATA}/jd
 ```bash
 CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
-# MCP venv·관리형 jdtls 등 영속 데이터(수십 MB) — 업데이트에도 유지되도록 설계된
-# 공식 플러그인 데이터 디렉터리(${CLAUDE_PLUGIN_DATA})라 uninstall이 지우지 않는다
-rm -rf "$CFG/plugins/data/test-autoevermation-harness-plugin-test-autoevermation-harness"
+# MCP venv·관리형 jdtls·JavaParser jar(v0.28.0+) 등 영속 데이터(수십 MB) — 업데이트에도
+# 유지되도록 설계된 공식 플러그인 데이터 디렉터리(${CLAUDE_PLUGIN_DATA})라 uninstall이 지우지 않는다.
+# 디렉터리 이름은 로드 방식에 따라 다르다(공식 규약: {plugin-id의 비영숫자 → '-'} —
+# 마켓플레이스 설치는 `<플러그인>-<마켓>`, --plugin-dir 로드는 `<플러그인>-inline`, 구버전 사본은
+# 접미사 없음). 설치 방식을 바꿔온 환경엔 여러 변형이 공존할 수 있으니 전부 정리한다:
+rm -rf "$CFG/plugins/data/test-autoevermation-harness-plugin-test-autoevermation-harness" \
+       "$CFG/plugins/data/test-autoevermation-harness-plugin-inline" \
+       "$CFG/plugins/data/test-autoevermation-harness-plugin"
 
 # 상태줄 설정 마커 — self-heal 후에도 cleaned=true 기록으로 남는다
 rm -f "$CFG/test-autoevermation-statusline.json"
@@ -385,11 +395,18 @@ rm -f "$CFG"/settings.json.test-autoevermation-backup-*
 /reload-plugins
 ```
 
-**설치 상태가 깨졌을 때(스킬 미노출·MCP 서버 에러 지속):** 공식 트러블슈팅 절차대로 플러그인 캐시를
-비우고 재설치한다.
+설치본은 버전 키 스냅샷(`plugins/cache/<마켓>/<플러그인>/<버전>/`)이라 소스 수정은 커밋+푸시+버전
+bump+`update` 전에는 반영되지 않고, 실행 중 세션은 `/reload-plugins`(또는 재시작) 전에는 이전 버전을
+계속 쓴다. 구버전 캐시는 CC가 orphan 처리 후 14일 뒤 자동 삭제한다. venv·JDT LS·JavaParser
+jar(v0.28.0+)는 `${CLAUDE_PLUGIN_DATA}`에 있어 업데이트를 그대로 승계한다 — 단 v0.27.x 이하에서
+올라온 직후에는 jar가 구버전 캐시에만 있었으므로 최초 1회
+`/test-autoevermation-harness-plugin:setup-harness`를 재실행한다(E6이 영속 위치로 이관).
+
+**설치 상태가 깨졌을 때(스킬 미노출·MCP 서버 에러 지속):** 이 플러그인의 캐시만 비우고 재설치한다
+(`plugins/cache` 전체 삭제는 다른 플러그인까지 지우므로 피한다).
 
 ```bash
-rm -rf ~/.claude/plugins/cache
+rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 ```
 
 이후 Claude Code를 재시작하고 §4.1 설치 절차를 다시 실행한다.

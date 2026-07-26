@@ -48,6 +48,8 @@
 #    설치하고, mcp/bootstrap.py가 ${CLAUDE_PLUGIN_DATA}/venv에 mcp[cli]를 설치
 #    (수동 명령 불필요 — POSIX 전용 구진입점 run-server.sh는 수동 폴백으로 유지)
 # 3) JavaParser AST 백엔드 빌드 (필수, v0.16.0+) — 시스템 Maven 불요, mvnw 동봉
+#    (리포 체크아웃 기준. 설치본에서는 setup-harness E6이 ${CLAUDE_PLUGIN_ROOT} 앵커로 빌드 후
+#     scripts/persist_astcli_jar.py로 ${CLAUDE_PLUGIN_DATA}/javaparser/에 영속화한다 — v0.28.0+)
 cd mcp/javaparser-cli && ./mvnw -q -DskipTests package
 ```
 

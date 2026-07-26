@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import functools
 import glob
+import hashlib
 import json
 import os
 import re
@@ -171,28 +172,88 @@ def _collect_java_files(paths: list[str], root: Optional[Path]) -> tuple[list[Pa
 # ---------------------------------------------------------------------------
 
 
-def _locate_jar() -> Optional[str]:
-    """Locate the JavaParser CLI shaded jar.
+def _data_dir() -> Path:
+    """Durable per-plugin data directory (mirrors bootstrap.py data_dir()).
 
-    Resolution order:
-    1. ``REPO_AST_JAVAPARSER_JAR`` env var (explicit path).
-    2. ``mcp/javaparser-cli/target/*.jar`` relative to this file.
+    ``CLAUDE_PLUGIN_DATA`` survives plugin updates; the version-keyed plugin
+    cache directory (``CLAUDE_PLUGIN_ROOT``) does not — official docs say not to
+    store state there. Local-dev fallback: ``mcp/.plugin-data``.
     """
-    env_jar = os.environ.get("REPO_AST_JAVAPARSER_JAR", "").strip()
-    if env_jar and Path(env_jar).is_file():
-        return env_jar
+    env = os.environ.get("CLAUDE_PLUGIN_DATA", "").strip()
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parent / ".plugin-data"
 
-    here = Path(__file__).resolve().parent
-    target_dir = here / "javaparser-cli" / "target"
-    # Prefer a shaded ("*-shaded.jar" / "*-with-dependencies.jar") artifact.
+
+#: Durable jar location + source fingerprint marker (written by
+#: scripts/persist_astcli_jar.py after an E6 build; see setup-harness).
+_DATA_JAR_SUBDIR = "javaparser"
+_FINGERPRINT_BASENAME = "astcli.fingerprint"
+
+
+def _source_fingerprint() -> Optional[str]:
+    """16-hex sha256 fingerprint of the bundled javaparser-cli sources.
+
+    Covers ``pom.xml`` + every ``src/**/*.java`` (relative path + bytes), so a
+    CLI source change between plugin versions invalidates a persisted jar.
+    Canonical twin: scripts/persist_astcli_jar.py source_fingerprint() —
+    tests/test_update_persistence.py asserts both stay identical. Never raises.
+    """
+    try:
+        cli_dir = Path(__file__).resolve().parent / "javaparser-cli"
+        h = hashlib.sha256()
+        pom = cli_dir / "pom.xml"
+        if not pom.is_file():
+            return None
+        h.update(b"pom.xml\0")
+        h.update(pom.read_bytes())
+        for java in sorted(cli_dir.glob("src/**/*.java")):
+            h.update(str(java.relative_to(cli_dir)).replace("\\", "/").encode())
+            h.update(b"\0")
+            h.update(java.read_bytes())
+        return h.hexdigest()[:16]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _match_jar(directory: Path) -> Optional[str]:
+    """Newest-preferred jar match in ``directory`` (shaded first), or None."""
     patterns = ["*-shaded.jar", "*-jar-with-dependencies.jar", "*.jar"]
     for pattern in patterns:
-        matches = sorted(glob.glob(str(target_dir / pattern)))
+        matches = sorted(glob.glob(str(directory / pattern)))
         # Skip the thin "original-" artifacts produced by the shade plugin.
         matches = [m for m in matches if not Path(m).name.startswith("original-")]
         if matches:
             return matches[0]
     return None
+
+
+def _locate_jar() -> Optional[str]:
+    """Locate the JavaParser CLI shaded jar.
+
+    Resolution order:
+    1. ``REPO_AST_JAVAPARSER_JAR`` env var (explicit path).
+    2. ``mcp/javaparser-cli/target/*.jar`` relative to this file — a fresh
+       local build always wins (dev iteration).
+    3. ``${CLAUDE_PLUGIN_DATA}/javaparser/*.jar`` — the durable copy that
+       survives plugin updates (the version-keyed cache snapshot ships no jar
+       because ``target/`` is gitignored; without this candidate every update
+       destroyed the jar and hard-failed repo-ast under
+       REPO_AST_REQUIRE_JAVAPARSER=1).
+    """
+    env_jar = os.environ.get("REPO_AST_JAVAPARSER_JAR", "").strip()
+    if env_jar and Path(env_jar).is_file():
+        return env_jar
+
+    jar = _match_jar(_target_dir())
+    if jar:
+        return jar
+    return _match_jar(_data_dir() / _DATA_JAR_SUBDIR)
+
+
+def _target_dir() -> Path:
+    """Local Maven build output dir (fresh dev builds; empty in cache snapshots)."""
+    return Path(__file__).resolve().parent / "javaparser-cli" / "target"
 
 
 @functools.lru_cache(maxsize=1)
@@ -830,8 +891,8 @@ def _build_result(
         result["status"] = "partial"
         if degraded:
             result["nextActions"].append(
-                "Build the JavaParser CLI jar (mcp/javaparser-cli) and/or set "
-                "REPO_AST_JAVAPARSER_JAR for full symbol resolution."
+                "Run /test-autoevermation-harness-plugin:setup-harness (E6) to build+persist "
+                "the JavaParser CLI jar, and/or set REPO_AST_JAVAPARSER_JAR for full symbol resolution."
             )
         if result["unresolvedSymbols"]:
             result["nextActions"].append(
@@ -864,8 +925,8 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None) -> dict[str, A
             f"unavailable (jar={'found' if jar else 'missing'}, "
             f"jdk={'ok' if _jdk_available() else 'missing'}).",
             [
-                "Build the CLI: (cd mcp/javaparser-cli && mvn -q -B package), or set "
-                "REPO_AST_JAVAPARSER_JAR to a prebuilt astcli shaded jar.",
+                "Run /test-autoevermation-harness-plugin:setup-harness (E6: \"${CLAUDE_PLUGIN_ROOT}\"/mcp/javaparser-cli 빌드 후 "
+                "CLAUDE_PLUGIN_DATA로 persist), or set REPO_AST_JAVAPARSER_JAR to a prebuilt astcli shaded jar.",
                 "Ensure a JDK 'java' runtime is on PATH (or set REPO_AST_JAVA_BIN).",
             ],
         )
@@ -1035,6 +1096,20 @@ def build_server() -> Any:
             allow_root = str(root) if root is not None else None
         except Exception:  # noqa: BLE001
             allow_root = None
+        jar_persisted: Optional[bool] = None
+        jar_stale: Optional[bool] = None
+        try:
+            data_jar_dir = _data_dir() / _DATA_JAR_SUBDIR
+            if jar_path is not None:
+                jar_persisted = Path(jar_path).resolve().parent == data_jar_dir.resolve()
+            marker = data_jar_dir / _FINGERPRINT_BASENAME
+            if _match_jar(data_jar_dir) and marker.is_file():
+                recorded = marker.read_text(encoding="utf-8").strip()
+                current = _source_fingerprint()
+                if recorded and current:
+                    jar_stale = recorded != current
+        except Exception:  # noqa: BLE001
+            jar_persisted, jar_stale = None, None
         return {
             "server": "repo-ast",
             "pluginVersion": _plugin_version(),
@@ -1043,6 +1118,11 @@ def build_server() -> Any:
                 "jarPath": jar_path,
                 "javaOk": java_ok,
                 "requireJavaparser": require,
+                # 업데이트 생존성 진단: persisted=false는 jar가 버전 키 캐시에만
+                # 있어 다음 플러그인 업데이트 때 소실됨을 뜻한다(E6 persist 필요).
+                # stale=true는 CLI 소스가 바뀌어 재빌드가 필요함을 뜻한다.
+                "jarPersisted": jar_persisted,
+                "jarStale": jar_stale,
             },
             "allowRoot": allow_root,
         }

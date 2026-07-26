@@ -67,10 +67,37 @@ def read_file(path):
         return None
 
 
-def deps_ready(marker_path):
+def plugin_version():
+    """플러그인 선언 버전(best-effort). 실패 시 'unknown' — 예외 없음."""
+    try:
+        import json
+
+        manifest = os.path.join(
+            os.path.dirname(SCRIPT_DIR), ".claude-plugin", "plugin.json"
+        )
+        with open(manifest, encoding="utf-8") as f:
+            return str(json.load(f).get("version") or "unknown")
+    except Exception:
+        return "unknown"
+
+
+def marker_payload():
+    """설치 마커의 기대 내용: requirements 원문 + 플러그인 버전 스탬프.
+
+    버전을 접어 넣는 이유: 플러그인 업데이트 후 첫 SessionStart에서 의존성
+    재검증(pip install -r — 충족 시 빠른 no-op)을 강제해, requirements가
+    바뀌지 않아도 venv 상태가 새 버전 기준으로 한 번은 확인되게 한다.
+    """
     bundled = read_file(REQUIREMENTS)
+    if bundled is None:
+        return None
+    return bundled + "\n# plugin-version: %s\n" % plugin_version()
+
+
+def deps_ready(marker_path):
+    expected = marker_payload()
     installed = read_file(marker_path)
-    return bundled is not None and bundled == installed
+    return expected is not None and expected == installed
 
 
 class InstallLock:
@@ -147,9 +174,9 @@ def ensure_venv():
             log("pip install failed: %s" % (r.stderr or r.stdout).strip()[-2000:])
             return None
 
-        bundled = read_file(REQUIREMENTS) or ""
+        payload = marker_payload() or ""
         with open(marker, "w", encoding="utf-8") as f:
-            f.write(bundled)
+            f.write(payload)
         log("dependencies ready at %s" % venv_dir)
         return py
 
@@ -160,6 +187,13 @@ def main():
 
     if current_interpreter_has_mcp():
         py = sys.executable
+        # 시스템 인터프리터에 mcp가 이미 있으면 venv를 우회한다(기존 환경 존중).
+        # 이 경로는 requirements/버전 마커의 추적을 받지 않으므로, 시스템 mcp가
+        # 낡아도 감지되지 않는다 — 진단 가능하도록 소리 내어 기록한다.
+        log(
+            "system interpreter already imports 'mcp' — plugin venv BYPASSED "
+            "(%s); dependency drift is not tracked on this path" % py
+        )
     else:
         py = ensure_venv()
 

@@ -38,7 +38,7 @@ fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서
 | E3b | **MCP 라이브 연결 검증** | 메인 루프가 `repo-ast-mcp.health`·`spec-doc-mcp.health`·`build-test-mcp.health` 3종 도구를 **실제 호출**해 응답 확인 (E3의 import 검사로는 플러그인 MCP 등록 실패를 못 잡음) | auto | 실패 시 하드 중단 + remediation(① 플러그인 활성화 확인 → ② `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` 수동 실행 → ③ `/reload-plugins` 또는 Claude Code 재시작 → ④ SessionStart 훅 stderr 확인) | 동일 절차로 하드 중단(질문 없이 자동 판정) | policy #20 (repo-ast health는 jar 상태도 함께 반환 — E6 검증 겸용) |
 | E4 | **JDK 21+** (jar 빌드·JDT LS 구동 공통 필수) | `java -version` ≥ 21 | assist | AskUserQuestion으로 설치/`JAVA_HOME` 지정 안내(sdkman/brew). 미충족이면 중단 | 하드 중단 + remediation | jar/E6, JDT LS/E7 |
 | E5 | **Maven 3.6.3+** (jar 빌드용, 선택적) | `mcp/javaparser-cli/mvnw`(Windows `mvnw.cmd`) 존재 또는 `mvn -version` ≥ 3.6.3 | auto | mvnw 동봉으로 시스템 Maven 불필요(있으면 사용 가능). mvnw도 시스템 Maven도 없으면 설치 안내 | mvnw 사용, 둘 다 없으면 중단(빌드 불가) | E6 |
-| E6 | **JavaParser CLI jar** (필수) | `REPO_AST_JAVAPARSER_JAR` 또는 `mcp/javaparser-cli/target/*-shaded.jar` 존재 | auto | `AskUserQuestion`: "예 — jar 빌드(`./mvnw package`)" / "아니오 — 중단" (정규식 degrade 선택지 없음) → 예: `(cd mcp/javaparser-cli && ./mvnw -q -DskipTests package)` → `target/astcli-1.0.0-shaded.jar` | **자동** 동일 명령 빌드, 실패 시 하드 중단(`JAVAPARSER_REQUIRED`) | policy #2 (필수; `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1` 기본 설정) |
+| E6 | **JavaParser CLI jar** (필수) | `persist_astcli_jar.py --check`의 `upToDate:true`, 또는 `REPO_AST_JAVAPARSER_JAR` 지정, 또는 repo-ast `health()`의 `jarFound:true`·`jarStale:false` | auto | `AskUserQuestion`: "예 — jar 빌드(`./mvnw package`)" / "아니오 — 중단" (정규식 degrade 선택지 없음) → 예: `cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"` → `${CLAUDE_PLUGIN_DATA}/javaparser/astcli-1.0.0-shaded.jar` (업데이트 생존 위치 — 「세팅 명령 레퍼런스」 E6 참조) | **자동** 동일 명령 빌드+persist, 실패 시 하드 중단(`JAVAPARSER_REQUIRED`) | policy #2 (필수; `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1` 기본 설정) |
 | E7 | **JDT LS + Java 21+ 런타임** (필수) | `jdtls`(PATH) + `.lsp.json` + Java 21+ on `JAVA_HOME`/PATH | auto | 세팅: `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs script ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py`. 실패(Java 21 미탐지 포함) 시 중단 | 동일 세팅 자동 수행, 실패 시 하드 중단(AST-only degrade 문구 없음) | policy #3 |
 | E8 | **빌드 도구**(gradle/maven) | `build-test-mcp.detect_build_tool(root)` | data | `BUILD_TOOL_UNDETECTED`면 `AskUserQuestion("gradle? maven?")` | 미감지면 중단(`HarnessRequest.buildTool` 명시 요청) | policy #5 |
 | E9 | **Spring Boot 버전/프로파일** | `build-test-mcp.detect_spring_profile(root)` | data | `interviewRequired`면 Boot major AskUserQuestion(#4); `requiresConfirmation`면 충돌 확정(#6). 가정 금지 | 미감지/충돌이면 중단(`HarnessRequest.springVersion` 명시) | policy #4·#6 |
@@ -64,8 +64,16 @@ python3 -m pip install -r mcp/requirements.txt          # (which python3 로 인
 #   실패 시 수동 점검: node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --ensure-only 재실행 → /reload-plugins 또는 재시작
 
 # E6: JavaParser CLI jar — mvnw 동봉(시스템 Maven 불필요), JDK 21+ 필요
-cd mcp/javaparser-cli && ./mvnw -q -DskipTests package   # Windows: mvnw.cmd -q -DskipTests package
-#   산출물: target/astcli-1.0.0-shaded.jar
+#   ⚠ 반드시 ${CLAUDE_PLUGIN_ROOT} 앵커로 실행한다 — setup-harness의 cwd는 대상 프로젝트라
+#   상대경로 cd는 깨진다. 빌드 후 persist까지가 한 단계다: 플러그인 캐시 디렉토리는
+#   버전 키 스냅샷이라 업데이트마다 교체·삭제되므로(공식문서: CLAUDE_PLUGIN_ROOT에 상태 저장 금지),
+#   jar를 ${CLAUDE_PLUGIN_DATA}/javaparser/로 복사해야 업데이트에서 살아남는다.
+cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package \
+  && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"
+#   (Windows: mvnw.cmd -q -DskipTests package 후 동일 persist 실행)
+#   산출물: ${CLAUDE_PLUGIN_DATA}/javaparser/astcli-1.0.0-shaded.jar + astcli.fingerprint(소스 지문)
+#   빌드 스킵 판정: node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script \
+#     "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py" --check → upToDate:true면 이미 최신(재빌드 불필요)
 #   오프라인 대안: 사전 빌드한 jar를 REPO_AST_JAVAPARSER_JAR="/abs/path/astcli-1.0.0-shaded.jar" 로 지정
 
 # E7: JDT LS — jdtls 실행 파일 + Java 21+ 런타임 필요, 자동 설치 스크립트 제공
@@ -95,7 +103,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/script
 |---|---|---|
 | `repo-ast.health()` · `spec-doc.health()` · `build-test.health()` **3종 실제 호출** | **E3b**(라이브 연결) + 전이적으로 **E1·E2·E3**(런타임·venv·서버 등록이 없으면 애초에 응답 불가) | 도구 미노출/호출 실패 → 실패. repo-ast 응답의 `javaparser.jarFound:false` → E6 실패로 간주 |
 | `java -version` ≥ 21 | **E4** | 미충족 → 실패 |
-| `mcp/javaparser-cli/target/*-shaded.jar` 존재 또는 `REPO_AST_JAVAPARSER_JAR` 설정 | **E5·E6** | 미충족 → 실패 (위 health의 `jarFound`로 갈음 가능) |
+| repo-ast `health()`의 `jarFound:true`(+`jarPersisted`/`jarStale` 점검) 또는 `REPO_AST_JAVAPARSER_JAR` 설정 | **E5·E6** | 미충족 → 실패. `jarPersisted:false`면 jar가 버전 키 캐시에만 있어 다음 업데이트에서 소실 — persist 실행 권고. `jarStale:true`면 CLI 소스 변경 — 재빌드 |
 | `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py" --check-only` | **E7** | 종료코드 ≠ 0 → 실패 (`--check-only`는 감지만 하고 설치하지 않는다) |
 | 실행 JDK major ↔ Mockito/ByteBuddy 지원 범위 | **E10** | 위험이면 실패(또는 명시적 사용자 확인) |
 
