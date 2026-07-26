@@ -579,8 +579,9 @@ def _fallback_parse_file(
                     "annotations": _annotations_from(mm.group("annos")),
                     "modifiers": [t for t in mods.split() if t],
                     # Regex mode cannot see call expressions; plugin deployments
-                    # always use the JavaParser CLI (which populates this).
+                    # always use the JavaParser CLI (which populates these).
                     "invokedMethods": [],
+                    "invokedCalls": [],
                 }
             )
 
@@ -678,6 +679,25 @@ def _method_calls(cls: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
+def _method_call_details(cls: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """Map each method name to its receiver-aware call records
+    ({"name", "scope"}), where scope is the bare receiver identifier
+    ("orderService", "this") or "" when the receiver was complex or absent.
+    Lets the conformance gate distinguish same-named methods on different
+    collaborators (orderService.cancel() vs paymentClient.cancel()) by joining
+    scope against the test class's field types. Empty under the regex fallback
+    (only the JavaParser CLI extracts call expressions)."""
+    return {
+        m["name"]: [
+            {"name": str(c.get("name", "")), "scope": str(c.get("scope", ""))}
+            for c in (m.get("invokedCalls") or [])
+            if isinstance(c, dict) and c.get("name")
+        ]
+        for m in cls.get("methods", [])
+        if m.get("name")
+    }
+
+
 def _risk_points_for(cls: dict[str, Any]) -> list[str]:
     risks: list[str] = []
     fqcn = cls.get("fqcn", "?")
@@ -769,6 +789,7 @@ def _build_result(
                     "kind": kind,
                     "publicMethods": _public_methods(cls),
                     "methodCalls": _method_calls(cls),
+                    "methodCallDetails": _method_call_details(cls),
                     "annotations": cls.get("annotations", []),
                     "stereotype": next(
                         (
@@ -949,6 +970,11 @@ def _normalize_java_cli_output(
         for m in cls.get("methods", []):
             m.pop("body", None)
             m["invokedMethods"] = [str(c) for c in (m.get("invokedMethods") or [])]
+            m["invokedCalls"] = [
+                {"name": str(c.get("name", "")), "scope": str(c.get("scope", ""))}
+                for c in (m.get("invokedCalls") or [])
+                if isinstance(c, dict) and c.get("name")
+            ]
     return {
         "file": str(path),
         "package": package,
@@ -1030,7 +1056,11 @@ def build_server() -> Any:
         ``methodCalls`` — a map of method name to the simple names of methods
         invoked inside it (empty lists in regex-fallback mode) — used to verify
         that a generated test's ``// when`` actually calls the scenario's
-        ``target`` method. Conforms to AstAnalysisResult.
+        ``target`` method, and ``methodCallDetails`` — the receiver-aware form
+        ({"name", "scope"}) where scope is the bare receiver identifier or ""
+        when complex/absent. Join scope against the class's ``fields`` types to
+        distinguish same-named methods on different collaborators. Conforms to
+        AstAnalysisResult.
         """
         return _analyze([path])
 

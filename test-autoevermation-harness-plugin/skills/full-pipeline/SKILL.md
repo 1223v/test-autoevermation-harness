@@ -547,12 +547,17 @@ Task(
 
 지시:
 - scenarioRef(메서드명 sc001_… + javadoc scenarioRef/criteriaRef)로 시나리오 → 테스트 메서드를 매핑하라.
+- 실행 결과 기계 확증(무조건): parse_junit_xml의 testcases[]에서 매핑 메서드의 result를 확인하라 —
+  "passed"만 통과, "skipped"/부재는 unsatisfied + nonconformanceClass: NOT_EXECUTED. 집계 추론은 XML 부재 시 한정 폴백.
 - target 호출 기계 대조: parse_java_file의 methodCalls로, unit/직접호출 시나리오는 시나리오 target(FQCN#method)의
   메서드 단순명이 매핑 테스트 메서드의 호출 목록에 있는지 기계 판정하라(없으면 결정적 unsatisfied +
-  nonconformanceClass: WRONG_TARGET_CALL). slice는 when의 HTTP verb/경로 ↔ perform(...) 및 given stub 메서드명 대조.
-- satisfied(매핑+통과+target 호출 일치+then 단언 충족) / unsatisfied(매핑되나 실패·target 불일치·단언 부족) / missing(매핑 없음)으로 판정하라.
-- unsatisfied/missing에는 nonconformanceClass(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH/MAPPING_MISSING)를 반드시 기록하라(9.5단계 라우팅 힌트).
+  nonconformanceClass: WRONG_TARGET_CALL). 단순명 일치 시 methodCallDetails의 scope를 테스트 클래스 fields의
+  target 타입 필드명과 대조해 동명 타 협력자 호출을 배제하라(불일치도 WRONG_TARGET_CALL).
+  slice는 when의 HTTP verb/경로 ↔ perform(...) 및 given stub 메서드명 대조.
+- satisfied(매핑+통과 확증+target 호출 일치+then 단언 충족) / unsatisfied(매핑되나 실패·미실행·target 불일치·단언 부족) / missing(매핑 없음)으로 판정하라.
+- unsatisfied/missing에는 nonconformanceClass(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH/NOT_EXECUTED/MAPPING_MISSING)를 반드시 기록하라(9.5단계 라우팅 힌트).
 - // then 단언이 시나리오 then을 빠짐없이 반영하는지 테스트 본문과 대조해 판정하라(thenCovered 충족/전체).
+- 각 시나리오에 judgment("machine"/"read-based")를 기록하라 — 기계 근거(testcases[]+비degraded methodCalls)로만 성립하면 machine.
 - test_docs/scenarios/<id>.md의 "테스트 코드 매핑"·"검증 결과" 섹션과 INDEX.md를 갱신하라(references/scenario-docs.md §2).
 - 테스트 코드를 새로 생성/수정하지 마라(검증·문서화 전용). 소스 원문·민감정보 기록 금지.
 - ConformanceResult JSON으로 반환하라.

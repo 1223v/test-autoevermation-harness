@@ -64,7 +64,7 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `failResult` | object | `test-runner` 출력의 `TestRunResult` 전체. **`nonconformantItems`가 있으면 생략 가능(모드 B)** |
-| `nonconformantItems` | object[] | (모드 B) 오케스트레이터가 9단계 `ConformanceResult.scenarioResults[]`에서 **id가 `unmet`(string[] — ID 배열이라 필드를 담지 않음)에 포함되고 `verdict:"unsatisfied"`인 항목을 조인해 전달** — scenarioId·testClass·testMethods·verdict·`nonconformanceClass`(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH)·notes. 존재 시 적합성 보정 모드로 동작 |
+| `nonconformantItems` | object[] | (모드 B) 오케스트레이터가 9단계 `ConformanceResult.scenarioResults[]`에서 **id가 `unmet`(string[] — ID 배열이라 필드를 담지 않음)에 포함되고 `verdict:"unsatisfied"`인 항목을 조인해 전달** — scenarioId·testClass·testMethods·verdict·`nonconformanceClass`(WRONG_TARGET_CALL/THEN_GAP/GIVEN_MISMATCH/NOT_EXECUTED)·notes. 존재 시 적합성 보정 모드로 동작. NOT_EXECUTED는 매핑 메서드가 skipped·미실행인 경우 — `@Disabled`류 제거 또는 실행 스코프 포함으로 보정한다 |
 | `originalTests` | object[] | 실패한 테스트 파일 경로 및 현재 내용. `content` 생략 시 `path`를 Read로 로드 |
 | `relatedSources` | object[] | 실패와 관련된 프로덕션 소스 파일 경로·FQCN. 경로 문자열만 전달되면 `repo-ast-mcp`로 FQCN을 해석 |
 | `springProfile` | object\|null | 0단계 `configure-harness`가 확정한 버전 프로파일(스키마: [version-compatibility.md](../references/version-compatibility.md)). **미전달 시 기존 테스트·대상 소스의 실제 import를 정본으로 삼는다**(혼용 방어와 동일 규칙) |

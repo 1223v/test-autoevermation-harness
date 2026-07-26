@@ -200,11 +200,23 @@ def _safe_parse_xml(path: str) -> tuple:
         return None, f"XML parse error: {exc}"
 
 
-def _parse_junit_file(path: str) -> tuple[int, list[dict]]:
-    """Parse one JUnit XML file -> (passed_count, failures[])."""
+# Retry-history elements written by Surefire (rerunFailure/rerunError) and by
+# Gradle's JUnitXmlReport mergeReruns=true (flakyFailure/flakyError). A testcase
+# carrying one of these but no failure/error child eventually PASSED after
+# retries — it must surface as flaky, not as a silently clean pass.
+_FLAKY_XML_ELEMENTS = ("flakyFailure", "flakyError", "rerunFailure", "rerunError")
+
+
+def _parse_junit_file(path: str) -> tuple[int, list[dict], list[dict]]:
+    """Parse one JUnit XML file -> (passed_count, failures[], testcases[]).
+
+    ``testcases`` carries the per-method machine record the aggregate counts
+    cannot express: {"class", "name", "result": passed|failed|skipped,
+    "flaky": bool}. A skipped testcase is neither passed nor failed, but its
+    identity is preserved so callers can prove (not infer) execution."""
     root_el, err = _safe_parse_xml(path)
     if err:
-        return 0, [{"test": path, "type": "TEST_RUNTIME_FAILED", "message": err}]
+        return 0, [{"test": path, "type": "TEST_RUNTIME_FAILED", "message": err}], []
 
     if root_el.tag == "testsuites":
         suites = list(root_el.findall("testsuite"))
@@ -215,6 +227,7 @@ def _parse_junit_file(path: str) -> tuple[int, list[dict]]:
 
     passed = 0
     failures: list[dict] = []
+    testcases: list[dict] = []
     for suite in suites:
         for tc in suite.findall("testcase"):
             classname = tc.get("classname", "")
@@ -224,6 +237,7 @@ def _parse_junit_file(path: str) -> tuple[int, list[dict]]:
             failure_el = tc.find("failure")
             error_el = tc.find("error")
             skipped_el = tc.find("skipped")
+            flaky = any(tc.find(el) is not None for el in _FLAKY_XML_ELEMENTS)
 
             if failure_el is not None or error_el is not None:
                 el = failure_el if failure_el is not None else error_el
@@ -234,9 +248,37 @@ def _parse_junit_file(path: str) -> tuple[int, list[dict]]:
                     "type": _classify_failure(ftype, fmsg),
                     "message": fmsg[:500],
                 })
-            elif skipped_el is None:
+                result = "failed"
+            elif skipped_el is not None:
+                result = "skipped"
+            else:
                 passed += 1
-    return passed, failures
+                result = "passed"
+            testcases.append({
+                "class": classname,
+                "name": name,
+                "result": result,
+                "flaky": flaky,
+            })
+    return passed, failures, testcases
+
+
+def _aggregate_junit(xml_paths: list[str]) -> tuple[int, list[dict], list[dict], int, list[str]]:
+    """Aggregate parsed JUnit files -> (passed, failures[], testcases[], skipped, flaky[])."""
+    total_passed = 0
+    all_failures: list[dict] = []
+    all_testcases: list[dict] = []
+    for xp in xml_paths:
+        p, f, t = _parse_junit_file(xp)
+        total_passed += p
+        all_failures.extend(f)
+        all_testcases.extend(t)
+    skipped = sum(1 for t in all_testcases if t["result"] == "skipped")
+    flaky = [
+        f"{t['class']}.{t['name']}" if t["class"] else t["name"]
+        for t in all_testcases if t["flaky"]
+    ]
+    return total_passed, all_failures, all_testcases, skipped, flaky
 
 
 def _find_jacoco_xml(root: str) -> str | None:
@@ -759,12 +801,7 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
 
     # Parse JUnit XML regardless of exit code (compile failures still informative).
     xml_paths = _find_junit_xml(root)
-    total_passed = 0
-    all_failures: list[dict] = []
-    for xp in xml_paths:
-        p, f = _parse_junit_file(xp)
-        total_passed += p
-        all_failures.extend(f)
+    total_passed, all_failures, all_testcases, skipped, flaky = _aggregate_junit(xml_paths)
 
     report_dirs = sorted({os.path.dirname(p) for p in xml_paths})
 
@@ -783,6 +820,9 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
         "timedOut": exec_meta["timedOut"],
         "passed": total_passed,
         "failed": all_failures,
+        "skipped": skipped,
+        "testcases": all_testcases,
+        "flaky": flaky,
         "reportPaths": report_dirs,
         "stdoutTail": exec_meta["stdoutTail"],
         "stderrTail": exec_meta["stderrTail"],
@@ -791,20 +831,22 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
 
 @mcp.tool()
 def parse_junit_xml(root: str = ".") -> dict:
-    """Parse Gradle/Maven JUnit XML reports -> passed + classified failures[].
+    """Parse Gradle/Maven JUnit XML reports -> per-method results + classified failures[].
 
     Gradle: build/test-results/test/*.xml ; Maven: target/surefire-reports/*.xml.
     Each failure is classified TEST_COMPILE_FAILED / TEST_RUNTIME_FAILED / FLAKY_SUSPECTED.
+
+    ``testcases[]`` ({"class", "name", "result": passed|failed|skipped, "flaky"})
+    is the per-method machine record: a method-level pass/skip verdict must be
+    read from here, never inferred from absence in ``failed[]`` (a @Disabled or
+    unexecuted test is also absent there). ``flaky[]`` lists tests that carry
+    retry history (Surefire rerunFailure / Gradle mergeReruns flakyFailure)
+    even when they eventually passed.
     """
     root = os.path.abspath(root)
     xml_paths = _find_junit_xml(root)
 
-    total_passed = 0
-    all_failures: list[dict] = []
-    for xp in xml_paths:
-        p, f = _parse_junit_file(xp)
-        total_passed += p
-        all_failures.extend(f)
+    total_passed, all_failures, all_testcases, skipped, flaky = _aggregate_junit(xml_paths)
 
     report_dirs = sorted({os.path.dirname(p) for p in xml_paths})
 
@@ -819,6 +861,9 @@ def parse_junit_xml(root: str = ".") -> dict:
         "status": status,
         "passed": total_passed,
         "failed": all_failures,
+        "skipped": skipped,
+        "testcases": all_testcases,
+        "flaky": flaky,
         "reportPaths": report_dirs,
     }
 

@@ -156,13 +156,13 @@ class JdtlsProbeTests(unittest.TestCase):
 class ManifestAndDocsTests(unittest.TestCase):
     def test_plugin_version_bumped(self) -> None:
         manifest = json.loads(_read(PLUGIN_ROOT / ".claude-plugin" / "plugin.json"))
-        self.assertEqual(manifest["version"], "0.26.0")
+        self.assertEqual(manifest["version"], "0.27.0")
         marketplace = json.loads(
             _read(PLUGIN_ROOT.parent / ".claude-plugin" / "marketplace.json")
         )
         self.assertEqual(marketplace["plugins"][0]["version"], manifest["version"])
         self.assertIn(
-            'version = "0.11.1"',
+            'version = "0.12.0"',
             _read(PLUGIN_ROOT / "mcp" / "pyproject.toml"),
         )
         # 스킬은 skills/ 디렉터리에서 자동 발견된다(공식 플러그인 규약).

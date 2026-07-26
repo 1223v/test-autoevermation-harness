@@ -167,13 +167,16 @@ disallowedTools: Write, Edit
 - Gradle: `build/test-results/test/*.xml`
 - Maven: `target/surefire-reports/*.xml`
 - XML 파싱 실패 시 표준출력 파싱(fallback), `warnings`에 기록
+- `parse_junit_xml`/`run_targeted_tests`는 집계(`passed`/`failed[]`) 외에 **메서드 단위 기계 기록**을 반환한다:
+  `skipped`(정수), `testcases[]`({class, name, result: passed|failed|skipped, flaky}), `flaky[]`(재시도 이력 테스트 id).
+  `skipped`는 이 값을 그대로 채우고, `flaky[]`가 비어 있지 않으면 `warnings`에 기록하라(9단계 verifier가 `testcases[]`로 메서드 단위 합격을 확증한다)
 
 ### 실패 유형 분류 기준
 | 유형 | 판별 조건 |
 |---|---|
 | `TEST_COMPILE_FAILED` | Gradle/Maven이 `COMPILATION ERROR`·`cannot find symbol` 등 컴파일 오류로 종료 |
 | `TEST_RUNTIME_FAILED` | JUnit XML의 `<failure>` 또는 `<error>` 요소 존재 |
-| `FLAKY_SUSPECTED` | 동일 테스트가 동일 실행에서 통과·실패 혼재, 또는 타임아웃 패턴 |
+| `FLAKY_SUSPECTED` | 동일 테스트가 동일 실행에서 통과·실패 혼재, 타임아웃 패턴, 또는 XML의 재시도 이력 요소(Surefire `rerunFailure`/`rerunError`, Gradle mergeReruns `flakyFailure`/`flakyError` — `parse_junit_xml`의 `flaky[]`) |
 
 ---
 

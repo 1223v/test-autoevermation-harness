@@ -61,7 +61,7 @@ class RemovedComponentContractTests(unittest.TestCase):
         manifest = json.loads(
             (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual("0.26.0", manifest["version"])
+        self.assertEqual("0.27.0", manifest["version"])
 
     def test_conformance_repair_contract_rechecks_6_then_8_then_9(self) -> None:
         full_pipeline = (PLUGIN_ROOT / "skills" / "full-pipeline" / "SKILL.md").read_text(

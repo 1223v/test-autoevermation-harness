@@ -202,12 +202,39 @@ public final class AstCli {
 
         // Invoked method simple names only — never argument text or bodies.
         Set<String> calls = new LinkedHashSet<>();
-        m.findAll(MethodCallExpr.class).forEach(c -> calls.add(c.getNameAsString()));
+        // Receiver-aware records ({name, scope}) so the conformance gate can tell
+        // orderService.cancel() from paymentClient.cancel(). Scope is emitted only
+        // when it is a bare receiver (identifier / this / field access name);
+        // complex scope expressions may embed argument text, so they degrade to "".
+        Set<String> callKeys = new LinkedHashSet<>();
+        JsonArray invokedCalls = new JsonArray();
+        m.findAll(MethodCallExpr.class).forEach(c -> {
+            calls.add(c.getNameAsString());
+            String scope = c.getScope().map(s -> {
+                if (s.isNameExpr()) {
+                    return s.asNameExpr().getNameAsString();
+                }
+                if (s.isThisExpr()) {
+                    return "this";
+                }
+                if (s.isFieldAccessExpr()) {
+                    return s.asFieldAccessExpr().getNameAsString();
+                }
+                return "";
+            }).orElse("");
+            if (callKeys.add(scope + "#" + c.getNameAsString())) {
+                JsonObject call = new JsonObject();
+                call.put("name", JsonValue.str(c.getNameAsString()));
+                call.put("scope", JsonValue.str(scope));
+                invokedCalls.add(call);
+            }
+        });
         JsonArray invoked = new JsonArray();
         for (String c : calls) {
             invoked.add(JsonValue.str(c));
         }
         obj.put("invokedMethods", invoked);
+        obj.put("invokedCalls", invokedCalls);
         // Contract: never emit method bodies or call arguments.
         return obj;
     }

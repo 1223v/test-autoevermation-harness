@@ -104,6 +104,7 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
          "stackTrace": string
        }
      ],
+     "skipped": integer,
      "reportPaths": [string],
      "failureClasses": [string],
      "evidence": [string],
@@ -111,6 +112,11 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
      "errors": [string],
      "nextActions": [string]
    }
+
+   skipped는 parse_junit_xml의 skipped 값을 그대로 채우고, parse_junit_xml의 flaky[]
+   (재시도 이력 — Surefire rerunFailure / Gradle mergeReruns flakyFailure)가 비어 있지
+   않으면 warnings에 기록하라. 메서드 단위 기계 기록(testcases[])은 리포트에 남아
+   9단계 verify-scenarios가 직접 파싱한다.
    """
    )
    ```

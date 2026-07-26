@@ -131,15 +131,22 @@ approvedAt: 2026-06-27
 검증 절차(시나리오 1건당):
 1. **매핑**: `scenarioRef`(메서드명 `sc001_…`)와 javadoc `scenarioRef/criteriaRef`로 시나리오 → 테스트 메서드를 찾는다.
    매핑되는 메서드가 없으면 `missing`.
-2. **실행 결과**: 매핑된 메서드가 최종 실행에서 `passed`인지 확인한다. `failed`/미실행이면 `unsatisfied`.
+2. **실행 결과 기계 확증(무조건)**: `parse_junit_xml`의 `testcases[]`({class, name, result, flaky})에서 매핑된 메서드의
+   result를 확인한다 — `"passed"`만 통과, `"failed"`는 `unsatisfied`, `"skipped"`/부재(미실행)는 `unsatisfied` +
+   `nonconformanceClass: NOT_EXECUTED`. `failed[]` 부재로부터의 추론은 XML 리포트 부재 시 한정 폴백(`warnings` 기록).
+   `flaky:true`(재시도 이력)는 `warnings`에 기록한다.
 3. **target 호출 기계 대조**: `parse_java_file`의 `methodCalls`로, unit/직접호출 시나리오는 시나리오
    `target`(`FQCN#method`)의 메서드 단순명이 매핑 테스트 메서드의 호출 목록에 있는지 **기계 판정**한다
    (없으면 결정적 `unsatisfied` + `nonconformanceClass: WRONG_TARGET_CALL` — 유사명 혼동 차단).
+   단순명이 일치하면 `methodCallDetails`의 `scope`(단순 수신자)를 테스트 클래스 `fields`의 target 타입 필드명과
+   대조해 **동명 타(他) 협력자 호출을 배제**한다(불일치도 `WRONG_TARGET_CALL`; scope가 `""`면 `notes`에 수신자 미확인 기록).
    slice는 `when`의 HTTP verb/경로 ↔ `perform(...)`, `given` stub 메서드명을 대조한다.
 4. **then 충족**: 테스트 본문의 `// then` 단언이 시나리오 `then` 항목을 **빠짐없이** 반영하는지 확인한다
    (단언 누락·약화 시 `unsatisfied` + `THEN_GAP`, 사유 기록). given도 시나리오와 일치하는지 점검한다(`GIVEN_MISMATCH`).
-5. **판정**: `satisfied`(매핑+통과+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·target 불일치·단언 부족) / `missing`(매핑 테스트 없음, `MAPPING_MISSING`).
-   `unsatisfied`/`missing`에는 `nonconformanceClass`를 기록한다(9.5단계 보정 라우팅 힌트).
+5. **판정**: `satisfied`(매핑+통과 확증+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·미실행·target 불일치·단언 부족) / `missing`(매핑 테스트 없음, `MAPPING_MISSING`).
+   `unsatisfied`/`missing`에는 `nonconformanceClass`(`WRONG_TARGET_CALL`/`THEN_GAP`/`GIVEN_MISMATCH`/`NOT_EXECUTED`/`MAPPING_MISSING`)를 기록한다(9.5단계 보정 라우팅 힌트).
+   각 시나리오에 `judgment`를 기록한다 — 실행 확증(2)·target 대조(3)가 모두 기계 근거면 `"machine"`,
+   읽기 기반 대체 판정(XML 부재 추론·repo-ast `degraded` 폴백)이 섞이면 `"read-based"`.
 
 산출 후:
 - 각 `scenarios/<id>.md`의 "테스트 코드 매핑"·"검증 결과" 섹션을 채우고 `INDEX.md`를 갱신한다.
@@ -172,6 +179,7 @@ approvedAt: 2026-06-27
       "thenCovered": "2/2",
       "verdict": "satisfied",
       "nonconformanceClass": null,
+      "judgment": "machine",
       "notes": ""
     }
   ],

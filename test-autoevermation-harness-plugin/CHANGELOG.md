@@ -9,6 +9,30 @@
 
 ---
 
+## [0.27.0] - 2026-07-26
+
+### Added — 결과 검증 체인 기계화(2026-07 감사 후속)
+- `parse_junit_xml`/`run_targeted_tests`가 집계 외에 **메서드 단위 기계 기록**을 반환한다:
+  `skipped`(정수), `testcases[]`({class, name, result: passed|failed|skipped, flaky}), `flaky[]`.
+  9단계 verifier의 메서드 단위 합격 판정을 "`failed[]` 부재로부터의 추론"에서 **`testcases[]` 기계 확증(무조건)**으로
+  전환했다 — `@Disabled`(skipped)·미실행 테스트가 satisfied로 오판되는 경로를 차단한다(집계 추론은 XML 부재 시 한정 폴백).
+- 재시도 이력 요소(Surefire `rerunFailure`/`rerunError`, Gradle mergeReruns `flakyFailure`/`flakyError`)를
+  flaky로 표면화한다 — 통과했더라도 조용히 넘어가지 않는다.
+- astcli가 수신자 인식 호출 레코드 `invokedCalls[]`({name, scope})를 방출하고, repo-ast `parse_java_file`이
+  `methodCallDetails`로 노출한다(단순 수신자 식별자만 — 복잡식은 `""`, 인자 텍스트 비방출 계약 유지).
+  9단계 target 호출 대조가 scope↔테스트 클래스 필드 타입 조인으로 **동명 타(他) 협력자 호출을 배제**한다.
+- `ConformanceResult.scenarioResults[]`에 `judgment`("machine"/"read-based") 필드를 추가했다 —
+  실행 확증·target 대조가 모두 기계 근거인지 여부를 판정 단위로 기록한다.
+- `nonconformanceClass`에 `NOT_EXECUTED`(매핑 메서드 skipped·미실행)를 추가하고 test-fixer 모드 B가
+  `@Disabled` 제거·실행 스코프 포함으로 보정하도록 라우팅했다.
+- 회귀 테스트 `tests/test_result_verification_upgrade.py`(13건) 추가.
+
+### Changed
+- 플러그인/마켓플레이스 버전을 `0.27.0`으로 올렸다. MCP 패키지 버전은 `0.12.0`(서버 2종 출력 계약 변경).
+  배포 구성은 스킬 15종·에이전트 11종·MCP 서버 3종으로 변경 없다.
+
+---
+
 ## [0.26.0] - 2026-07-20
 
 ### Added — 사후 테스트 편집(test-editor / edit-tests)
