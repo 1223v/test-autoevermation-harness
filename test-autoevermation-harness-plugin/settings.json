@@ -1,5 +1,5 @@
 {
-  "//": "권장 권한/보안 기본값. 주의: Claude Code는 플러그인 settings.json에서 agent/subagentStatusLine 키만 적용하므로 아래 permissions/env는 자동 적용되지 않는다(공식문서: code.claude.com/docs/en/plugins-reference). 실제 강제는 hooks가 담당한다 — 네트워크/curl·wget 차단=scripts/guard-network.py, WebFetch·시크릿/벤더/빌드 경로 read 차단=scripts/guard-read.py. 이 블록은 사용자가 자신의 프로젝트 .claude/settings.json 또는 ~/.claude/settings.json에 복사해 쓰는 권장값이다.",
+  "//": "권장 권한 기본값 — 이 플러그인은 이를 강제하지 않는다. Claude Code는 플러그인 settings.json에서 agent/subagentStatusLine 키만 적용하므로 아래 permissions는 자동 적용되지 않으며(공식문서: code.claude.com/docs/en/plugins-reference), v0.29.0에서 이를 훅으로 대신 강제하던 guard-read.py/guard-network.py를 제거했다 — 보호 대상인 서브에이전트는 각자 agents/*.md의 tools 목록으로 이미 제한되는데 훅은 하네스와 무관한 세션까지 차단했기 때문이다. 이 자세를 원하면 아래 블록을 자신의 프로젝트 .claude/settings.json 또는 ~/.claude/settings.json에 복사하라 — 사용자 settings에서는 Claude Code가 실제로 적용한다. 테스트 실행의 네트워크 차단은 훅과 무관한 별개 경로로 유지된다: build-test MCP 서버가 BUILD_TEST_ALLOW_NETWORK(.mcp.json 기본값 0)를 읽어 gradle --offline / maven -o 를 붙인다.",
   "permissions": {
     "allow": [
       "Read",
@@ -19,9 +19,5 @@
       "Bash(wget:*)",
       "WebFetch"
     ]
-  },
-  "env": {
-    "TEST_AUTOEVERMATION_HARNESS_NETWORK": "off",
-    "TEST_AUTOEVERMATION_HARNESS_TEST_SCOPE": "targeted"
   }
 }

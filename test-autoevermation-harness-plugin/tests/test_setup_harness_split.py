@@ -154,16 +154,23 @@ class JdtlsProbeTests(unittest.TestCase):
 
 
 class ManifestAndDocsTests(unittest.TestCase):
-    def test_plugin_version_bumped(self) -> None:
+    def test_plugin_version_is_consistent_across_manifests(self) -> None:
+        """plugin.json and marketplace.json must agree on the released version.
+
+        The literal version used to be asserted here, which broke this test on every
+        release; the invariant that actually matters is that the two manifests stay in
+        sync. `mcp/pyproject.toml` carries an INDEPENDENT package version (the MCP
+        servers version separately) — it is only checked for presence, not equality.
+        """
         manifest = json.loads(_read(PLUGIN_ROOT / ".claude-plugin" / "plugin.json"))
-        self.assertEqual(manifest["version"], "0.28.0")
+        self.assertRegex(manifest["version"], r"^\d+\.\d+\.\d+$")
         marketplace = json.loads(
             _read(PLUGIN_ROOT.parent / ".claude-plugin" / "marketplace.json")
         )
         self.assertEqual(marketplace["plugins"][0]["version"], manifest["version"])
-        self.assertIn(
-            'version = "0.13.0"',
+        self.assertRegex(
             _read(PLUGIN_ROOT / "mcp" / "pyproject.toml"),
+            r'version = "\d+\.\d+\.\d+"',
         )
         # 스킬은 skills/ 디렉터리에서 자동 발견된다(공식 플러그인 규약).
         self.assertEqual(manifest["skills"], "./skills")

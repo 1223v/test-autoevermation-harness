@@ -9,6 +9,99 @@
 
 ---
 
+## [0.29.0] - 2026-07-27
+
+전수 감사(에이전트 11종·스킬 15종·MCP 3종·훅 5종)에서 확인된 **장애·오판 유발 요소** 수정. 오케스트레이션
+계약의 핵심(위임 강제·순서 게이트·기계 확증 체인)은 견고했고, 문제는 그 계약이 닿지 않는 바깥쪽 — 환경
+이식성, 보안 훅의 과잉 범위, 재개 판정 계층 — 에 몰려 있었다. 에이전트·스킬의 판정 규칙, degrade 금지
+정책(#2·#3·#20), 커버리지 임계값은 변경하지 않았다.
+
+### Removed — 보안 훅 2종(`guard-read.py`·`guard-network.py`)
+
+두 훅은 `settings.json`의 `permissions`가 플러그인에서 적용되지 않는 것을 보완하려고 만들었지만, 실제로는
+보호 대신 간섭을 만들고 있었다.
+
+- **`guard-read.py`**: ① 보호 대상이 없다 — 에이전트 11종 중 `WebFetch`/`WebSearch`를 `tools:`에 가진
+  에이전트가 **0개**라 WebFetch deny는 서브에이전트를 아무것도 막지 못하고 메인 세션만 막았다.
+  ② 세션 상태를 보지 않아 **하네스와 무관한 세션의 WebFetch·`build/`·`target/` Read까지 차단**했다(실제
+  발생). ③ 모든 Read 호출마다 node+python을 띄워 회당 ~54ms를 물렸다. 서브에이전트의 읽기 범위는 이미
+  각 `agents/*.md`의 `tools:`가 결정하고(`full-pipeline/SKILL.md` 보안 절), 쓰기 측 시크릿은
+  `redact-secrets.py`가 본다.
+- **`guard-network.py`**: 실제로 중요한 "테스트 실행이 네트워크를 타지 않는 것"은 훅이 아니라 build-test
+  MCP 서버가 독립적으로 강제한다(`BUILD_TEST_ALLOW_NETWORK`, `.mcp.json` 기본값 `0` → gradle `--offline` /
+  maven `-o`). 훅이 추가로 덮던 범위는 Bash 보유 에이전트 2종(`test-runner`·`test-fixer`)의 빌드 명령뿐이었다.
+- `settings.json`의 `permissions` 블록은 **권장값으로 유지**한다 — 이 자세를 원하는 사용자가 자기
+  `.claude/settings.json`에 복사하면 Claude Code가 실제로 적용한다. 보안 자세가 *플러그인의 전역 강제*에서
+  *사용자 옵트인*으로 바뀌었다.
+- 죽은 환경변수 `TEST_AUTOEVERMATION_HARNESS_NETWORK`·`TEST_AUTOEVERMATION_HARNESS_TEST_SCOPE` 제거(두 훅이
+  유일한 소비자였다). 테스트 실행 네트워크 제어는 `BUILD_TEST_ALLOW_NETWORK` 하나로 일원화.
+- **위임 강제 계열(`record-run-context.py`·`guard-gate-artifacts.py`)과 `redact-secrets.py`는 유지한다** —
+  이들은 오케스트레이션 할루시네이션(위임 우회·게이트 미수행 주장·승인 전 테스트 기록)을 막는 물리 장치로
+  성격이 다르고, Write/Edit·Task에서만 발동해 비용도 낮다.
+
+### Fixed — Windows에서 MCP 서버가 기동하지 못하던 문제 (`mcp/bootstrap.py`)
+
+`os.execv`는 Windows에서 프로세스를 대체하지 않고 `spawnv(P_NOWAIT)` + `_exit(0)`으로 구현된다(CPython
+공식 os 문서, cpython#101191). 기동 체인이 `Claude Code → node launch.cjs → python bootstrap → 서버`인데
+`launch.cjs`의 `runInherit`은 자식이 끝나면 자신도 종료하므로, bootstrap이 즉시 끝나면 node도 끝나고 MCP
+stdio 연결이 그 자리에서 죽었다. venv 경로·시스템 python 경로 모두 execv를 타므로 **Windows 사용자는 전원
+영향**이었다.
+
+- `os.name == "nt"`이면 `subprocess.run`으로 stdio를 상속해 실행하고 종료코드를 전파한다. POSIX는 execv를
+  유지해 프로세스 수가 늘지 않는다.
+
+### Fixed — 낡은 증거로 검증 단계에 재진입하던 문제 (`detect_pipeline_state`)
+
+영속 증거는 "그 단계가 **한 번** 돌았다"만 증명하지 "**지금 코드**에 대해 돌았다"를 증명하지 않는데,
+재개 판정이 **파일 존재만** 확인했다(mtime/해시 비교 코드 없음). 서비스 코드를 고친 뒤 재호출하면 이전
+실행의 green JUnit·통과 JaCoCo가 그대로 인정되어 `recommendedEntryStage:9`가 나오고, 9단계는 코드를 다시
+돌리지 않으므로 **바뀐 코드를 한 번도 실행하지 않은 채 "전부 satisfied"**로 보고할 수 있었다.
+
+- `detect_pipeline_state`가 `staleness{}`를 반환한다: 소스(`src/main/java`·`src/test/java`, 루트+서브모듈
+  1단계) 최신 mtime을 JUnit XML·JaCoCo XML·`test_docs/scenarios/*.md`·빌드파일↔`00_config-harness.json`과
+  기계 비교한다. 파일시스템 타임스탬프 해상도 대비 **2초 허용오차**로 같은 초 기록의 오판을 막는다.
+- `recommendedEntryStage`를 하향 클램프한다: JaCoCo stale→8, JUnit stale→6, 시나리오 stale→4,
+  `buildFileNewerThanConfig`→0. `highestCompletedStage`는 "실제로 있었던 일"의 기록이라 클램프하지 않는다.
+- **훅 물리 강제**: `record-run-context.py`가 stale 증거를 `allowedArtifacts`에서 제외하므로,
+  오케스트레이터가 "재사용 가능"이라 판단해도 `06`/`08`(시나리오 stale이면 `04`) stub 기록은
+  `guard-gate-artifacts.py`에 deny된다 — v0.22.0의 "prose는 강제가 아니다" 원칙의 연장.
+- `full-pipeline` Phase 0: 대화형은 무엇이 낡았는지 제시하고 `AskUserQuestion`(영향 단계부터 재실행 / 그대로
+  재사용 / 전체 재실행), CI는 클램프된 값으로 보수적 재실행. `buildFileNewerThanConfig`면 0단계를 건너뛸 수
+  없다 — 빌드 파일 변경은 Spring 프로파일 전체(javax↔jakarta·junit4↔jupiter·`@MockBean`↔`@MockitoBean`)를
+  뒤집을 수 있어 캐시된 `springProfile`로 생성하면 잘못된 관용구가 나온다.
+
+### Fixed — 멀티모듈에서 미측정 모듈이 커버리지 게이트를 통과하던 문제
+
+`_find_jacoco_xml`이 발견한 리포트 중 **첫 번째만** 반환해, 멀티모듈 빌드에서 한 모듈만 측정되고 나머지는
+측정 없이 통과했다.
+
+- `_find_jacoco_xml_all` 추가 + `_parse_jacoco_all`로 카운터를 합산한다(비율 평균이 아니라 missed/covered
+  절대값 합산 후 재계산 — 그래야 프로젝트 전체 비율이 맞는다). 루트 레벨 리포트가 있으면 그것만 쓴다(집계
+  리포트와 모듈 리포트의 이중 계산 방지). 파싱 실패한 모듈은 전체를 실패시킨다(조용히 빼면 같은 버그 재현).
+- 응답에 `jacocoPaths[]` 추가, 기존 `jacocoPath`는 하위호환 유지.
+
+### Added — `projectRoot` 범위 조기 진단
+
+`.mcp.json`이 `REPO_AST_ALLOW_ROOT=${CLAUDE_PROJECT_DIR}`로 고정하므로 `projectRoot`가 그 밖이면 repo-ast가
+모든 경로를 `denied`로 응답해 AST 분석이 조용히 비었는데, 원인이 결과에 드러나지 않아 진단이 어려웠다.
+`full-pipeline`·`configure-harness`의 E-verify에 `health()`의 `allowRoot`와 `projectRoot` 대조 + remediation
+안내를 추가했다(코드 변경 없음).
+
+### Changed — 버전 하드코딩 테스트 제거
+
+`test_pipeline_v2.py`·`test_setup_harness_split.py`가 `"0.28.0"`을 문자열로 단언해 릴리스마다 깨졌다.
+버전 값 대신 **정합성**(semver 형식 · plugin.json↔marketplace.json 일치 · CHANGELOG 항목 존재)을 검사한다.
+
+### 검증
+
+- `python3 -m unittest discover -s tests` — **126 passed**(기존 107 + 신규 19). 기존 테스트 무수정 통과.
+- 신규 `tests/test_env_and_staleness.py`: 훅 삭제 회귀 방지 · 오프라인 강제가 훅과 무관함 · bootstrap의
+  Windows/POSIX 분기(`os.name` 패치) · staleness 클램프와 2초 허용오차 · stale stub allowlist 배제 ·
+  멀티모듈 JaCoCo 합산과 루트 집계 우선.
+- Windows 분기는 이 환경에서 실행할 수 없어 `os.name` 패치 단위 테스트가 유일한 기계 증거다.
+
+---
+
 ## [0.28.0] - 2026-07-26
 
 ### Fixed — 플러그인 업데이트 시 기능 소실(잔존 캐시/산출물 유실) 방지

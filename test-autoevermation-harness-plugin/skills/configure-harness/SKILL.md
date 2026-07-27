@@ -47,6 +47,8 @@ description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행�
 - `claude -p` 플래그로 호출된 비대화형 세션인 경우
 - `schemaVersion:2`인 `_workspace/00_config-harness.json`(HarnessConfig)이 있어 재사용하는 경우 — 인터뷰를 재수행하지 않는다. 버전이 없거나 2가 아니면 구 설정으로 보고 재생성한다.
 
+> **재사용해도 0.5단계는 건너뛰지 않는다.** 인터뷰만 생략할 뿐 Spring 프로파일은 **항상 재감지**한다(아래 0단계). 빌드 파일이 config보다 새로우면(`detect_pipeline_state`의 `staleness.buildFileNewerThanConfig:true`) 캐시된 `springProfile`은 신뢰할 수 없다 — Boot 2→3 업그레이드 하나로 javax↔jakarta·junit4↔jupiter·`@MockBean`↔`@MockitoBean`이 전부 뒤집히므로, 그 값으로 생성하면 컴파일되지 않거나 잘못된 관용구의 테스트가 나온다. 재감지 결과가 캐시와 다르면 `warnings`에 기록하고 새 값을 채택한다.
+
 CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 바로 "HarnessConfig 생성" 단계로 이동한다.
 
 ---
@@ -64,6 +66,7 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 3. `target/*-shaded.jar` 또는 `REPO_AST_JAVAPARSER_JAR` → E5·E6
 4. `setup_jdtls.py --check-only` → E7 (감지만, 설치하지 않음)
 5. 실행 JDK major ↔ Mockito/ByteBuddy 지원 범위 → E10
+6. **`projectRoot` 범위 대조** — `repo-ast.health()`의 `allowRoot`와 확정된 `projectRoot`를 대조한다. `.mcp.json`이 `REPO_AST_ALLOW_ROOT=${CLAUDE_PROJECT_DIR}`로 고정하므로 `projectRoot`가 그 밖이면 repo-ast가 모든 경로를 `denied`로 응답해 AST 분석이 조용히 비게 된다. 벗어나면 `status:"failed"` + remediation(① 대상 프로젝트에서 세션 열기 / ② `REPO_AST_ALLOW_ROOT` 지정 후 `/reload-plugins`)으로 중단한다. `allowRoot`가 `null`이면 서버가 cwd로 폴백하므로 동일하게 대조한다.
 
 **게이트**: 프로브가 하나라도 실패하면 **대화형·CI 동일하게** `status:"failed"` + `errors`(실패 항목)로 **하드 중단**하고, remediation에 아래 고정 안내를 담는다. 0단계로 진행하지 않는다.
 

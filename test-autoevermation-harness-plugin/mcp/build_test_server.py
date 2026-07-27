@@ -192,6 +192,107 @@ def _find_junit_xml(root: str) -> list[str]:
     return _find_reports(root, _JUNIT_REL)
 
 
+# ---------------------------------------------------------------------------
+# Staleness (durable-resume freshness)
+#
+# Durable evidence (JUnit/JaCoCo XML, approved scenario docs, a cached HarnessConfig)
+# proves that a stage RAN ONCE — not that it ran against the CURRENT source. When the
+# service code changes between runs, resuming on that evidence would report "all
+# scenarios satisfied" without ever executing the changed code. These helpers give
+# detect_pipeline_state a machine comparison (source mtime vs evidence mtime) so the
+# resume decision can be made on freshness rather than mere existence.
+# ---------------------------------------------------------------------------
+
+# Source roots to scan, mirroring the one-submodule-level convention of _JUNIT_REL.
+_SOURCE_REL = (
+    ("src", "main", "java"),
+    ("src", "test", "java"),
+    ("*", "src", "main", "java"),
+    ("*", "src", "test", "java"),
+)
+
+_BUILD_FILES = ("build.gradle", "build.gradle.kts", "pom.xml",
+                "settings.gradle", "settings.gradle.kts", "gradle.properties")
+
+# Filesystem timestamp granularity differs across platforms (HFS+/ext3 = 1s, FAT = 2s).
+# Only treat evidence as stale when the source is newer by more than this margin, so a
+# source and a report written in the same second are never mistaken for a code change.
+_STALE_TOLERANCE_SEC = 2.0
+
+
+def _newest_mtime(paths: list[str]) -> "tuple[float | None, list[str]]":
+    """Return (newest mtime, paths sorted newest-first) — unreadable entries skipped."""
+    stamped: list[tuple[float, str]] = []
+    for p in paths:
+        try:
+            stamped.append((os.path.getmtime(p), p))
+        except OSError:
+            continue
+    if not stamped:
+        return None, []
+    stamped.sort(reverse=True)
+    return stamped[0][0], [p for _mt, p in stamped]
+
+
+def _collect_source_files(root: str) -> list[str]:
+    """All .java files under the project's source roots (root + one submodule level)."""
+    files: list[str] = []
+    for rel in _SOURCE_REL:
+        pattern = os.path.join(root, *rel)
+        bases = glob.glob(pattern) if "*" in pattern else (
+            [pattern] if os.path.isdir(pattern) else []
+        )
+        for base in bases:
+            if not os.path.isdir(base):
+                continue
+            for dirpath, _dirs, names in os.walk(base):
+                files.extend(
+                    os.path.join(dirpath, n) for n in names if n.endswith(".java")
+                )
+    return files
+
+
+def _is_newer(candidate: "float | None", reference: "float | None") -> bool:
+    """True when `candidate` is newer than `reference` beyond the tolerance margin."""
+    if candidate is None or reference is None:
+        return False
+    return candidate > reference + _STALE_TOLERANCE_SEC
+
+
+def _compute_staleness(root: str) -> dict:
+    """Compare newest source mtime against each piece of durable evidence.
+
+    Every probe is fail-safe (same posture as detect_pipeline_state): an unreadable
+    path yields None/False rather than raising, because freshness detection must never
+    break the pipeline. A `None` on either side means "cannot compare" -> not stale,
+    so a project without that evidence is never flagged.
+    """
+    source_mtime, source_paths = _newest_mtime(_collect_source_files(root))
+
+    junit_mtime, _ = _newest_mtime(_find_junit_xml(root))
+    jacoco_mtime, _ = _newest_mtime(_find_jacoco_xml_all(root))
+    scenario_mtime, _ = _newest_mtime(
+        glob.glob(os.path.join(root, "test_docs", "scenarios", "*.md"))
+    )
+
+    build_mtime, _ = _newest_mtime(
+        [os.path.join(root, name) for name in _BUILD_FILES]
+    )
+    config_mtime, _ = _newest_mtime(
+        [os.path.join(root, "_workspace", "00_config-harness.json")]
+    )
+
+    return {
+        "sourceNewerThanJunit": _is_newer(source_mtime, junit_mtime),
+        "sourceNewerThanJacoco": _is_newer(source_mtime, jacoco_mtime),
+        "sourceNewerThanScenarios": _is_newer(source_mtime, scenario_mtime),
+        "buildFileNewerThanConfig": _is_newer(build_mtime, config_mtime),
+        "newestSourceMtime": source_mtime,
+        "newestSourcePaths": source_paths[:10],
+        "toleranceSeconds": _STALE_TOLERANCE_SEC,
+    }
+
+
 def _safe_parse_xml(path: str) -> tuple:
     """Parse an XML file; return (root_element, None) or (None, 'XML parse error: ...')."""
     try:
@@ -281,9 +382,39 @@ def _aggregate_junit(xml_paths: list[str]) -> tuple[int, list[dict], list[dict],
     return total_passed, all_failures, all_testcases, skipped, flaky
 
 
-def _find_jacoco_xml(root: str) -> str | None:
-    """Locate jacoco.xml for Gradle or Maven (incl. one level of submodules)."""
+def _find_jacoco_xml_all(root: str) -> list[str]:
+    """Locate every jacoco.xml that should count toward the coverage gate.
+
+    Multi-module builds emit one report per module. Taking only the first (the old
+    behaviour) measured a single module and let every other module pass the gate
+    unmeasured. Rule: if a ROOT-level report exists, use only root-level reports — in a
+    multi-module build that file is the aggregate report, and summing it with the
+    per-module reports would double-count. Only when no root-level report exists do the
+    submodule reports get aggregated.
+    """
     found = _find_reports(root, _JACOCO_REL, "jacoco*.xml")
+    if not found:
+        return []
+    root_prefixes = tuple(
+        os.path.join(root, rel[0]) + os.sep for rel in _JACOCO_REL if rel[0] != "*"
+    )
+    root_level = [p for p in found if p.startswith(root_prefixes)]
+    selected = root_level or found
+    # Preserve discovery order while dropping duplicates (candidates can overlap with
+    # the recursive ``**/jacoco*.xml`` fallback).
+    seen: set[str] = set()
+    unique: list[str] = []
+    for path in selected:
+        key = os.path.realpath(path)
+        if key not in seen:
+            seen.add(key)
+            unique.append(path)
+    return unique
+
+
+def _find_jacoco_xml(root: str) -> str | None:
+    """First JaCoCo report path (kept for callers that report a single location)."""
+    found = _find_jacoco_xml_all(root)
     return found[0] if found else None
 
 
@@ -361,6 +492,54 @@ def _parse_jacoco(jacoco_path: str) -> dict:
     return {
         "status": "ok",
         "reportPath": jacoco_path,
+        "reportPaths": [jacoco_path],
+        "overall": overall,
+        "perClass": per_class,
+        "uncovered": uncovered,
+    }
+
+
+def _parse_jacoco_all(jacoco_paths: list[str]) -> dict:
+    """Parse and MERGE several JaCoCo reports into one coverage view.
+
+    Counters are summed across modules (missed/covered are absolute element counts, so
+    summing then re-deriving the ratio yields the true project-wide ratio — averaging
+    the per-module ratios would not). ``perClass``/``uncovered`` are concatenated.
+    A report that fails to parse fails the whole call: silently dropping a module would
+    reproduce exactly the "unmeasured module passes the gate" bug this replaces.
+    """
+    if not jacoco_paths:
+        return {"status": "failed", "error": "JACOCO_REPORT_NOT_FOUND",
+                "message": "no JaCoCo XML report found"}
+    if len(jacoco_paths) == 1:
+        return _parse_jacoco(jacoco_paths[0])
+
+    totals: dict[str, dict] = {}
+    per_class: list[dict] = []
+    uncovered: list[dict] = []
+    for path in jacoco_paths:
+        parsed = _parse_jacoco(path)
+        if parsed.get("status") != "ok":
+            return parsed
+        for ctype, counter in parsed["overall"].items():
+            bucket = totals.setdefault(ctype, {"missed": 0, "covered": 0})
+            bucket["missed"] += counter.get("missed", 0)
+            bucket["covered"] += counter.get("covered", 0)
+        per_class.extend(parsed["perClass"])
+        uncovered.extend(parsed["uncovered"])
+
+    overall = {
+        ctype: {
+            "missed": bucket["missed"],
+            "covered": bucket["covered"],
+            "ratio": round(_counter_ratio(bucket["missed"], bucket["covered"]), 6),
+        }
+        for ctype, bucket in totals.items()
+    }
+    return {
+        "status": "ok",
+        "reportPath": jacoco_paths[0],
+        "reportPaths": list(jacoco_paths),
         "overall": overall,
         "perClass": per_class,
         "uncovered": uncovered,
@@ -876,13 +1055,17 @@ def parse_jacoco_report(root: str = ".") -> dict:
     Maven : target/site/jacoco/jacoco.xml.
     Counters: LINE, BRANCH, METHOD, CLASS, INSTRUCTION (overall and per class).
     `uncovered[]` lists classes/methods below target so a coverage-closer can act.
+
+    Multi-module builds are aggregated: when no root-level report exists, every
+    submodule report is summed so an unmeasured module cannot pass the gate.
+    `reportPaths[]` lists everything that was counted; `reportPath` stays the first.
     """
     root = os.path.abspath(root)
-    jacoco_path = _find_jacoco_xml(root)
-    if jacoco_path is None:
+    jacoco_paths = _find_jacoco_xml_all(root)
+    if not jacoco_paths:
         return {"status": "failed", "error": "JACOCO_REPORT_NOT_FOUND",
                 "message": f"no jacoco.xml found under: {root}"}
-    return _parse_jacoco(jacoco_path)
+    return _parse_jacoco_all(jacoco_paths)
 
 
 @mcp.tool()
@@ -912,6 +1095,15 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
     tests — the pipeline threads foreign tests as existingTestPaths to augment coverage gaps
     without overwriting them. `resumable` means "a harness pipeline left mid-stream state";
     foreign-tests-only is not resumable.
+
+    FRESHNESS GATE: evidence proves a stage RAN ONCE, not that it ran against the
+    CURRENT source. If the service code changed after the reports were written, resuming
+    on them would report "all scenarios satisfied" without ever executing the change.
+    `staleness{}` machine-compares the newest source mtime against each piece of evidence
+    (2s tolerance for filesystem timestamp granularity) and `recommendedEntryStage` is
+    clamped down accordingly: stale JaCoCo -> 8, stale JUnit -> 6, stale scenarios -> 4,
+    a build file newer than the cached HarnessConfig -> 0 (the Spring profile must be
+    re-detected). `highestCompletedStage` records what did happen and is not clamped.
 
     Every probe is fail-safe: any error yields a null/empty field (detection must never
     break the pipeline — same posture as guard-gate-artifacts fail-open). Returns
@@ -1050,6 +1242,32 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
     else:
         recommended = 0
 
+    # --- freshness: evidence proves a stage RAN, not that it ran against THIS source ---
+    # A report older than the source it covers says nothing about the current code, so
+    # resuming past the stage that produced it would report success without ever
+    # executing the change. Clamp the entry stage down to the earliest stage whose
+    # evidence is still trustworthy. `highestCompletedStage` is a record of what did
+    # happen and is deliberately left alone.
+    staleness = _safe(lambda: _compute_staleness(root), {}) or {}
+    stale_reasons: list[str] = []
+    if staleness.get("sourceNewerThanJacoco") and recommended > 8:
+        recommended = 8
+        stale_reasons.append("JACOCO_STALE")
+    if staleness.get("sourceNewerThanJunit") and recommended > 6:
+        recommended = 6
+        stale_reasons.append("JUNIT_STALE")
+    if staleness.get("sourceNewerThanScenarios") and recommended > 4:
+        recommended = 4
+        stale_reasons.append("SCENARIOS_STALE")
+    if staleness.get("buildFileNewerThanConfig"):
+        # A changed build file can move the whole Spring profile (javax<->jakarta,
+        # junit4<->jupiter, @MockBean<->@MockitoBean). Stage 0 must re-detect it before
+        # anything downstream reuses the cached HarnessConfig.
+        recommended = 0
+        stale_reasons.append("CONFIG_STALE")
+    staleness["stale"] = bool(stale_reasons)
+    staleness["reasons"] = stale_reasons
+
     # resumable = a harness pipeline actually left mid-stream state to resume from.
     # Foreign-tests-only is NOT resumable (there is no harness stage to resume).
     resumable = harness_tests or approved_scen > 0 or bool(ra_paths)
@@ -1073,6 +1291,7 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
         "refactorAdvisories": len(ra_paths),
         "junitReport": junit_summary,
         "jacocoReport": jacoco_summary,
+        "staleness": staleness,
         "workspaceArtifacts": ws_artifacts,
         "highestCompletedStage": highest,
         "recommendedEntryStage": recommended,
@@ -1102,16 +1321,17 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
     """
     root = os.path.abspath(root)
 
-    jacoco_path = _find_jacoco_xml(root)
+    jacoco_paths = _find_jacoco_xml_all(root)
+    jacoco_path = jacoco_paths[0] if jacoco_paths else None
 
     counters_result: dict[str, dict] = {}
     gaps: dict = {"uncovered": []}
     missing: list[str] = []
 
-    if jacoco_path is None:
+    if not jacoco_paths:
         missing.append("JACOCO_REPORT_NOT_FOUND")
     else:
-        jr = _parse_jacoco(jacoco_path)
+        jr = _parse_jacoco_all(jacoco_paths)
         if jr.get("status") != "ok":
             missing.append(jr.get("error", "JACOCO_PARSE_FAILED"))
         else:

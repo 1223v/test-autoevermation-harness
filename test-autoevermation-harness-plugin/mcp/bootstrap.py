@@ -217,7 +217,19 @@ def main():
         return 1
 
     server = args[0]
-    os.execv(py, [py, server] + args[1:])
+    argv = [py, server] + args[1:]
+
+    if os.name == "nt":
+        # Windows의 exec*는 프로세스를 대체하지 않는다 — CPython은 이를
+        # spawnv(P_NOWAIT) + _exit(0)으로 구현하므로(공식 os 문서, cpython#101191)
+        # execv를 쓰면 이 프로세스가 즉시 끝난다. .mcp.json의 기동 체인은
+        # Claude Code → node launch.cjs(runInherit: 자식이 끝나면 자신도 exit)
+        # → python bootstrap → 서버 이므로, bootstrap이 먼저 끝나면 node도 끝나고
+        # MCP stdio 연결이 그 자리에서 죽는다. 서버가 살아 있어도 파이프가 끊긴다.
+        # 따라서 Windows에서는 자식을 stdio 상속으로 돌리고 끝까지 기다린다.
+        return subprocess.run(argv).returncode
+
+    os.execv(py, argv)
     return 1  # execv 성공 시 도달 불가
 
 

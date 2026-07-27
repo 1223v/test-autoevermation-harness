@@ -58,10 +58,22 @@ class RemovedComponentContractTests(unittest.TestCase):
                 self.assertNotIn("09_mutation_result", text)
 
     def test_manifest_uses_release_version(self) -> None:
+        """The manifest version must be released semver that the CHANGELOG documents.
+
+        Asserting a literal version here made every release break this test, so the
+        invariant is consistency (manifest <-> CHANGELOG) rather than a fixed value.
+        """
         manifest = json.loads(
             (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual("0.28.0", manifest["version"])
+        version = manifest["version"]
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        changelog = (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn(
+            f"[{version}]",
+            changelog,
+            f"CHANGELOG.md has no entry for the released version {version}",
+        )
 
     def test_conformance_repair_contract_rechecks_6_then_8_then_9(self) -> None:
         full_pipeline = (PLUGIN_ROOT / "skills" / "full-pipeline" / "SKILL.md").read_text(

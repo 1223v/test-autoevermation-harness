@@ -51,7 +51,12 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
   - JUnit 결과가 green(`status:"ok"`, `passed>0`, `failed=[]`)이고 JaCoCo XML이 없거나 현재 임계값에 미달함 → 8(measure-coverage)
   - green JUnit과 현재 임계값을 통과한 JaCoCo XML이 모두 유효함 → 9(verify-scenarios). 테스트 0개인 JUnit XML은 green이 아니므로 6단계로 재진입한다.
   - 위 증거가 없음 → 0(configure-harness)
-- 대화형은 위 추천값과 `[4 시나리오 재설계] [5 생성] [6 실행] [8 커버리지] [9 적합성 검증]`을 제시하고 사용자가 선택하게 한다. CI는 `recommendedEntryStage`를 그대로 사용한다.
+- **신선도 게이트 (v0.29.0 — 낡은 증거로 재개 금지).** 영속 증거는 "그 단계가 **한 번** 돌았다"만 증명하지 "**지금 코드**에 대해 돌았다"를 증명하지 않는다. 서비스 코드를 고친 뒤 재호출하면 이전 실행의 green JUnit·통과 JaCoCo가 그대로 인정되어 9단계부터 재개하고 **바뀐 코드를 한 번도 실행하지 않은 채 "전부 satisfied"**로 보고할 수 있다. 이를 막기 위해 `detect_pipeline_state`가 소스 최신 mtime과 각 증거의 mtime을 기계 비교해 `staleness{}`를 반환한다(2초 허용오차 — 파일시스템 타임스탬프 해상도 대비).
+  - 반환 필드: `stale`, `reasons[]`(`JACOCO_STALE`/`JUNIT_STALE`/`SCENARIOS_STALE`/`CONFIG_STALE`), `sourceNewerThanJunit`, `sourceNewerThanJacoco`, `sourceNewerThanScenarios`, `buildFileNewerThanConfig`, `newestSourcePaths[]`.
+  - `recommendedEntryStage`는 이미 이 판정으로 **하향 클램프되어** 돌아온다(JaCoCo stale→8, JUnit stale→6, 시나리오 stale→4, `buildFileNewerThanConfig`→0). `highestCompletedStage`는 "실제로 있었던 일"의 기록이라 클램프하지 않으므로, 둘이 어긋나면 그 차이가 곧 무효화된 증거다.
+  - **`buildFileNewerThanConfig:true`이면 0단계(configure-harness)를 건너뛸 수 없다.** 빌드 파일 변경은 Spring 프로파일 전체(javax↔jakarta, junit4↔jupiter, `@MockBean`↔`@MockitoBean`)를 바꿀 수 있어, 캐시된 `springProfile`로 생성하면 잘못된 관용구의 테스트가 나온다. configure-harness 0.5단계는 호출되기만 하면 프로파일을 항상 재감지하므로 0단계를 실제로 수행하는 것으로 충분하다.
+  - 훅이 함께 강제한다: stale로 판정된 증거는 `record-run-context.py`가 `allowedArtifacts`에서 제외하므로, 오케스트레이터가 "재사용 가능"이라고 판단해도 `06`/`08`(시나리오 stale이면 `04`) stub 기록은 `guard-gate-artifacts.py`에 deny된다.
+- 대화형은 위 추천값과 `[4 시나리오 재설계] [5 생성] [6 실행] [8 커버리지] [9 적합성 검증]`을 제시하고 사용자가 선택하게 한다. **`staleness.stale:true`이면 먼저 무엇이 낡았는지(`reasons[]`와 `newestSourcePaths[]`의 대표 경로)를 제시하고 `AskUserQuestion`으로 `[영향 단계부터 재실행(권장)] / [그대로 재사용] / [0단계부터 전체 재실행]`을 묻는다** — "그대로 재사용"을 선택해도 훅이 stale stub 기록을 막으므로 해당 단계는 실제로 다시 수행된다. CI는 클램프된 `recommendedEntryStage`를 그대로 사용한다(질문 불가 → 보수적 재실행).
 - 복원 시 `_workspace/_resume.json`을 `{"schemaVersion":2,"entryStage":<n>,"entryLabel":"<label>","ts":"<ISO-8601>"}`로 기록한다. stub은 `source:"durable-scan"`과 **실제 detect 요청 root·임계값 및 응답에서 계산된 `allowedArtifacts` 마커**가 대상 `projectRoot`에 있어야 하며 `04_scenario_set.json`, `05_test-gen_files.json`, `06_run_result.json`, `08_coverage_result.json`에만 허용한다. 08 권한은 호출 임계값이 schema v2 config와 일치할 때만 부여하고(config가 없으면 1.0 네 종), stub은 `status:"reused"`, `gatePassed:true`로 기록한다. 9단계 적합성 결과는 복원하지 않고 항상 다시 검증한다. 최종 집계 전에는 `pipeline_result.json`을 쓰지 않는다.
 
 **단계별 계측(timing.json).** 각 서브에이전트 완료 알림의 `total_tokens`/`duration_ms`는 **그 시점에만** 접근 가능하므로 즉시 `_workspace/timing.json`에 누적 저장한다(느린·비싼 단계 식별용). 헬퍼: `scripts/record-timing.py`.
@@ -165,6 +170,7 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요
 ```
 
+- **(iv) `projectRoot` 범위 대조 (조기 진단)**: `repo-ast.health()` 응답의 `allowRoot`와 확정된 `projectRoot`를 대조한다. `.mcp.json`이 `REPO_AST_ALLOW_ROOT=${CLAUDE_PROJECT_DIR}`로 고정하므로 **`projectRoot`가 그 밖이면 repo-ast가 모든 경로를 `denied`로 응답**해 2단계가 "심볼 0개"나 #20 하드 중단으로 끝나는데, 원인이 결과에 드러나지 않아 진단이 어렵다. 벗어나면 `status:"failed"`로 즉시 중단하고 remediation에 다음을 담는다 — ① 대상 프로젝트 디렉터리에서 Claude Code 세션을 열거나, ② `REPO_AST_ALLOW_ROOT`를 대상 루트로 지정한 뒤 `/reload-plugins`. `allowRoot`가 `null`이면 서버가 cwd로 폴백하므로 동일하게 대조한다.
 - **금지 사항**: 프로브 실패를 오케스트레이터가 스스로 고치지 않는다 — `--ensure-only`·`./mvnw package`·`setup_jdtls.py`(설치 모드) 실행 금지, `setup-harness` 자동 위임 금지(사용자가 명시적으로 실행해야 한다), 정규식·AST-only degrade 금지(fallback-policy #2·#3·#20).
 - **범위 밖**: E8·E9(빌드도구·프로파일)는 configure-harness **0.5단계**, **E11(JaCoCo XML)·E12(캐시)는 0.6단계**에서 확정한다.
 

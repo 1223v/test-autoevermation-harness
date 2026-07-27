@@ -16,6 +16,9 @@ guard-gate-artifacts.py가 판정에 사용하는 마커를 ``_workspace/.marker
   * ``pipeline-state.detected.json``    — detect_pipeline_state의 실제 요청 root·커버리지
                                           임계값과 응답을 결합해 복원 가능한 산출물 allowlist를
                                           대상 projectRoot에 기록. durable-resume stub의 전제.
+                                          v0.29.0: 응답의 ``staleness``가 소스보다 오래됐다고
+                                          판정한 증거는 allowlist에서 제외한다(낡은 green
+                                          리포트로 검증 단계에 재진입하는 경로 차단).
 
 Decision table:
   PreToolUse Skill:
@@ -321,12 +324,26 @@ def _extract_detect_result(value):
 def _allowed_stub_artifacts(
     result: dict, *, allow_coverage_stub: bool = True
 ) -> list[str]:
-    """탐지 결과가 실제로 증명한 durable 복원 산출물만 반환한다."""
+    """탐지 결과가 실제로 증명한 durable 복원 산출물만 반환한다.
+
+    v0.29.0: 증거가 **현재 소스보다 오래된**(stale) 단계는 복원 대상에서 뺀다. 리포트는
+    "그 단계가 한 번 돌았다"만 증명하지 "지금 코드에 대해 돌았다"를 증명하지 않으므로,
+    소스가 바뀐 뒤 낡은 green 리포트를 stub으로 복원하면 바뀐 코드를 한 번도 실행하지
+    않고 "전부 통과"로 보고하게 된다. 오케스트레이터가 산문으로 "재사용 가능"이라
+    판단하더라도 이 allowlist에 없으면 guard-gate-artifacts가 기록을 deny한다.
+    """
     if result.get("status") != "ok" or result.get("harnessProvenance") is not True:
         return []
+    staleness = result.get("staleness")
+    if not isinstance(staleness, dict):
+        staleness = {}
     allowed: list[str] = []
     scenarios = result.get("scenarios") or {}
-    if isinstance(scenarios, dict) and (scenarios.get("approved") or 0) > 0:
+    if (
+        isinstance(scenarios, dict)
+        and (scenarios.get("approved") or 0) > 0
+        and staleness.get("sourceNewerThanScenarios") is not True
+    ):
         allowed.append("04_scenario_set.json")
     if result.get("hasTests") is True:
         allowed.append("05_test-gen_files.json")
@@ -341,7 +358,12 @@ def _allowed_stub_artifacts(
         and junit.get("passed") > 0
         and junit.get("failed") == 0
     )
-    if isinstance(entry, (int, float)) and entry >= 8 and junit_green:
+    if (
+        isinstance(entry, (int, float))
+        and entry >= 8
+        and junit_green
+        and staleness.get("sourceNewerThanJunit") is not True
+    ):
         allowed.append("06_run_result.json")
 
     jacoco = result.get("jacocoReport") or {}
@@ -353,6 +375,8 @@ def _allowed_stub_artifacts(
         and jacoco.get("present") is True
         and jacoco.get("gatePassed") is True
         and allow_coverage_stub
+        and staleness.get("sourceNewerThanJunit") is not True
+        and staleness.get("sourceNewerThanJacoco") is not True
     ):
         allowed.append("08_coverage_result.json")
     return allowed

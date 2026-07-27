@@ -153,15 +153,23 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 |---|---|---|
 | `scripts/record-run-context.py` | PreToolUse(Skill·Task·Agent) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 cwd와 대상 `projectRoot`의 `_workspace/.markers/run.json`(하네스 활성·라우팅) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 대상 프로젝트에 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state`의 실제 요청 root·커버리지 임계값과 응답을 결합해 durable-resume allowlist를 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
 | `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **위임·산출물 물리 강제**: spawn 마커·테스트 파일 소유권·순서 게이트와 8단계 커버리지 불변식을 검사하고 9단계 적합성 산출물의 생산자를 강제한다. 비파이프라인 세션에는 Zone B/C 비활성 |
-| `scripts/guard-network.py` | PreToolUse(Bash) | **run-active 스코프(v0.22.1)**: 네트워크성 명령(curl/wget/`git push`\|`pull`\|`clone`\|`fetch` 등) 차단. `_workspace/.markers/run.json`(세션 일치)이 있을 때, 즉 실제 파이프라인 실행 중일 때만 개입 — 이 플러그인 소스를 직접 고치는 개발 세션 같은 일반 Bash 작업에는 마찰 없이 항상 허용 |
-| `scripts/guard-read.py` | PreToolUse(Read·WebFetch) | 시크릿(.env/pem)·vendor/build 산출물 read 차단 |
 | `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 마스킹(warn 모드) |
 
-**`_workspace/.markers/` 컨벤션(v0.22.0).** 훅 간 공유되는 물리 증거 저장소: `run.json`(세션별 하네스 활성 신호와 정규화된 `projectRoot` — `guard-network.py`도 v0.22.1부터 cwd 사본을 참조), `spawn-<subagent_type>.json`(대상 프로젝트의 단계 위임 증거), `pipeline-state.detected.json`(실제 탐지 요청·응답에 결합된 durable-resume 허용 목록). full-pipeline을 호출할 때마다 같은 Claude 세션이어도 이전 spawn/detect 증거는 자동 청소된다. 08 복원 권한은 호출 임계값 4종이 유효한 schema v2 config와 같을 때만 부여하며, config가 없으면 네 값 모두 1.0이어야 한다. 이 디렉터리는 훅 전용이라 Write/Edit로 수정할 수 없다. 인프라 오류 시 훅은 fail-open(세션 불파괴), 판정 로직은 fail-closed다. 계약 드리프트 재검용 프로브는 `scripts/dev/probe-hook-stdin.py`.
+**보안 훅 2종 제거(v0.29.0).** `guard-read.py`(Read·WebFetch)와 `guard-network.py`(Bash)는 삭제했다.
+근거: ① 보호 대상인 서브에이전트의 권한 경계는 이미 각 `agents/*.md`의 `tools:` 목록이 결정하고
+(에이전트 11종 중 `WebFetch`/`WebSearch` 보유 0개, `Bash` 보유는 `test-runner`·`test-fixer` 2종뿐),
+② guard-read는 세션 상태를 보지 않아 **하네스와 무관한 세션의 WebFetch·`build/`·`target/` Read까지
+차단**하면서 모든 Read 호출마다 node+python 기동 비용(실측 ~54ms)을 물렸으며,
+③ 실제로 중요한 "테스트 실행이 네트워크를 타지 않는 것"은 훅이 아니라 **build-test MCP 서버**가
+독립적으로 강제한다(`BUILD_TEST_ALLOW_NETWORK`, `.mcp.json` 기본값 `0` → gradle `--offline`/maven `-o`).
+위임 강제 계열 훅(`record-run-context.py`·`guard-gate-artifacts.py`)은 오케스트레이션 할루시네이션을
+막는 물리 장치이므로 그대로 유지한다.
 
-`settings.json`은 **권장 권한값 문서**다 — Claude Code는 플러그인 settings.json의 `permissions`/`env`를
-자동 적용하지 않으므로(공식 제약), 강제는 위 훅이 담당하고 사용자는 필요 시 자기 프로젝트
-`.claude/settings.json`에 복사해 쓴다.
+**`_workspace/.markers/` 컨벤션(v0.22.0).** 훅 간 공유되는 물리 증거 저장소: `run.json`(세션별 하네스 활성 신호와 정규화된 `projectRoot`), `spawn-<subagent_type>.json`(대상 프로젝트의 단계 위임 증거), `pipeline-state.detected.json`(실제 탐지 요청·응답에 결합된 durable-resume 허용 목록). full-pipeline을 호출할 때마다 같은 Claude 세션이어도 이전 spawn/detect 증거는 자동 청소된다. 08 복원 권한은 호출 임계값 4종이 유효한 schema v2 config와 같을 때만 부여하며, config가 없으면 네 값 모두 1.0이어야 한다. **v0.29.0부터 `detect_pipeline_state`가 stale로 판정한 증거(소스가 리포트보다 새로움)에는 복원 권한을 부여하지 않는다.** 이 디렉터리는 훅 전용이라 Write/Edit로 수정할 수 없다. 인프라 오류 시 훅은 fail-open(세션 불파괴), 판정 로직은 fail-closed다. 계약 드리프트 재검용 프로브는 `scripts/dev/probe-hook-stdin.py`.
+
+`settings.json`은 **권장 권한값 문서**다 — Claude Code는 플러그인 settings.json의 `permissions`를
+자동 적용하지 않으므로(공식 제약), 이 자세를 원하는 사용자가 자기 프로젝트 `.claude/settings.json`
+또는 `~/.claude/settings.json`에 복사해 쓴다. v0.29.0부터 플러그인은 이를 훅으로 대신 강제하지 않는다.
 
 `.lsp.json`은 Eclipse JDT LS(`jdtls`)를 등록한다(Java 21+ 런타임 필요, v0.16.0부터 **필수**). `command`는
 node 래퍼 `mcp/jdtls-launcher.cjs`를 거쳐 PATH → 프로비저닝 경로 순으로 `jdtls` 실행 파일을 찾는다.
@@ -290,7 +298,7 @@ MCP 서버 3종은 Python으로 돈다. **v0.12.0부터 의존성은 자동 설�
 uv(무-sudo; POSIX `install.sh` / Windows `install.ps1`)로 관리형 Python을 자동 설치한다
 (`HARNESS_AUTO_PYTHON=0`으로 비활성화). POSIX 전용 구진입점 `mcp/run-server.sh`는 수동
 폴백으로 유지된다. **훅 가드의 fail-open 계약**: Python이 끝내 해석되지 않으면 훅 스크립트
-(guard-network/guard-read/redact-secrets)는 무동작 통과한다 — 구버전 `python3` 직접 호출과
+(record-run-context/guard-gate-artifacts/redact-secrets)는 무동작 통과한다 — 구버전 `python3` 직접 호출과
 동일한 계약이며, 세션 시작 화면의 remediation 안내(exit 2)로 복구한다. 자동 설치가 실패한
 환경(오프라인 등)의 수동 폴백:
 
@@ -613,7 +621,10 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | `SPEC_DOC_REDACT_EMAIL` | `on` | EMAIL 마스킹만 개별 해제(`off`) — 스펙의 예시 이메일을 테스트 fixture로 그대로 써야 할 때 |
 | `SPEC_DOC_WORKSPACE` | `${CLAUDE_PROJECT_DIR}` | spec-doc 경로 봉쇄 루트 |
 | `BUILD_TEST_ALLOW_NETWORK` | `0` | 테스트 실행 네트워크(옵트인, CI 프라이밍용) |
-| `TEST_AUTOEVERMATION_HARNESS_NETWORK` | 미설정(off) | `on`이면 PreToolUse 훅(`guard-network.py`)의 Bash 네트워크 명령 차단을 해제 |
+
+> `TEST_AUTOEVERMATION_HARNESS_NETWORK`·`TEST_AUTOEVERMATION_HARNESS_TEST_SCOPE`는 v0.29.0에서
+> 제거됐다 — 유일한 소비자였던 `guard-network.py`/`guard-read.py` 삭제로 죽은 변수가 됐다.
+> 테스트 실행 네트워크 제어는 `BUILD_TEST_ALLOW_NETWORK` 하나로 일원화된다.
 
 ---
 
@@ -647,7 +658,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 
 | 항목 | 구현 |
 |---|---|
-| 네트워크 기본 차단 | `BUILD_TEST_ALLOW_NETWORK=0` + `guard-network.py` 훅. 유일한 예외는 사용자가 승인한 1회 캐시 프라이밍(`online=True`) |
+| 네트워크 기본 차단 | build-test MCP 서버가 `BUILD_TEST_ALLOW_NETWORK=0`(`.mcp.json` 기본값)을 읽어 gradle `--offline`/maven `-o`를 강제. 유일한 예외는 사용자가 승인한 1회 캐시 프라이밍(`online=True`) |
 | 경로 allowlist | repo-ast `REPO_AST_ALLOW_ROOT`, spec-doc `SPEC_DOC_ALLOWLIST`+`SPEC_DOC_WORKSPACE` — 프로젝트 밖·vendor/build/generated read 거부 |
 | 소스 노출 최소화 | repo-ast는 메서드 본문 미반환(구조 메타만), 에이전트 결과에 소스 원문 금지 |
 | 민감정보 | `redact-secrets.py` 훅 + spec-doc redaction (토큰·이메일·접속문자열) |
