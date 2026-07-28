@@ -9,7 +9,8 @@ Usage:
       --agent ast-structure-analyzer --model inherit \
       --tokens 63505 --duration-ms 444344
 
-근거: revfactory/harness references/skill-testing-guide.md §3-3, skill-writing-guide.md §7.
+근거: 외부 참고자료 revfactory/harness 저장소의 skill-testing-guide.md §3-3 및
+skill-writing-guide.md §7 (이 플러그인 내 경로가 아님).
 표준 라이브러리만 사용한다(추가 의존성 없음).
 """
 from __future__ import annotations

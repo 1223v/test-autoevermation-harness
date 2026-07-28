@@ -9,12 +9,12 @@ Design contract (see RESEARCH_NOTES.md sections 1-2):
 * High-level API: ``from mcp.server.fastmcp import FastMCP`` with ``@mcp.tool()``,
   ``@mcp.resource()`` and ``@mcp.prompt()`` decorators; stdio transport.
 * Java AST is produced by a bundled JavaParser symbol-solver CLI jar invoked via
-  ``subprocess`` returning JSON. Plugin deployments set
-  ``REPO_AST_REQUIRE_JAVAPARSER=1`` so the jar + JDK are REQUIRED and a missing
-  capability is a hard failure (fallback-policy.md #2). When the flag is unset
-  (standalone use) and the jar or a JDK is unavailable the server *degrades
-  gracefully* to a pure-Python regex extractor, sets ``degraded: true`` and
-  records what could not be resolved in ``unresolvedSymbols``.
+  ``subprocess`` returning JSON. It is the ONLY backend: a missing jar or JDK is
+  always a hard failure (``JAVAPARSER_REQUIRED``, fallback-policy.md #2).
+  v0.31.0 deleted the pure-Python regex extractor that used to serve standalone
+  use, so ``REPO_AST_REQUIRE_JAVAPARSER`` is now a no-op retained only for config
+  compatibility. A file JavaParser cannot parse is skipped, sets
+  ``degraded: true`` and is named in ``warnings`` — never approximated.
 * Output conforms to the ``AstAnalysisResult`` schema:
   ``status``/``summary``/``testTargets[]``/``dependencyGraph``/
   ``unresolvedSymbols[]``/``riskPoints[]``/``evidence``/``warnings``/``errors``/
@@ -25,9 +25,8 @@ Design contract (see RESEARCH_NOTES.md sections 1-2):
   allowlist rooted at ``REPO_AST_ALLOW_ROOT``; performs no network access.
 
 The module is import-safe: importing it (or running ``py_compile``) must not
-require the ``mcp`` package to be installed. Under standalone use the pure-Python
-fallback works without the Java jar so the server is usable immediately; plugin
-deployments instead require the jar via ``REPO_AST_REQUIRE_JAVAPARSER=1``.
+require the ``mcp`` package to be installed. Analysis, however, always requires
+the JavaParser jar + a JDK — build it with setup-harness E6.
 """
 
 from __future__ import annotations
@@ -323,31 +322,12 @@ def _run_java_cli(jar: str, target: Path) -> Optional[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Pure-Python fallback extractor (regex based, signatures/annotations only)
+# Java source-text helpers (annotation meta-index; shared by the JavaParser
+# normalizer). v0.31.0 deleted the regex extractor these once also served.
 # ---------------------------------------------------------------------------
 
-_PACKAGE_RE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.MULTILINE)
-_IMPORT_RE = re.compile(r"^\s*import\s+(static\s+)?([\w.*]+)\s*;", re.MULTILINE)
-_TYPE_DECL_RE = re.compile(
-    r"(?P<annos>(?:@[\w.]+(?:\([^)]*\))?\s*)*)"
-    r"(?:public|protected|private|abstract|final|sealed|non-sealed|static|strictfp|\s)*"
-    r"(?P<typekind>class|interface|enum|record)\s+"
-    r"(?P<name>[A-Za-z_]\w*)"
-)
 _ANNO_RE = re.compile(r"@([\w.]+)(?:\([^)]*\))?")
 # Method signature: optional annotations, modifiers, return type, name, params.
-_METHOD_RE = re.compile(
-    r"(?P<annos>(?:@[\w.]+(?:\([^)]*\))?\s*)*)"
-    r"(?P<mods>(?:public|protected|private|static|final|abstract|synchronized|"
-    r"native|default|\s)*)"
-    r"(?P<ret>[\w.<>,\[\]?\s]+?)\s+"
-    r"(?P<name>[A-Za-z_]\w*)\s*"
-    # Allow one level of nested parens so parameter annotations carrying
-    # arguments (e.g. @PathVariable("id"), @RequestParam(value="x")) do not
-    # truncate the parameter list and drop the whole method.
-    r"\((?P<params>(?:[^()]|\([^()]*\))*)\)"
-    r"(?:\s*throws\s+[\w.,\s]+)?\s*[{;]"
-)
 # Annotation type declaration: ``@interface Name`` plus the annotations that
 # precede it (its meta-annotations). Used to resolve custom stereotypes and
 # composed mapping annotations across files.
@@ -357,14 +337,6 @@ _ANNO_DECL_RE = re.compile(
     r"@interface\s+(?P<name>[A-Za-z_]\w*)"
 )
 # Field: modifiers, type, name (no method parens before ; ).
-_FIELD_RE = re.compile(
-    r"(?P<annos>(?:@[\w.]+(?:\([^)]*\))?\s*)*)"
-    r"(?P<mods>(?:public|protected|private|static|final|transient|volatile|\s)*)"
-    r"(?P<type>[\w.<>,\[\]?]+)\s+"
-    r"(?P<name>[A-Za-z_]\w*)\s*[=;]"
-)
-
-
 def _strip_comments_and_strings(source: str) -> str:
     """Remove comments and string/char literals so regexes don't trip on them.
 
@@ -497,199 +469,9 @@ def _classify_kind(
     return "pojo"
 
 
-def _normalize_params(params: str) -> str:
-    parts = [p.strip() for p in params.split(",") if p.strip()]
-    norm: list[str] = []
-    for part in parts:
-        # Drop parameter annotations, keep "type name" -> reduce to type.
-        cleaned = re.sub(r"@[\w.]+(?:\([^)]*\))?", "", part).strip()
-        tokens = cleaned.split()
-        if len(tokens) >= 2:
-            norm.append(" ".join(tokens[:-1]))  # type (may be multi-token generic)
-        elif tokens:
-            norm.append(tokens[0])
-    return ", ".join(norm)
-
-
 #: Tokens that can appear where ``_FIELD_RE`` expects a field *type* but are not
 #: real fields — control-flow keywords and (in the collapsed member skeleton)
 #: the leading keyword of a nested type declaration header.
-_NON_FIELD_TYPE_TOKENS = {
-    "return", "new", "throw", "class", "interface", "enum", "record",
-    "else", "do", "try", "finally", "case", "default", "yield", "assert",
-}
-
-
-def _matching_brace_end(text: str, open_idx: int) -> int:
-    """Index just past the ``}`` matching the ``{`` at ``open_idx``.
-
-    Falls back to end-of-string when the braces are unbalanced.
-    """
-    depth = 0
-    n = len(text)
-    i = open_idx
-    while i < n:
-        ch = text[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    return n
-
-
-def _type_body(text: str, header_end: int) -> str:
-    """Return the brace body of the type whose header ends at ``header_end``.
-
-    The result is the text strictly between the type's outermost ``{`` and its
-    matching ``}``. Returns ``""`` when no body brace follows (e.g. a forward or
-    abstract declaration).
-    """
-    open_idx = text.find("{", header_end)
-    if open_idx == -1:
-        return ""
-    end = _matching_brace_end(text, open_idx)
-    return text[open_idx + 1 : end - 1]
-
-
-def _member_skeleton(body: str) -> str:
-    """Collapse every nested ``{...}`` block in a class body to ``;``.
-
-    This removes method bodies AND nested type bodies, leaving only the
-    declarations that are *direct* members of the class (fields and method/ctor
-    signatures). Scanning this skeleton — rather than the whole file — keeps each
-    class's methods/fields scoped to that class and stops method-body local
-    variables from being mis-captured as fields. Each nested type is still visited
-    separately by the outer type-declaration loop, so its own members are scoped
-    to its own body.
-    """
-    out: list[str] = []
-    i = 0
-    n = len(body)
-    while i < n:
-        if body[i] == "{":
-            i = _matching_brace_end(body, i)
-            out.append(";")  # terminate the signature/member that owned the block
-        else:
-            out.append(body[i])
-            i += 1
-    return "".join(out)
-
-
-def _fallback_parse_file(
-    path: Path, custom_stereotypes: dict[str, str] | None = None
-) -> dict[str, Any]:
-    """Heuristic, regex-based extraction. Never emits method bodies."""
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        # Degrade this one file instead of aborting the whole analysis (the
-        # JavaParser-fail and pass-2 callers rely on per-file resilience).
-        return {
-            "file": str(path),
-            "package": "",
-            "imports": [],
-            "classes": [],
-            "unresolvedSymbols": [f"FILE_UNREADABLE:{path.name}:{exc}"],
-        }
-    cleaned = _strip_comments_and_strings(text)
-
-    pkg_match = _PACKAGE_RE.search(cleaned)
-    package = pkg_match.group(1) if pkg_match else ""
-    imports = [m.group(2) for m in _IMPORT_RE.finditer(cleaned)]
-
-    classes: list[dict[str, Any]] = []
-    unresolved: list[str] = []
-
-    for tdecl in _TYPE_DECL_RE.finditer(cleaned):
-        name = tdecl.group("name")
-        type_kind = tdecl.group("typekind")
-        annos = _annotations_from(tdecl.group("annos"))
-        fqcn = f"{package}.{name}" if package else name
-
-        # Capture the extends/implements clause for repository detection.
-        tail = cleaned[tdecl.end() : tdecl.end() + 400]
-        impl_match = re.match(r"[^{;]*", tail)
-        implements_blob = impl_match.group(0) if impl_match else ""
-
-        kind = _classify_kind(annos, implements_blob, custom_stereotypes)
-
-        # Scope members to THIS type's own body (method bodies and nested type
-        # bodies collapsed) so multi-class files don't merge members and locals
-        # are not captured as fields.
-        body_skeleton = _member_skeleton(_type_body(cleaned, tdecl.end()))
-
-        methods: list[dict[str, Any]] = []
-        for mm in _METHOD_RE.finditer(body_skeleton):
-            mods = mm.group("mods") or ""
-            if "public" not in mods:
-                continue
-            ret = " ".join(mm.group("ret").split())
-            mname = mm.group("name")
-            if mname in {"if", "for", "while", "switch", "catch", "return", "new"}:
-                continue
-            params = _normalize_params(mm.group("params"))
-            signature = f"{ret} {mname}({params})".strip()
-            methods.append(
-                {
-                    "name": mname,
-                    "signature": signature,
-                    "returnType": ret,
-                    "annotations": _annotations_from(mm.group("annos")),
-                    "modifiers": [t for t in mods.split() if t],
-                    # Regex mode cannot see call expressions; plugin deployments
-                    # always use the JavaParser CLI (which populates these).
-                    "invokedMethods": [],
-                    "invokedCalls": [],
-                }
-            )
-
-        fields: list[dict[str, Any]] = []
-        for fm in _FIELD_RE.finditer(body_skeleton):
-            ftype = fm.group("type")
-            fname = fm.group("name")
-            if ftype in _NON_FIELD_TYPE_TOKENS:
-                continue
-            fields.append(
-                {
-                    "name": fname,
-                    "type": ftype,
-                    "annotations": _annotations_from(fm.group("annos")),
-                    "modifiers": [t for t in (fm.group("mods") or "").split() if t],
-                }
-            )
-
-        classes.append(
-            {
-                "fqcn": fqcn,
-                "simpleName": name,
-                "typeKind": type_kind,
-                "package": package,
-                "annotations": annos,
-                "kind": kind,
-                "methods": methods,
-                "fields": fields,
-                "extendsImplements": implements_blob.strip(),
-            }
-        )
-
-    # Regex extraction cannot resolve symbol bindings; flag imports as the
-    # universe of unresolved-but-referenced types so callers know precision is
-    # reduced in this mode.
-    if not classes:
-        unresolved.append(f"NO_TYPE_DECL:{path.name}")
-
-    return {
-        "file": str(path),
-        "package": package,
-        "imports": imports,
-        "classes": classes,
-        "unresolvedSymbols": unresolved,
-    }
-
-
 # ---------------------------------------------------------------------------
 # Result assembly (AstAnalysisResult)
 # ---------------------------------------------------------------------------
@@ -914,15 +696,17 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None) -> dict[str, A
     jar = _locate_jar()
     use_java = bool(jar) and _jdk_available()
     parsed: list[dict[str, Any]] = []
-    degraded = not use_java
+    degraded = False
 
-    # Strict mode (fallback-policy.md #2): JavaParser jar/JDK required. Hard-fail
-    # with remediation instead of degrading to the regex extractor.
-    if not use_java and _require_javaparser():
+    # JavaParser is the only backend (fallback-policy.md #2). v0.31.0 deleted the
+    # regex extractor, so a missing jar/JDK is always a hard failure — previously
+    # this depended on REPO_AST_REQUIRE_JAVAPARSER, which .mcp.json pinned to "1"
+    # anyway. The env var is now a no-op kept for config compatibility.
+    if not use_java:
         return _failed_result(
             "JAVAPARSER_REQUIRED",
-            "JavaParser jar/JDK is required (REPO_AST_REQUIRE_JAVAPARSER=1) but "
-            f"unavailable (jar={'found' if jar else 'missing'}, "
+            "JavaParser jar/JDK is required but unavailable "
+            f"(jar={'found' if jar else 'missing'}, "
             f"jdk={'ok' if _jdk_available() else 'missing'}).",
             [
                 "Run /test-autoevermation-harness-plugin:setup-harness (E6: \"${CLAUDE_PLUGIN_ROOT}\"/mcp/javaparser-cli 빌드 후 "
@@ -952,44 +736,39 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None) -> dict[str, A
         decls.update(_scan_annotation_decls(cleaned))
     custom_stereotypes, composed_mappings = _build_meta_index(decls)
 
-    # Pass 2: parse + classify with the resolved meta index. Track per-file
-    # backend so a single fallback doesn't mislabel the whole run (L6): a run
-    # with some JavaParser files and some regex files is reported as "mixed".
+    # Pass 2: parse + classify with the resolved meta index. A file JavaParser
+    # cannot read is skipped and flagged, not silently approximated: v0.31.0
+    # removed the per-file regex fallback, and dropping to a heuristic parse would
+    # emit an incomplete symbol set that reads as authoritative. Skipping one file
+    # is preferable to failing the whole run over a single unparseable source.
     java_parsed = 0
-    regex_parsed = 0
-    if use_java and jar is not None:
-        for f in files:
-            data = _run_java_cli(jar, f)
-            if data is None:
-                # Fall back per-file so one bad file doesn't abort everything.
-                degraded = True
-                regex_parsed += 1
-                parsed.append(_fallback_parse_file(f, custom_stereotypes))
-            else:
-                java_parsed += 1
-                parsed.append(
-                    _normalize_java_cli_output(data, f, custom_stereotypes)
-                )
-    else:
-        for f in files:
-            regex_parsed += 1
-            parsed.append(_fallback_parse_file(f, custom_stereotypes))
+    unparsed: list[str] = []
+    for f in files:
+        data = _run_java_cli(jar, f)
+        if data is None:
+            degraded = True
+            unparsed.append(str(f))
+            continue
+        java_parsed += 1
+        parsed.append(_normalize_java_cli_output(data, f, custom_stereotypes))
 
-    if java_parsed and regex_parsed:
-        parse_mode = "mixed"
-    elif java_parsed:
-        parse_mode = "javaparser"
-    else:
-        parse_mode = "regex-fallback"
-    return _build_result(
+    result = _build_result(
         parsed,
         degraded=degraded,
         denied=denied,
         kinds_filter=kinds,
-        parse_mode=parse_mode,
+        parse_mode="javaparser" if java_parsed else "none",
         custom_stereotypes=custom_stereotypes,
         composed_mappings=composed_mappings,
     )
+    if unparsed:
+        # degraded:true is a hard-stop signal for consumers (fallback-policy #2),
+        # so name the offending files instead of leaving the flag unexplained.
+        result["warnings"].append(
+            "JavaParser could not parse %d file(s); they are absent from this "
+            "result: %s" % (len(unparsed), ", ".join(sorted(unparsed)[:10]))
+        )
+    return result
 
 
 def _normalize_java_cli_output(
@@ -1006,7 +785,7 @@ def _normalize_java_cli_output(
     for cls in classes:
         # Normalize annotations to bare simple names (e.g. "@RestController" ->
         # "RestController") so they match SPRING_STEREOTYPES keys, matching the
-        # regex-fallback shape produced by _annotations_from.
+        # shape produced by _annotations_from.
         annos = [_short(str(a).lstrip("@")) for a in cls.get("annotations", [])]
         cls["annotations"] = annos
         name = cls.get("name", "")
@@ -1134,7 +913,7 @@ def build_server() -> Any:
         Emits class/method signatures, fields and annotations (never method
         bodies or call arguments). Each testTarget additionally carries
         ``methodCalls`` — a map of method name to the simple names of methods
-        invoked inside it (empty lists in regex-fallback mode) — used to verify
+        invoked inside it — used to verify
         that a generated test's ``// when`` actually calls the scenario's
         ``target`` method, and ``methodCallDetails`` — the receiver-aware form
         ({"name", "scope"}) where scope is the bare receiver identifier or ""

@@ -204,13 +204,12 @@ rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 `_workspace/.markers/`에 남긴다(`run.json` / `spawn-<agent>.json` /
 `pipeline-state.detected.json`). 이 증거는 단계 위임·순서·durable resume 판정의 근거다.
 
-> **이 플러그인은 쓰기(`Write`/`Edit`)를 차단하지 않는다 (v0.30.0).** 이를 가로채던
-> PreToolUse 훅(`guard-gate-artifacts.py`)은 `hooks.json`에서 **등록 해제**했다 — 파이프라인을
-> 쓰지 않는 일반 개발 세션에서 편집이 막히는 것을 없애기 위해서다. 스크립트 자체는 존치하며
-> zone 판정 로직은 여전히 단위 테스트 대상이지만, 도구 경로에 연결되지 않으므로 실행되지 않는다.
-> 남아 있는 `Write|Edit` 훅은 PostToolUse `redact-secrets.py`(warn 모드) 하나뿐이고, 이는 쓰기가
-> **끝난 뒤** 도는 경고라 아무것도 막지 못한다. 단계 계약은 이제 SKILL.md 지시와
-> `_workspace/.markers/` 증거로만 유지된다.
+> **이 플러그인은 쓰기(`Write`/`Edit`)를 차단하지 않는다.** 이를 가로채던 PreToolUse 가드 훅은
+> v0.30.0에서 등록 해제하고 **v0.31.0에서 스크립트째 삭제**했다 — 파이프라인을 쓰지 않는 일반
+> 개발 세션에서 편집이 막히는 것을 없애기 위해서다. 남아 있는 `Write|Edit` 훅은 PostToolUse
+> `redact-secrets.py`(warn 모드) 하나뿐이고, 이는 쓰기가 **끝난 뒤** 도는 경고라 아무것도 막지
+> 못한다. 단계 계약은 이제 SKILL.md 지시와 `_workspace/.markers/` 증거로만 유지되며, 이를
+> 강제하는 기계 장치는 없다.
 
 상세: [docs/GUIDE.md](./docs/GUIDE.md) §2.5.
 **"하네스 때문에 뭐가 막히나?"의 전수 답변**: [docs/tool-restrictions.md](./docs/tool-restrictions.md) —
@@ -287,7 +286,7 @@ v0.16.0부터 **필수**다 — 미설치 시 `scripts/setup_jdtls.py`가 자동
 python3 -m pip install -r mcp/requirements.txt        # mcp[cli]>=1.2.0
 
 # 2) JavaParser AST 백엔드 빌드 (필수, v0.16.0+)  ── setup-harness·E6이 자동 수행
-#    .mcp.json 기본값이 REPO_AST_REQUIRE_JAVAPARSER=1 — jar가 없으면 정규식 fallback 없이 하드실패한다.
+#    jar가 없으면 대체 경로 없이 하드실패한다(v0.31.0에서 정규식 fallback 삭제).
 #    시스템 Maven 불요 — mvnw(Maven Wrapper)가 mcp/javaparser-cli에 동봉되어 있다.
 cd mcp/javaparser-cli && ./mvnw -q -DskipTests package    # JDK 21+ (리포 체크아웃 기준)
 export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"   # 다른 위치를 쓸 때만 필요

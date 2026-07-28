@@ -261,7 +261,11 @@ def _valid_pipeline_result(result, workspace):
         conformance = None
 
     if not isinstance(conformance, dict):
-        return status in {"partial", "failed"} and verify_status in {"skipped", "blocked"}
+        # The one legitimate "no 09 artifact yet" case — an early partial/failed run
+        # whose verifyScenarios is explicitly skipped/blocked — already returned True
+        # above, so reaching here means the result claims a conformance verdict it
+        # cannot back with an artifact. Matches guard-gate's #21 contract.
+        return False
     if verify_status not in {"ok", "partial", "failed"}:
         return False
     names = ("approved", "satisfied", "unsatisfied", "missing")

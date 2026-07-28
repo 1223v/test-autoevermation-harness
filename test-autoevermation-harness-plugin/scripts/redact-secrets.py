@@ -131,8 +131,6 @@ def _process_strip_file(path: str) -> int:
         return 0
 
     redacted = _redact_text(original)
-    count = original.count(REDACTED)  # rough: count new markers
-    # More accurate: count differences
     if redacted == original:
         return 0
 

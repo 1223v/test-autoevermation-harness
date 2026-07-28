@@ -145,9 +145,25 @@ class RemovedSecurityHooksTest(unittest.TestCase):
         commands = json.dumps(hooks)
         self.assertIn("record-run-context.py", commands)
         self.assertIn("redact-secrets.py", commands)
-        for name in ("record-run-context.py", "guard-gate-artifacts.py",
-                     "redact-secrets.py"):
+        for name in ("record-run-context.py", "redact-secrets.py"):
             self.assertTrue((PLUGIN_ROOT / "scripts" / name).exists(), name)
+
+    def test_unregistered_write_guard_script_is_deleted(self) -> None:
+        """v0.31.0: an unwired hook script must not linger as runtime-dead code.
+
+        v0.30.0 unregistered guard-gate-artifacts.py but kept the file, which left
+        614 lines that nothing could execute plus prose across 5 files still
+        promising the enforcement it no longer performed.
+        """
+        self.assertFalse((PLUGIN_ROOT / "scripts" / "guard-gate-artifacts.py").exists())
+        for rel in ("skills/full-pipeline/SKILL.md", "skills/measure-coverage/SKILL.md",
+                    "references/fallback-policy.md", "scripts/record-run-context.py"):
+            with self.subTest(path=rel):
+                self.assertNotIn(
+                    "guard-gate-artifacts",
+                    (PLUGIN_ROOT / rel).read_text(encoding="utf-8"),
+                    f"{rel} still claims a hook that no longer exists",
+                )
 
     def test_settings_json_declares_no_deny_rules(self) -> None:
         """v0.30.0: the recommendation template must not advertise tool blocking.

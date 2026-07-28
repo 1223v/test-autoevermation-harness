@@ -21,6 +21,7 @@ that is replaced on every update and garbage-collected after 14 days —
 from __future__ import annotations
 
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,6 +40,9 @@ def _load_module(name: str, path: Path):
 
 
 repo_ast = _load_module("up_repo_ast_server", PLUGIN_ROOT / "mcp" / "repo_ast_server.py")
+
+JAR = PLUGIN_ROOT / "mcp" / "javaparser-cli" / "target" / "astcli-1.0.0-shaded.jar"
+EXAMPLES_JAVA = PLUGIN_ROOT / "examples" / "java"
 persist = _load_module("up_persist_astcli_jar", PLUGIN_ROOT / "scripts" / "persist_astcli_jar.py")
 bootstrap = _load_module("up_bootstrap", PLUGIN_ROOT / "mcp" / "bootstrap.py")
 
@@ -94,6 +98,56 @@ class JarResolutionTests(unittest.TestCase):
             self.assertEqual(
                 "astcli-1.0.0-shaded.jar", Path(repo_ast._match_jar(d)).name
             )
+
+
+class RegexFallbackRemovalTests(unittest.TestCase):
+    """v0.31.0: JavaParser is the only backend — no silent regex approximation.
+
+    The regex extractor was unreachable in plugin deployments (.mcp.json pins
+    REPO_AST_REQUIRE_JAVAPARSER=1) yet carried ~200 lines and implied repo-ast
+    could degrade to heuristics. These tests pin the two behaviours that replaced
+    it, because both are easy to regress back into a silent fallback.
+    """
+
+    def test_regex_extractor_symbols_are_gone(self) -> None:
+        for name in ("_fallback_parse_file", "_member_skeleton", "_type_body",
+                     "_matching_brace_end", "_normalize_params", "_PACKAGE_RE",
+                     "_METHOD_RE", "_FIELD_RE"):
+            with self.subTest(symbol=name):
+                self.assertFalse(hasattr(repo_ast, name), f"{name} came back")
+
+    def test_missing_jar_hard_fails_even_without_the_require_env_var(self) -> None:
+        """The env var is a no-op now; absence must never re-enable a fallback."""
+        env = {"REPO_AST_ALLOW_ROOT": str(PLUGIN_ROOT)}
+        with mock.patch.dict(os.environ, env, clear=False):
+            os.environ.pop("REPO_AST_REQUIRE_JAVAPARSER", None)
+            with mock.patch.object(repo_ast, "_locate_jar", lambda: None):
+                result = repo_ast._analyze([str(EXAMPLES_JAVA)])
+        self.assertEqual("failed", result["status"])
+        self.assertEqual("JAVAPARSER_REQUIRED", result["errors"][0]["code"])
+
+    def test_unparseable_file_is_skipped_and_named_not_approximated(self) -> None:
+        """One bad file must not abort the run, nor be silently approximated."""
+        if not JAR.exists():
+            self.skipTest("astcli jar not built")
+        real = repo_ast._run_java_cli
+        seen = {"n": 0}
+
+        def only_first_fails(jar, path):
+            seen["n"] += 1
+            return None if seen["n"] == 1 else real(jar, path)
+
+        env = {"REPO_AST_ALLOW_ROOT": str(PLUGIN_ROOT)}
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(repo_ast, "_run_java_cli", only_first_fails):
+                result = repo_ast._analyze([str(EXAMPLES_JAVA)])
+
+        self.assertTrue(result["degraded"], "skipped file must raise the stop signal")
+        self.assertTrue(result["testTargets"], "other files must still be parsed")
+        self.assertTrue(
+            any("could not parse" in w for w in result["warnings"]),
+            f"the skipped file must be named, got {result['warnings']}",
+        )
 
 
 class FingerprintTwinTests(unittest.TestCase):

@@ -136,7 +136,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 
 | 서버 | 도구 | 설명 |
 |---|---|---|
-| `repo-ast` | `parse_java_file` · `resolve_symbol` · `list_spring_components` · `extract_test_targets` · `health` | 구조 전용 Java AST/심볼 분석. **메서드 본문은 절대 반환하지 않음**(시그니처·애노테이션·메타만). JavaParser jar(`mcp/javaparser-cli`, v0.16.0부터 **필수**) — 미가용 시 정규식 fallback 없이 하드실패(`JAVAPARSER_REQUIRED`). `health`가 jar/JDK 상태를 반환. 커스텀 스테레오타입(`@Component` 메타 애노테이션)을 전이적으로 해석 |
+| `repo-ast` | `parse_java_file` · `resolve_symbol` · `list_spring_components` · `extract_test_targets` · `health` | 구조 전용 Java AST/심볼 분석. **메서드 본문은 절대 반환하지 않음**(시그니처·애노테이션·메타만). JavaParser jar(`mcp/javaparser-cli`, v0.16.0부터 **필수**, 유일한 백엔드) — 미가용 시 하드실패(`JAVAPARSER_REQUIRED`). 일부 파일만 파싱 실패하면 그 파일을 제외하고 `degraded:true`+`warnings`에 파일명 명시. `health`가 jar/JDK 상태를 반환. 커스텀 스테레오타입(`@Component` 메타 애노테이션)을 전이적으로 해석 |
 | `spec-doc` | `index_docs` · `search_requirements` · `extract_acceptance_criteria` · `health` | 스펙 문서 청크 인덱싱·요구사항 검색·Given/When/Then criteria 추출. 경로 allowlist(`SPEC_DOC_ALLOWLIST`) + 민감정보 redaction |
 | `build-test` | `detect_build_tool` · `detect_spring_profile` · `detect_build_capabilities` · `check_dependency_cache` · `list_test_tasks` · `run_targeted_tests` · `parse_junit_xml` · `parse_jacoco_report` · `coverage_gate` · `detect_pipeline_state` · `health` | Gradle/Maven 감지, Boot 프로파일 감지, 필수 JaCoCo XML 능력 감지, 캐시 신호, 대상 한정 테스트 실행, 리포트 파싱, 커버리지 게이트, 영속 증거 기반 상태 복원 |
 
@@ -154,15 +154,23 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `scripts/record-run-context.py` | PreToolUse(Skill·Task·Agent) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 cwd와 대상 `projectRoot`의 `_workspace/.markers/run.json`(하네스 활성·라우팅) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 대상 프로젝트에 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state`의 실제 요청 root·커버리지 임계값과 응답을 결합해 durable-resume allowlist를 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
 | `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 마스킹(warn 모드) |
 
-**쓰기 차단 훅 등록 해제(v0.30.0).** `scripts/guard-gate-artifacts.py`는 PreToolUse(Write·Edit)로
-등록돼 spawn 마커·테스트 파일 소유권·순서 게이트·8단계 커버리지 불변식 위반을 `deny`했다.
-v0.30.0에서 `hooks.json`의 해당 엔트리를 제거해 **이 플러그인은 쓰기(Write·Edit)를 차단하지 않는다.**
+**쓰기 차단 훅 제거(v0.30.0 등록 해제 → v0.31.0 삭제).** `scripts/guard-gate-artifacts.py`(614줄)는
+PreToolUse(Write·Edit)로 등록돼 spawn 마커·테스트 파일 소유권·순서 게이트·8단계 커버리지 불변식
+위반을 `deny`했다. v0.30.0에서 `hooks.json` 엔트리를 제거해 **이 플러그인은 쓰기를 차단하지 않게**
+됐고, v0.31.0에서 실행되지 않는 스크립트와 전용 테스트 22개를 삭제했다.
+
 근거: 하네스를 쓰지 않는 일반 개발 세션에서도 `_workspace`·`src/test/java` 경로 편집이 막혔고,
-사용자가 의도적으로 인라인 수정하려는 정당한 경우까지 봉쇄됐다. 스크립트 파일은 존치하고
-zone 판정 로직도 `tests/test_pipeline_v2.py`가 계속 검증하지만, 도구 경로에 연결되지 않으므로
-실행되지 않는다. 현재 PreToolUse는 `Skill|Task|Agent`(증거 기록) 하나뿐이고, `Write|Edit`에 남은
-훅은 PostToolUse `redact-secrets.py`(warn) — 쓰기가 끝난 뒤 도는 경고라 차단력이 없다.
-회귀 방지: `tests/test_env_and_staleness.py::test_no_pretooluse_hook_can_block_a_write`.
+사용자가 의도적으로 인라인 수정하려는 정당한 경우까지 봉쇄됐다.
+
+**인지된 손실**: `fallback-policy.md #21`(커버리지 게이트 무효 조건)과 단계 순서 계약이 이제
+어디서도 기계 검증되지 않는다. 이 보장은 v0.30.0 등록 해제 시점에 이미 사라졌으므로 v0.31.0
+삭제가 새로 없앤 것은 아니지만, 그만큼 `full-pipeline`·`measure-coverage` SKILL.md의 자기 규율이
+유일한 방어선이다 — 해당 문구도 "훅이 차단한다"에서 "스스로 지켜라"로 함께 고쳤다.
+
+현재 PreToolUse는 `Skill|Task|Agent`(증거 기록) 하나뿐이고, `Write|Edit`에 남은 훅은 PostToolUse
+`redact-secrets.py`(warn) — 쓰기가 끝난 뒤 도는 경고라 차단력이 없다.
+회귀 방지: `test_no_pretooluse_hook_can_block_a_write`, `test_unregistered_write_guard_script_is_deleted`
+(스크립트 부재 + 4개 파일의 거짓 문구 재발 차단).
 
 > 도구 제약 가능 경로(훅·에이전트 frontmatter·MCP 환경변수·`settings.json`)의 **전수 감사**는
 > [tool-restrictions.md](./tool-restrictions.md)에 등급별로 정리했다. "하네스 때문에 뭐가 막히나?"는
@@ -206,7 +214,8 @@ AST-only degrade는 더 이상 허용되지 않는다.
 - 각 단계 산출물(JSON)은 메인 컨텍스트로 옮기지 않고 `_workspace/{단계}_{산출물}.json`에 저장하고
   **경로만** 다음 단계에 전달한다(컨텍스트 토큰 절감 + 감사 추적 + 부분 재실행의 기반).
 - 각 서브에이전트의 `total_tokens`/`duration_ms`는 완료 시점에 `_workspace/timing.json`에 즉시 누적한다
-  (병목 단계 식별용, 헬퍼: `scripts/record-timing.py`).
+  (병목 단계 식별용). 누적 명령:
+  `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/record-timing.py" --workspace <ws> --stage <id> --agent <type> --model <model> --tokens <n> --duration-ms <n>`
 
 ### 3.2 단계 흐름 (setup-harness → E-verify → 0 → … → 9)
 
@@ -313,7 +322,7 @@ MCP 서버 3종은 Python으로 돈다. **v0.12.0부터 의존성은 자동 설�
 uv(무-sudo; POSIX `install.sh` / Windows `install.ps1`)로 관리형 Python을 자동 설치한다
 (`HARNESS_AUTO_PYTHON=0`으로 비활성화). POSIX 전용 구진입점 `mcp/run-server.sh`는 수동
 폴백으로 유지된다. **훅 가드의 fail-open 계약**: Python이 끝내 해석되지 않으면 훅 스크립트
-(record-run-context/guard-gate-artifacts/redact-secrets)는 무동작 통과한다 — 구버전 `python3` 직접 호출과
+(record-run-context/redact-secrets)는 무동작 통과한다 — 구버전 `python3` 직접 호출과
 동일한 계약이며, 세션 시작 화면의 remediation 안내(exit 2)로 복구한다. 자동 설치가 실패한
 환경(오프라인 등)의 수동 폴백:
 
@@ -333,7 +342,7 @@ jdtls 사전 설치로 대체한다.
 
 정밀 AST를 위해 jar 빌드가 **필수**다(JDK 21+). 시스템 Maven은 불요 — Maven Wrapper(`mvnw`)가
 `mcp/javaparser-cli`에 동봉되어 있다. `.mcp.json` 기본값이 `REPO_AST_REQUIRE_JAVAPARSER=1`이라
-jar가 없으면 정규식 fallback 없이 하드실패(`JAVAPARSER_REQUIRED`)한다. `setup-harness`의 E6이 자동 빌드하므로
+jar가 없으면 대체 경로 없이 하드실패(`JAVAPARSER_REQUIRED`)한다. `setup-harness`의 E6이 자동 빌드하므로
 보통 손으로 할 필요는 없다.
 
 ```bash
@@ -629,7 +638,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 |---|---|---|
 | `REPO_AST_ALLOW_ROOT` | `${CLAUDE_PROJECT_DIR}` | repo-ast 경로 allowlist 루트(밖은 거부) |
 | `REPO_AST_JAVAPARSER_JAR` | 자동 탐색 | JavaParser CLI jar 경로 지정 |
-| `REPO_AST_REQUIRE_JAVAPARSER` | **`1`**(`.mcp.json` 기본값, v0.16.0+) | jar 없으면 정규식 fallback 없이 하드실패(`JAVAPARSER_REQUIRED`) |
+| `REPO_AST_REQUIRE_JAVAPARSER` | **`1`**(`.mcp.json` 기본값) | **v0.31.0부터 no-op** — 정규식 fallback을 삭제해 값과 무관하게 jar 부재는 항상 `JAVAPARSER_REQUIRED` 하드실패. 설정 호환성을 위해서만 남겨둠 |
 | `REPO_AST_JAVA_BIN` | `java` (PATH) | JavaParser CLI 실행에 쓸 `java` 바이너리 경로 지정 |
 | `SPEC_DOC_ALLOWLIST` | `docs,specs,requirements` | spec-doc이 읽을 수 있는 하위 디렉터리 |
 | `SPEC_DOC_REDACT` | `on` | 민감정보 마스킹 |

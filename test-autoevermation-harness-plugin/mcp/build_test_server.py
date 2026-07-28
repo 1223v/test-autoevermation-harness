@@ -1106,7 +1106,7 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
     re-detected). `highestCompletedStage` records what did happen and is not clamped.
 
     Every probe is fail-safe: any error yields a null/empty field (detection must never
-    break the pipeline — same posture as guard-gate-artifacts fail-open). Returns
+    break the pipeline). Returns
     `highestCompletedStage` + `recommendedEntryStage` so CI has a deterministic default;
     interactive mode may still ask the user which stage to resume from. The coverage
     thresholds default to 1.0 so a root-only durable scan cannot skip stage 8 when the

@@ -9,6 +9,82 @@
 
 ---
 
+## [0.31.0] - 2026-07-29
+
+실행되지 않는 코드를 지우고, **코드가 사라진 만큼 문서의 거짓 주장도 함께 없앴다.** v0.30.0이 훅 등록을
+해제하면서 남긴 정합성 부채를 정리한 릴리스다. 판정 규칙·커버리지 임계값·에이전트 계약은 변경하지 않았다.
+
+### Removed — `scripts/guard-gate-artifacts.py` (614줄) + 전용 테스트 22개
+
+v0.30.0에서 `hooks.json` 등록만 뺀 탓에 **실행 경로가 없는 614줄**이 남아 있었다. 더 심각한 건
+5곳의 문구가 여전히 "이 훅이 deny한다"고 주장한 것이다 — 그중 `record-run-context.py`의
+`_STAGE_CONTRACT_REMINDER`는 **매 파이프라인 세션에 실제로 주입되는 프롬프트**라, 오케스트레이터가
+존재하지 않는 안전망을 믿고 동작하게 만들었다.
+
+- 삭제: 스크립트 + `tests/test_pipeline_v2.py`의 `ArtifactSequenceTests`(17개),
+  `TestEditorContractTests`의 guard 의존 3개 + 헬퍼. `test_statusline_uses_new_tail_order`는
+  guard와 무관하므로 `StatuslineOrderTests`로 옮겨 보존했다.
+- 문구 정정: `full-pipeline/SKILL.md`(3곳)·`measure-coverage/SKILL.md`·`fallback-policy.md #21`·
+  `record-run-context.py`(docstring·리마인더·주석) — 전부 "훅이 차단한다" → "스스로 지켜라"로.
+- 신설 `test_unregistered_write_guard_script_is_deleted`: 스크립트 부재 + 4개 파일의 거짓 문구
+  재발을 함께 막는다.
+
+> **인지된 손실**: `fallback-policy.md #21`(커버리지 게이트 무효 조건)과 단계 순서 계약이 이제
+> 어디서도 기계 검증되지 않는다. 이 보장은 v0.30.0 등록 해제 시점에 이미 사라졌으므로 이번
+> 삭제가 새로 없앤 것은 아니지만, SKILL.md의 자기 규율이 유일한 방어선이 됐다.
+
+### Removed — repo-ast 정규식 fallback 추출기 (204줄)
+
+`.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1`을 고정하므로 배포 경로에서 **절대 도달하지 않는**
+코드였고(테스트 0개), "repo-ast는 정규식으로 degrade할 수 있다"는 오해를 문서 6곳에 퍼뜨리고 있었다.
+
+착수 시 추정은 ~370줄이었으나, 의존성 폐포를 계산해보니 `_strip_comments_and_strings`·`_short`·
+`_annotations_from`·`_scan_annotation_decls`·`_build_meta_index`·`_classify_kind` 6개가
+**JavaParser 라이브 경로와 공유**돼 있었다. 통째로 지웠다면 정상 파싱이 깨졌을 것이다. 실제 삭제는
+fallback 전용 11개 심볼 = 204줄(1246 → 1028줄).
+
+동작 변경 2건:
+
+1. **파일 단위 복구 대체**: JavaParser가 특정 파일을 못 읽으면 예전엔 그 파일만 정규식으로 처리했다.
+   이제는 **건너뛰고** `degraded:true` + `warnings`에 파일명을 명시한다. 전체 실행을 죽이지는 않는다
+   (파일 하나로 전 실행을 실패시키는 건 퇴행) — 부정확한 근사치를 권위 있는 결과처럼 내보내지 않는 게 핵심.
+2. **`REPO_AST_REQUIRE_JAVAPARSER`는 no-op**: 값과 무관하게 jar/JDK 부재는 항상
+   `JAVAPARSER_REQUIRED` 하드 실패. 제거하면 `.mcp.json`·테스트·문서가 연쇄로 깨져 설정 호환성용으로 남겼다.
+
+신설 `RegexFallbackRemovalTests` 3종이 위 두 동작과 심볼 부재를 고정한다.
+
+**부수 수정**: `mcp/javaparser-cli/README.md`는 "`.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER`를
+설정하지 않으므로 정규식으로 degrade한다"고 적혀 있었다 — v0.16.0 이후 **줄곧 사실과 정반대**인
+문서였다. 함께 재작성했다.
+
+### Fixed — 검증된 죽은 줄 2곳
+
+- `scripts/redact-secrets.py`: 계산 후 한 번도 읽히지 않는 `count` 대입과 그 오해성 주석 제거.
+- `scripts/test-autoevermation-statusline.py`: 앞선 분기가 같은 조건을 선점해 **항상 `False`**인
+  표현식을 `return False`로 단순화하고 이유를 주석으로 남겼다. (조사 초기에 "라이브 버그"로 보고됐으나,
+  검증 결과 반환값 자체는 `guard-gate`의 #21 계약과 일치하는 올바른 값이었다 — 버그가 아닌 중복 표현.)
+
+### Fixed — `record-timing.py` 배선 누락
+
+`timing.json`은 `orchestration-detail.md §5`가 규정한 실제 산출물인데, `full-pipeline/SKILL.md`가
+"헬퍼: `scripts/record-timing.py`"라고만 적어 **호출법을 알려주지 않아** 사실상 쓰이지 못했다.
+다른 모든 스크립트가 쓰는 `launch.cjs script` 정본 형식으로 실행 명령을 명시했다(`docs/GUIDE.md`,
+`DEPENDENCIES.md` 동일 보강). 실행 검증 완료 — 2개 단계 누적 후 `totals`/`slowest` 산출 확인.
+
+### 유지 결정 (삭제 검토했으나 존치)
+
+- **MCP resources 6개 + prompts 3개**: 에이전트·스킬이 참조하지 않아 죽은 코드로 보였으나, 공식문서
+  확인 결과 resources는 `@` 멘션 자동완성에, prompts는 `/mcp__server__name` 슬래시 명령으로
+  **사용자에게 노출되는 기능**이다. 컨텍스트 토큰도 소비하지 않는다.
+- **`scripts/dev/probe-hook-stdin.py`**: 훅 stdin 계약 드리프트 재검용 디버그 도구.
+- **`mcp/run-server.sh`**: 문서화된 POSIX 수동 fallback.
+
+### 테스트
+
+134 → **119개** (guard 전용 22개 삭제, 신설 7개). 전부 통과.
+
+---
+
 ## [0.30.0] - 2026-07-28
 
 **이 플러그인은 더 이상 쓰기를 차단하지 않는다.** v0.22.0에서 도입한 "위임 물리 강제"의 마지막 남은

@@ -12,7 +12,7 @@
 | MCP | 공식 MCP 프로토콜(stdio) — `repo-ast`/`spec-doc`/`build-test` 서버 | 공식 표준 |
 | 훅 | `PreToolUse`/`PostToolUse` (네트워크 가드, 시크릿 redaction) | 네이티브 |
 | Python | 3.10+, `mcp[cli]` (MCP 서버 런타임) | 표준 |
-| Java(필수) | JDK 21+ (JavaParser jar 빌드 17+ ⊂ JDT LS 구동 21+ — 단일 기준). `mcp/javaparser-cli`에 Maven Wrapper(`mvnw`)가 동봉되어 시스템 Maven 불요. `.mcp.json` 기본값이 `REPO_AST_REQUIRE_JAVAPARSER=1`이라 jar 미빌드 시 정규식 fallback 없이 하드실패. Phase E·E6이 `./mvnw -q -DskipTests package` 자동 빌드, 실패 시 `JAVAPARSER_REQUIRED`로 하드 중단 | 필수 |
+| Java(필수) | JDK 21+ (JavaParser jar 빌드 17+ ⊂ JDT LS 구동 21+ — 단일 기준). `mcp/javaparser-cli`에 Maven Wrapper(`mvnw`)가 동봉되어 시스템 Maven 불요. jar 미빌드 시 대체 경로 없이 하드실패한다(v0.31.0에서 정규식 fallback 삭제 — `REPO_AST_REQUIRE_JAVAPARSER`는 no-op). Phase E·E6이 `./mvnw -q -DskipTests package` 자동 빌드, 실패 시 `JAVAPARSER_REQUIRED`로 하드 중단 | 필수 |
 | JDT LS(필수) | `jdtls` + Java 21+ 런타임 (semantic 분석 보강). `plugin.json` `lspServers`로 `.lsp.json`(node 경유 `mcp/jdtls-launcher.cjs`) 등록. Phase E·E7이 `scripts/setup_jdtls.py`로 자동 설치(PATH → brew(macOS) → eclipse.org milestone tarball), 실패 시 하드 중단 | 필수 |
 | 대상 빌드 도구 | Gradle 8.14+/9.x 또는 Maven 3.6.3+ (대상 Spring 프로젝트용) | 대상 프로젝트 |
 
@@ -35,7 +35,7 @@
 |---|---|
 | 병렬 실행 엔진(ultrawork) | `full-pipeline`이 네이티브 `Task` 서브에이전트를 **직접** 팬아웃/파이프라인으로 오케스트레이션 (`references/orchestration-detail.md` §1) |
 | 상태/체크포인트 | `_workspace/{단계}_{에이전트}_{산출물}.json` 파일 기반 전달 + Phase 0 부분 재실행 (자체 규약) |
-| 작업 추적/타이밍 | `scripts/record-timing.py`로 `timing.json`(total_tokens/duration_ms) 자체 누적 |
+| 작업 추적/타이밍 | `scripts/record-timing.py`로 `timing.json`(total_tokens/duration_ms) 자체 누적 — `launch.cjs script` 경유 호출(정본 명령: `full-pipeline` SKILL.md 단계별 계측 절) |
 | 인터뷰/질문 | 네이티브 `AskUserQuestion` (`configure-harness`) |
 | 검증 루프 | 생성-검증 패턴을 스킬 본문에 자체 기술(coverage/repair/conformance 루프, 최대 반복 한도) |
 

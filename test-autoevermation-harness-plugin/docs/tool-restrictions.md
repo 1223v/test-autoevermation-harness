@@ -1,6 +1,6 @@
 # 도구 제약 전수 감사 (Tool Restriction Audit)
 
-> **한 줄 요약 (v0.30.0)**: 이 플러그인이 **사용자 세션의 도구 호출을 차단할 수 있는 지점은 단 한 곳** —
+> **한 줄 요약 (v0.31.0)**: 이 플러그인이 **사용자 세션의 도구 호출을 차단할 수 있는 지점은 단 한 곳** —
 > `record-run-context.py`의 4.5 승인 게이트(`Task|Agent` 매처)뿐이며, 그것도 하네스 파이프라인이 활성인
 > 세션에서만 발동한다. `Read`·`Write`·`Edit`·`WebFetch`·`WebSearch`·`Bash`를 막는 것은 **없다**.
 
@@ -47,9 +47,9 @@ Claude Code 공식 계약상 **도구 실행을 실제로 막을 수 있는 훅 
 
 ---
 
-## Tier 0 — v0.30.0에서 제거된 것 (이력)
+## Tier 0 — 제거된 것 (이력)
 
-### 0.1 `scripts/guard-gate-artifacts.py` — PreToolUse(`Write|Edit`) 등록 해제
+### 0.1 `scripts/guard-gate-artifacts.py` — v0.30.0 등록 해제 → v0.31.0 파일 삭제
 
 v0.22.0~v0.29.0 동안 `Write`/`Edit`를 가로채 다음을 `deny`했다:
 
@@ -61,8 +61,13 @@ v0.22.0~v0.29.0 동안 `Write`/`Edit`를 가로채 다음을 `deny`했다:
 **해제 사유**: 하네스를 쓰지 않는 일반 개발 세션에서도 Zone A가 발동했고, 사용자가 의도적으로 인라인
 수정하려는 정당한 경우까지 봉쇄했다. 계약 위반을 막는 값보다 정상 작업을 가로막는 비용이 컸다.
 
-**현재 상태**: `hooks/hooks.json`에서 엔트리 삭제. 스크립트 파일은 **존치**하며 zone 판정 로직은
-`tests/test_pipeline_v2.py`가 계속 검증하지만, 도구 경로에 연결되지 않아 실행되지 않는다.
+**현재 상태**: 삭제됨. v0.30.0에서 `hooks/hooks.json` 엔트리를 빼 실행되지 않게 한 뒤,
+v0.31.0에서 614줄 스크립트와 전용 테스트 22개를 지웠다. 실행 경로가 없는 코드를 남겨두면
+"이 훅이 지켜준다"는 오해가 계속 재생산되기 때문이다.
+
+**인지된 손실**: `fallback-policy.md #21`(커버리지 게이트 무효 조건)과 단계 순서 계약이 이제
+어디서도 기계 검증되지 않는다. `full-pipeline`·`measure-coverage` SKILL.md의 자기 규율이 유일한
+방어선이며, 해당 문구도 "훅이 차단한다"에서 "스스로 지켜라"로 함께 고쳤다.
 
 ### 0.2 `guard-read.py`(Read·WebFetch) / `guard-network.py`(Bash) — v0.29.0에서 파일 삭제
 
@@ -73,7 +78,8 @@ v0.22.0~v0.29.0 동안 `Write`/`Edit`를 가로채 다음을 `deny`했다:
 
 | 테스트 | 검사 내용 |
 |---|---|
-| `test_no_pretooluse_hook_can_block_a_write` | PreToolUse 매처에 `Write`/`Edit` 부재 + `guard-gate-artifacts.py` 미등록 |
+| `test_no_pretooluse_hook_can_block_a_write` | PreToolUse 매처에 `Write`/`Edit` 부재 + 가드 스크립트 미등록 |
+| `test_unregistered_write_guard_script_is_deleted` | 스크립트 파일 부재 + SKILL/policy/훅 4개 파일에 거짓 문구 재발 방지 |
 | `test_write_hooks_are_post_tool_use_and_warn_only` | `Write\|Edit`에 남은 훅이 PostToolUse이고 `--mode warn`인지 |
 | `test_guard_scripts_are_deleted` | `guard-read.py`·`guard-network.py` 파일 부재 |
 | `test_hooks_json_has_no_read_or_bash_matcher` | `Read\|WebFetch`·`Bash` 매처 부재 |
@@ -150,7 +156,7 @@ URL, AWS 키, PEM 블록, 이메일, Authorization 헤더.
 | 변수 | 기본값 | 효과 |
 |---|---|---|
 | `REPO_AST_ALLOW_ROOT` | `${CLAUDE_PROJECT_DIR}` | repo-ast MCP가 프로젝트 루트 밖을 파싱하지 못하게 하는 샌드박스 루트 |
-| `REPO_AST_REQUIRE_JAVAPARSER` | `1` | jar/JDK 미비 시 정규식 fallback 없이 **하드 실패**. 차단이 아니라 품질 게이트 |
+| `REPO_AST_REQUIRE_JAVAPARSER` | `1` | v0.31.0부터 **no-op**(정규식 fallback 삭제로 항상 하드 실패). 차단이 아니라 품질 게이트 |
 | `SPEC_DOC_ALLOWLIST` | `docs,specs,requirements` | spec-doc MCP의 인덱싱 대상 디렉터리 |
 | `SPEC_DOC_REDACT` | `on` | 스펙 인덱싱 결과의 시크릿 마스킹 |
 | `BUILD_TEST_ALLOW_NETWORK` | `0` | `gradle --offline` / `mvn -o` 플래그 부착. **빌드 CLI 플래그이지 도구 차단이 아니다** |
