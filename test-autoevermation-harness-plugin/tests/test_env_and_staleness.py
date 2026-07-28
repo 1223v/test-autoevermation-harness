@@ -109,16 +109,56 @@ class RemovedSecurityHooksTest(unittest.TestCase):
         self.assertNotIn("Read|WebFetch", matchers)
         self.assertNotIn("Bash", matchers)
 
-    def test_delegation_enforcement_hooks_are_retained(self) -> None:
-        """The anti-hallucination hooks are a different class and must stay."""
+    def test_no_pretooluse_hook_can_block_a_write(self) -> None:
+        """v0.30.0: the plugin never intercepts Write/Edit before they run.
+
+        guard-gate-artifacts.py was the only PreToolUse Write|Edit hook and it could
+        deny; unregistering it is what makes "this plugin blocks no writes" true.
+        The script stays on disk (its zone logic is still unit-tested) but nothing
+        wires it into the tool path.
+        """
+        hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        for entry in hooks["hooks"]["PreToolUse"]:
+            matcher = entry.get("matcher") or ""
+            with self.subTest(matcher=matcher):
+                self.assertNotIn("Write", matcher)
+                self.assertNotIn("Edit", matcher)
+        self.assertNotIn("guard-gate-artifacts.py", json.dumps(hooks))
+
+    def test_write_hooks_are_post_tool_use_and_warn_only(self) -> None:
+        """Whatever still matches Write|Edit must run after the write, not gate it."""
+        hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        write_entries = [
+            entry for entry in hooks["hooks"]["PostToolUse"]
+            if "Write" in (entry.get("matcher") or "")
+        ]
+        self.assertTrue(write_entries, "redact-secrets should still run post-write")
+        for entry in write_entries:
+            for hook in entry["hooks"]:
+                with self.subTest(args=hook.get("args")):
+                    self.assertIn("--mode", hook["args"])
+                    self.assertIn("warn", hook["args"])
+
+    def test_delegation_recorder_hook_is_retained(self) -> None:
+        """The spawn/run evidence recorder is a different class and must stay."""
         hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
         commands = json.dumps(hooks)
         self.assertIn("record-run-context.py", commands)
-        self.assertIn("guard-gate-artifacts.py", commands)
         self.assertIn("redact-secrets.py", commands)
         for name in ("record-run-context.py", "guard-gate-artifacts.py",
                      "redact-secrets.py"):
             self.assertTrue((PLUGIN_ROOT / "scripts" / name).exists(), name)
+
+    def test_settings_json_declares_no_deny_rules(self) -> None:
+        """v0.30.0: the recommendation template must not advertise tool blocking.
+
+        Plugin settings.json only applies `agent`/`subagentStatusLine` (official
+        constraint), so a deny list here enforced nothing while repeatedly reading
+        as "this plugin blocks WebFetch/Read".
+        """
+        settings = json.loads((PLUGIN_ROOT / "settings.json").read_text(encoding="utf-8"))
+        self.assertNotIn("deny", settings.get("permissions", {}))
+        self.assertIn("allow", settings["permissions"])
 
     def test_dead_env_vars_are_gone_from_settings(self) -> None:
         settings = json.loads((PLUGIN_ROOT / "settings.json").read_text(encoding="utf-8"))
@@ -344,6 +384,83 @@ class MultiModuleJacocoTest(unittest.TestCase):
             parsed = build_test.parse_jacoco_report(tmp)
 
         self.assertEqual("failed", parsed["status"])
+
+
+# ------------------------------------------------- N. tool-restriction audit doc
+
+
+class ToolRestrictionAuditDocTest(unittest.TestCase):
+    """docs/tool-restrictions.md must stay true as the hook/agent config changes.
+
+    The doc answers "what does this harness block?" so that nobody has to re-read
+    the sources. That value evaporates the moment it drifts, so the claims that can
+    be machine-checked are machine-checked here.
+    """
+
+    DOC = PLUGIN_ROOT / "docs" / "tool-restrictions.md"
+
+    def setUp(self) -> None:
+        self.assertTrue(self.DOC.is_file(), "tool-restrictions.md is missing")
+        self.text = self.DOC.read_text(encoding="utf-8")
+
+    def test_doc_is_linked_from_readme_and_guide(self) -> None:
+        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+        guide = (PLUGIN_ROOT / "docs" / "GUIDE.md").read_text(encoding="utf-8")
+        self.assertIn("docs/tool-restrictions.md", readme)
+        self.assertIn("tool-restrictions.md", guide)
+
+    def test_every_agent_disallowed_tools_row_matches_frontmatter(self) -> None:
+        """The Tier 3 table must mirror the actual agents/*.md frontmatter."""
+        for agent in sorted((PLUGIN_ROOT / "agents").glob("*.md")):
+            name = agent.stem
+            frontmatter = agent.read_text(encoding="utf-8").split("---", 2)[1]
+            declared = [
+                line.split(":", 1)[1].strip()
+                for line in frontmatter.splitlines()
+                if line.startswith("disallowedTools:")
+            ]
+            with self.subTest(agent=name):
+                self.assertIn(f"`{name}`", self.text,
+                              f"{name} is missing from the Tier 3 table")
+                if declared:
+                    for tool in (t.strip() for t in declared[0].split(",")):
+                        self.assertRegex(
+                            self.text,
+                            rf"`{name}`[^\n]*{tool}",
+                            f"{name} row must list disallowedTools {tool}",
+                        )
+
+    def test_sole_blocking_hook_claim_matches_hooks_json(self) -> None:
+        """Tier 1 claims exactly one deny path: record-run-context.py."""
+        hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        scripts = {
+            arg.rsplit("/", 1)[-1]
+            for entry in hooks["hooks"]["PreToolUse"]
+            for hook in entry["hooks"]
+            for arg in hook.get("args", [])
+            if arg.endswith(".py")
+        }
+        self.assertEqual({"record-run-context.py"}, scripts)
+
+    def test_doc_states_posttooluse_cannot_block(self) -> None:
+        # Official contract: only PreToolUse can deny; PostToolUse fires after the fact.
+        self.assertIn("PostToolUse", self.text)
+        self.assertIn("the tool already ran", self.text)
+
+    def test_mcp_env_defaults_quoted_in_doc_match_mcp_json(self) -> None:
+        mcp = json.loads((PLUGIN_ROOT / ".mcp.json").read_text(encoding="utf-8"))
+        env = {
+            key: value
+            for server in mcp["mcpServers"].values()
+            for key, value in (server.get("env") or {}).items()
+        }
+        for key in ("BUILD_TEST_ALLOW_NETWORK", "REPO_AST_REQUIRE_JAVAPARSER",
+                    "SPEC_DOC_ALLOWLIST", "REPO_AST_ALLOW_ROOT", "SPEC_DOC_REDACT"):
+            with self.subTest(env=key):
+                self.assertIn(key, env, f"{key} vanished from .mcp.json")
+                self.assertIn(key, self.text, f"{key} missing from the Tier 4 table")
+        self.assertEqual("0", env["BUILD_TEST_ALLOW_NETWORK"])
+        self.assertEqual("1", env["REPO_AST_REQUIRE_JAVAPARSER"])
 
 
 if __name__ == "__main__":

@@ -198,14 +198,23 @@ rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 
 ---
 
-## 실행 강제 (enforcement, v0.22.0)
+## 실행 증거 기록 (v0.22.0, v0.30.0에서 차단 해제)
 
-파이프라인의 단계 위임·산출물 영속화·순서는 프롬프트 지시가 아니라 **PreToolUse 훅이 물리 강제**한다
-(prose는 강제가 아니라는 v0.18 원칙의 확장). `record-run-context.py`가 full-pipeline 실행과 subagent
-스폰의 물리 증거를 `_workspace/.markers/`에 남기고, `guard-gate-artifacts.py`가 ① 위임 증거 없는
-`_workspace` 단계 산출물 기록, ② 하네스 활성 세션에서 오케스트레이터의 `src/test/java` 직접 기록,
-③ 선행 산출물 없는 후속 기록(순서 게이트), ④ 8단계 커버리지의 무효·위조 산출물을 deny한다.
-비파이프라인 세션에는 개입하지 않는다(오탐 0). 상세: [docs/GUIDE.md](./docs/GUIDE.md) §2.5.
+`record-run-context.py`가 full-pipeline 실행과 subagent 스폰의 물리 증거를
+`_workspace/.markers/`에 남긴다(`run.json` / `spawn-<agent>.json` /
+`pipeline-state.detected.json`). 이 증거는 단계 위임·순서·durable resume 판정의 근거다.
+
+> **이 플러그인은 쓰기(`Write`/`Edit`)를 차단하지 않는다 (v0.30.0).** 이를 가로채던
+> PreToolUse 훅(`guard-gate-artifacts.py`)은 `hooks.json`에서 **등록 해제**했다 — 파이프라인을
+> 쓰지 않는 일반 개발 세션에서 편집이 막히는 것을 없애기 위해서다. 스크립트 자체는 존치하며
+> zone 판정 로직은 여전히 단위 테스트 대상이지만, 도구 경로에 연결되지 않으므로 실행되지 않는다.
+> 남아 있는 `Write|Edit` 훅은 PostToolUse `redact-secrets.py`(warn 모드) 하나뿐이고, 이는 쓰기가
+> **끝난 뒤** 도는 경고라 아무것도 막지 못한다. 단계 계약은 이제 SKILL.md 지시와
+> `_workspace/.markers/` 증거로만 유지된다.
+
+상세: [docs/GUIDE.md](./docs/GUIDE.md) §2.5.
+**"하네스 때문에 뭐가 막히나?"의 전수 답변**: [docs/tool-restrictions.md](./docs/tool-restrictions.md) —
+훅·에이전트 frontmatter·MCP 환경변수·`settings.json`까지 도구 제약 가능 경로를 등급별로 정리했다.
 
 ---
 

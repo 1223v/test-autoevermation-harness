@@ -9,6 +9,76 @@
 
 ---
 
+## [0.30.0] - 2026-07-28
+
+**이 플러그인은 더 이상 쓰기를 차단하지 않는다.** v0.22.0에서 도입한 "위임 물리 강제"의 마지막 남은
+차단 지점인 `Write`/`Edit` PreToolUse 훅을 등록 해제하고, `settings.json`에 남아 있던 비강제 deny
+템플릿도 삭제했다. 판정 로직·에이전트 계약·커버리지 임계값은 변경하지 않았다.
+
+### Removed — `guard-gate-artifacts.py`의 PreToolUse(Write·Edit) 등록
+
+`hooks/hooks.json`의 `Write|Edit` PreToolUse 엔트리를 제거했다. 이 훅은 ① spawn 마커 없는
+`_workspace` 단계 산출물 기록, ② 하네스 활성 세션의 오케스트레이터 `src/test/java` 직접 기록,
+③ 순서 게이트 위반, ④ 8단계 커버리지 무효·위조 산출물을 `deny`했다.
+
+근거: 하네스 파이프라인을 쓰지 않는 일반 개발 세션에서도 해당 경로의 편집이 막혔고, 사용자가
+의도적으로 인라인 수정하려는 정당한 경우까지 봉쇄됐다. 계약 위반을 막는 값보다 정상 작업을
+가로막는 비용이 컸다. 단계 계약은 이제 `SKILL.md` 지시와 `_workspace/.markers/` 증거로 유지된다.
+
+- `scripts/guard-gate-artifacts.py`는 **파일로 존치**한다(삭제 아님). zone 판정 로직은
+  `tests/test_pipeline_v2.py`가 계속 검증하지만, 도구 경로에 연결되지 않아 실행되지 않는다.
+- `Write|Edit`에 남은 훅은 PostToolUse `redact-secrets.py`(warn 모드) 하나 — 쓰기가 **끝난 뒤**
+  도는 경고라 차단력이 없다.
+- 회귀 방지 테스트 신설: `test_no_pretooluse_hook_can_block_a_write`(PreToolUse 매처에 `Write`/`Edit`
+  부재 + `guard-gate-artifacts.py` 미등록), `test_write_hooks_are_post_tool_use_and_warn_only`.
+
+**유지되는 유일한 deny**: `record-run-context.py`의 `Task|Agent` 매처 — 시나리오 미승인(`04b` 부재)
+상태의 `test-code-generator` 스폰. 쓰기 도구와 무관하고 하네스 파이프라인 활성 세션에서만 발동하므로
+이번 해제 대상이 아니다.
+
+### Removed — `settings.json`의 deny 템플릿
+
+`Read(.env/*.pem/secrets/build/target/node_modules)`, `Bash(curl:*)`, `Bash(wget:*)`, `WebFetch`를
+삭제하고 `allow`만 남겼다. 이 블록은 플러그인 `settings.json`에서 애초에 강제되지 않는데(공식 제약 —
+`agent`/`subagentStatusLine` 키만 적용), grep하면 주석보다 deny 항목이 먼저 눈에 띄어 "이 플러그인이
+웹·읽기를 막는다"는 오해를 반복 생산했다. v0.29.0에서 대응 훅 2종을 이미 삭제했으므로 템플릿만 남아
+있던 상태였다.
+
+### Added — `docs/tool-restrictions.md` (도구 제약 전수 감사)
+
+"이 하네스 때문에 뭐가 막히나?"에 매번 소스를 뒤지지 않고 답하기 위한 단일 문서. 플러그인이 도구를
+제약할 수 있는 **모든 경로**를 차단력 기준으로 등급화했다.
+
+- **Tier 1 (실제 차단)**: `record-run-context.py`의 4.5 승인 게이트 — 유일한 deny
+- **Tier 0 (제거 이력)**: `guard-gate-artifacts.py` 등록 해제, `guard-read.py`·`guard-network.py` 삭제
+- **Tier 2 (차단력 없음)**: PostToolUse `redact-secrets.py`, 미적용되는 `settings.json` permissions
+- **Tier 3 (서브에이전트 한정)**: `agents/*.md`의 `tools`/`disallowedTools` 11종 표
+- **Tier 4 (MCP 런타임 제약)**: `REPO_AST_ALLOW_ROOT`, `BUILD_TEST_ALLOW_NETWORK` 등
+- **Tier 5 (prose)**: SKILL.md 문구 — 강제력 없음
+
+핵심 판정 기준을 공식문서로 확증했다: **차단 가능한 훅 이벤트는 `PreToolUse` 하나뿐**이고
+`PostToolUse`는 "the tool already ran"이라 되돌릴 수 없다([Hooks reference]). 플러그인 `settings.json`은
+`agent`/`subagentStatusLine` 키만 적용된다([Plugins reference]). `disallowedTools`는 먼저 적용된 뒤
+`tools`가 남은 풀에 해석된다([Sub-agents]).
+
+문서가 드리프트하면 가치가 사라지므로 기계 검사 가능한 주장은 전부 테스트로 고정했다
+(`ToolRestrictionAuditDocTest` 5종): Tier 3 표 ↔ 실제 frontmatter 대조, Tier 1 유일성 ↔ `hooks.json`
+대조, Tier 4 기본값 ↔ `.mcp.json` 대조, README·GUIDE 링크 존재. 표에 거짓 행을 주입해 실패하는 것까지
+확인했다.
+
+[Hooks reference]: https://code.claude.com/docs/en/hooks
+[Plugins reference]: https://code.claude.com/docs/en/plugins-reference
+[Sub-agents]: https://code.claude.com/docs/en/sub-agents
+
+### Changed — 문서
+
+`README.md` 실행 강제 절과 `docs/GUIDE.md` §2.5를 현재 훅 구성에 맞게 고치고 감사 문서를 링크했다.
+"PreToolUse 훅이 물리 강제한다"는 서술은 더 이상 쓰기에 대해 참이 아니다.
+
+`settings.json`에 deny 부재를 고정하는 `test_settings_json_declares_no_deny_rules`를 추가했다.
+
+---
+
 ## [0.29.0] - 2026-07-27
 
 전수 감사(에이전트 11종·스킬 15종·MCP 3종·훅 5종)에서 확인된 **장애·오판 유발 요소** 수정. 오케스트레이션

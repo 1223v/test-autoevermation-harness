@@ -152,8 +152,21 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | 훅 | 시점 | 동작 |
 |---|---|---|
 | `scripts/record-run-context.py` | PreToolUse(Skill·Task·Agent) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 cwd와 대상 `projectRoot`의 `_workspace/.markers/run.json`(하네스 활성·라우팅) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 대상 프로젝트에 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state`의 실제 요청 root·커버리지 임계값과 응답을 결합해 durable-resume allowlist를 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
-| `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **위임·산출물 물리 강제**: spawn 마커·테스트 파일 소유권·순서 게이트와 8단계 커버리지 불변식을 검사하고 9단계 적합성 산출물의 생산자를 강제한다. 비파이프라인 세션에는 Zone B/C 비활성 |
 | `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 마스킹(warn 모드) |
+
+**쓰기 차단 훅 등록 해제(v0.30.0).** `scripts/guard-gate-artifacts.py`는 PreToolUse(Write·Edit)로
+등록돼 spawn 마커·테스트 파일 소유권·순서 게이트·8단계 커버리지 불변식 위반을 `deny`했다.
+v0.30.0에서 `hooks.json`의 해당 엔트리를 제거해 **이 플러그인은 쓰기(Write·Edit)를 차단하지 않는다.**
+근거: 하네스를 쓰지 않는 일반 개발 세션에서도 `_workspace`·`src/test/java` 경로 편집이 막혔고,
+사용자가 의도적으로 인라인 수정하려는 정당한 경우까지 봉쇄됐다. 스크립트 파일은 존치하고
+zone 판정 로직도 `tests/test_pipeline_v2.py`가 계속 검증하지만, 도구 경로에 연결되지 않으므로
+실행되지 않는다. 현재 PreToolUse는 `Skill|Task|Agent`(증거 기록) 하나뿐이고, `Write|Edit`에 남은
+훅은 PostToolUse `redact-secrets.py`(warn) — 쓰기가 끝난 뒤 도는 경고라 차단력이 없다.
+회귀 방지: `tests/test_env_and_staleness.py::test_no_pretooluse_hook_can_block_a_write`.
+
+> 도구 제약 가능 경로(훅·에이전트 frontmatter·MCP 환경변수·`settings.json`)의 **전수 감사**는
+> [tool-restrictions.md](./tool-restrictions.md)에 등급별로 정리했다. "하네스 때문에 뭐가 막히나?"는
+> 그 문서 하나로 답한다.
 
 **보안 훅 2종 제거(v0.29.0).** `guard-read.py`(Read·WebFetch)와 `guard-network.py`(Bash)는 삭제했다.
 근거: ① 보호 대상인 서브에이전트의 권한 경계는 이미 각 `agents/*.md`의 `tools:` 목록이 결정하고
@@ -162,8 +175,10 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 차단**하면서 모든 Read 호출마다 node+python 기동 비용(실측 ~54ms)을 물렸으며,
 ③ 실제로 중요한 "테스트 실행이 네트워크를 타지 않는 것"은 훅이 아니라 **build-test MCP 서버**가
 독립적으로 강제한다(`BUILD_TEST_ALLOW_NETWORK`, `.mcp.json` 기본값 `0` → gradle `--offline`/maven `-o`).
-위임 강제 계열 훅(`record-run-context.py`·`guard-gate-artifacts.py`)은 오케스트레이션 할루시네이션을
-막는 물리 장치이므로 그대로 유지한다.
+증거 기록 훅(`record-run-context.py`)은 오케스트레이션 할루시네이션을 막는 물리 장치이므로
+그대로 유지한다. 이 훅의 유일한 deny는 `Task|Agent` 매처의 4.5 승인 게이트(시나리오 미승인
+상태의 `test-code-generator` 스폰)이며, **하네스 파이프라인이 활성인 세션에서만** 발동한다 —
+쓰기 도구와 무관하므로 v0.30.0 차단 해제 대상이 아니다.
 
 **`_workspace/.markers/` 컨벤션(v0.22.0).** 훅 간 공유되는 물리 증거 저장소: `run.json`(세션별 하네스 활성 신호와 정규화된 `projectRoot`), `spawn-<subagent_type>.json`(대상 프로젝트의 단계 위임 증거), `pipeline-state.detected.json`(실제 탐지 요청·응답에 결합된 durable-resume 허용 목록). full-pipeline을 호출할 때마다 같은 Claude 세션이어도 이전 spawn/detect 증거는 자동 청소된다. 08 복원 권한은 호출 임계값 4종이 유효한 schema v2 config와 같을 때만 부여하며, config가 없으면 네 값 모두 1.0이어야 한다. **v0.29.0부터 `detect_pipeline_state`가 stale로 판정한 증거(소스가 리포트보다 새로움)에는 복원 권한을 부여하지 않는다.** 이 디렉터리는 훅 전용이라 Write/Edit로 수정할 수 없다. 인프라 오류 시 훅은 fail-open(세션 불파괴), 판정 로직은 fail-closed다. 계약 드리프트 재검용 프로브는 `scripts/dev/probe-hook-stdin.py`.
 
