@@ -23,9 +23,9 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 **`_workspace/` 파일 기반 전달.** 각 단계 산출물(JSON)을 메인 컨텍스트로 통째로 옮기지 말고 `_workspace/{단계}_{에이전트}_{산출물}.json`에 저장하고, 다음 단계에는 **경로만** 전달한다. 메인 컨텍스트에는 `{status, 핵심수치, 경로}` 요약만 환원한다 → 컨텍스트 토큰 절감.
 
-**단계 계약(위임 필수 — 자기 규율).** 각 단계는 아래 표의 주체로만 수행한다. **위임 없이 오케스트레이터가 직접 수행한 단계는 무효다** — "직접 하는 편이 더 빠르다/결과가 같다"는 위임 생략 사유가 될 수 없다. 지켜야 할 불변식은 셋이다: ① spawn 마커 없는 단계 산출물을 기록하지 않는다, ② 하네스 활성 세션에서 오케스트레이터가 `src/test/java`를 직접 쓰지 않는다(예외: test-fixer patch 적용 Edit), ③ 선행 산출물 없이 후속 산출물을 기록하지 않는다(순서 게이트). 산출물 JSON은 단계 완료 **즉시** Write한다 — 산출물 없는 단계는 미수행으로 간주된다.
+**단계 계약(위임 필수 — 훅 물리 강제).** 각 단계는 아래 표의 주체로만 수행한다. **위임 없이 오케스트레이터가 직접 수행한 단계는 무효다** — "직접 하는 편이 더 빠르다/결과가 같다"는 위임 생략 사유가 될 수 없다. `record-run-context.py`(Skill/Task/Agent 훅)가 스폰 증거를 `_workspace/.markers/`에 기록하고, `guard-gate-artifacts.py`(Write/Edit 훅)가 ① spawn 마커 없는 단계 산출물 기록, ② 오케스트레이터의 `src/test/java` 직접 기록(예외: test-fixer patch 적용 Edit), ③ 선행 산출물 없는 후속 산출물 기록(순서 게이트)을 deny한다. 산출물 JSON은 단계 완료 **즉시** Write한다 — 산출물 없는 단계는 미수행으로 간주되어 후속 단계 기록이 차단된다. 훅 deny를 받으면 인라인 수행을 중단하고 해당 단계를 표의 주체로 재실행하라.
 
-> **v0.31.0 — 이 계약을 강제하는 훅은 없다.** `record-run-context.py`(Skill/Task/Agent 훅)가 스폰 증거를 `_workspace/.markers/`에 **기록**하지만, 이를 근거로 쓰기를 막던 `Write|Edit` 훅은 v0.30.0에서 등록 해제되고 v0.31.0에서 삭제됐다. 즉 위 ①②③을 어겨도 **아무것도 막지 않는다** — 지키는 주체는 너 자신이다. 마커는 사후 검증과 durable resume 판정에만 쓰인다.
+> **강제 범위(v0.32.0)**: 이 훅은 `_workspace/.markers/run.json`이 현재 세션과 일치할 때 — 즉 **full-pipeline이 실제로 도는 동안에만** 판정한다. 하네스와 무관한 세션의 편집은 경로와 무관하게 전부 통과한다.
 
 결과 봉투 필드 해석이 필요하면 그 시점에 [references/agent-result-envelope.md](../../references/agent-result-envelope.md)를 Read하라.
 
@@ -59,7 +59,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
   - 반환 필드: `stale`, `reasons[]`(`JACOCO_STALE`/`JUNIT_STALE`/`SCENARIOS_STALE`/`CONFIG_STALE`), `sourceNewerThanJunit`, `sourceNewerThanJacoco`, `sourceNewerThanScenarios`, `buildFileNewerThanConfig`, `newestSourcePaths[]`.
   - `recommendedEntryStage`는 이미 이 판정으로 **하향 클램프되어** 돌아온다(JaCoCo stale→8, JUnit stale→6, 시나리오 stale→4, `buildFileNewerThanConfig`→0). `highestCompletedStage`는 "실제로 있었던 일"의 기록이라 클램프하지 않으므로, 둘이 어긋나면 그 차이가 곧 무효화된 증거다.
   - **`buildFileNewerThanConfig:true`이면 0단계(configure-harness)를 건너뛸 수 없다.** 빌드 파일 변경은 Spring 프로파일 전체(javax↔jakarta, junit4↔jupiter, `@MockBean`↔`@MockitoBean`)를 바꿀 수 있어, 캐시된 `springProfile`로 생성하면 잘못된 관용구의 테스트가 나온다. configure-harness 0.5단계는 호출되기만 하면 프로파일을 항상 재감지하므로 0단계를 실제로 수행하는 것으로 충분하다.
-  - 판정 근거는 훅이 남긴다: stale로 판정된 증거를 `record-run-context.py`가 `allowedArtifacts`에서 제외하므로, 그 목록에 없는 `06`/`08`(시나리오 stale이면 `04`) stub은 **기록하지 마라** — "재사용 가능해 보인다"는 자기 판단으로 덮어쓰지 않는다. 이 규칙을 막아주는 훅은 없다(v0.31.0).
+  - 훅이 함께 강제한다: stale로 판정된 증거는 `record-run-context.py`가 `allowedArtifacts`에서 제외하므로, 오케스트레이터가 "재사용 가능"이라고 판단해도 `06`/`08`(시나리오 stale이면 `04`) stub 기록은 `guard-gate-artifacts.py`에 deny된다.
 - 대화형은 위 추천값과 `[4 시나리오 재설계] [5 생성] [6 실행] [8 커버리지] [9 적합성 검증]`을 제시하고 사용자가 선택하게 한다. **`staleness.stale:true`이면 먼저 무엇이 낡았는지(`reasons[]`와 `newestSourcePaths[]`의 대표 경로)를 제시하고 `AskUserQuestion`으로 `[영향 단계부터 재실행(권장)] / [그대로 재사용] / [0단계부터 전체 재실행]`을 묻는다** — "그대로 재사용"을 선택해도 훅이 stale stub 기록을 막으므로 해당 단계는 실제로 다시 수행된다. CI는 클램프된 `recommendedEntryStage`를 그대로 사용한다(질문 불가 → 보수적 재실행).
 - 복원 시 `_workspace/_resume.json`을 `{"schemaVersion":2,"entryStage":<n>,"entryLabel":"<label>","ts":"<ISO-8601>"}`로 기록한다. stub은 `source:"durable-scan"`과 **실제 detect 요청 root·임계값 및 응답에서 계산된 `allowedArtifacts` 마커**가 대상 `projectRoot`에 있어야 하며 `04_scenario_set.json`, `05_test-gen_files.json`, `06_run_result.json`, `08_coverage_result.json`에만 허용한다. 08 권한은 호출 임계값이 schema v2 config와 일치할 때만 부여하고(config가 없으면 1.0 네 종), stub은 `status:"reused"`, `gatePassed:true`로 기록한다. 9단계 적합성 결과는 복원하지 않고 항상 다시 검증한다. 최종 집계 전에는 `pipeline_result.json`을 쓰지 않는다.
 
@@ -531,7 +531,7 @@ Task(
 - 미달 시 `coverage-closer` 에이전트가 `uncovered[]`를 받아 추가 테스트 생성 → 게이트 충족까지 재측정(fallback-policy.md #12: 진전 있는 한 계속, 동일 미커버 집합 3회 연속이면 무진전으로 보고 후 중단).
 - 임계값 기본(RESEARCH_NOTES §6): LINE≥0.95 / BRANCH≥0.90 / METHOD≥0.95 / CLASS=1.00, 제외 allowlist 적용.
 - **회귀 실행 + runResult 재할당**: 게이트 수렴 후 `coverageResult.addedTests`가 있으면 6단계(run-tests)를 생성+추가 테스트 전체로 회귀 실행해 그린 상태를 확인하고(실패 시 7단계 보정 루프 재진입), 그 결과를 **`runResult`로 재할당**한다 — 9단계는 이 최신 값을 받는다.
-- **스킵 금지 + 산출물 유효성 (#21)**: RA advisory 대상이라는 이유로 coverage-closer 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 이 게이트와 무관하다. "구조적으로 커버 불가" 판단은 coverage-closer가 루프를 실제 수행한 뒤 `remainingGaps[].reason`으로만 성립하고, 제외는 `coverage.excludes`(사용자 승인)로만 가능하다. `gatePassed:false`인데 `iterations<1` 또는 `remainingGaps`가 빈 `coverageResult`는 **게이트 미수행 산출물로 무효** — 9단계로 진행하지 말고 8단계를 다시 실행하라(정본: [fallback-policy.md #21](../../references/fallback-policy.md)). coverage-closer를 스폰하지 않은 채 `iterations>=1`을 주장하는 기록도 같은 이유로 무효다 — **이를 검사하는 훅은 없으므로 스스로 지켜라**(v0.31.0).
+- **스킵 금지 + 산출물 유효성 (#21)**: RA advisory 대상이라는 이유로 coverage-closer 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 이 게이트와 무관하다. "구조적으로 커버 불가" 판단은 coverage-closer가 루프를 실제 수행한 뒤 `remainingGaps[].reason`으로만 성립하고, 제외는 `coverage.excludes`(사용자 승인)로만 가능하다. `gatePassed:false`인데 `iterations<1` 또는 `remainingGaps`가 빈 `coverageResult`는 **게이트 미수행 산출물로 무효** — 9단계로 진행하지 말고 8단계를 다시 실행하라(정본: [fallback-policy.md #21](../../references/fallback-policy.md); `guard-gate-artifacts.py` 훅이 무효 기록과 coverage-closer 미스폰 상태의 `iterations>=1` 주장 기록을 차단한다).
 
 결과를 `coverageResult`로 저장.
 

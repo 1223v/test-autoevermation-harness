@@ -198,18 +198,19 @@ rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 
 ---
 
-## 실행 증거 기록 (v0.22.0, v0.30.0에서 차단 해제)
+## 실행 강제 (enforcement)
 
-`record-run-context.py`가 full-pipeline 실행과 subagent 스폰의 물리 증거를
-`_workspace/.markers/`에 남긴다(`run.json` / `spawn-<agent>.json` /
-`pipeline-state.detected.json`). 이 증거는 단계 위임·순서·durable resume 판정의 근거다.
+파이프라인의 단계 위임·산출물 영속화·순서는 프롬프트 지시가 아니라 **PreToolUse 훅이 물리 강제**한다
+(prose는 강제가 아니라는 v0.18 원칙의 확장). `record-run-context.py`가 full-pipeline 실행과 subagent
+스폰의 물리 증거를 `_workspace/.markers/`에 남기고, `guard-gate-artifacts.py`가 ① 위임 증거 없는
+`_workspace` 단계 산출물 기록, ② 오케스트레이터의 `src/test/java` 직접 기록, ③ 선행 산출물 없는
+후속 기록(순서 게이트), ④ 8단계 커버리지의 무효·위조 산출물을 deny한다.
 
-> **이 플러그인은 쓰기(`Write`/`Edit`)를 차단하지 않는다.** 이를 가로채던 PreToolUse 가드 훅은
-> v0.30.0에서 등록 해제하고 **v0.31.0에서 스크립트째 삭제**했다 — 파이프라인을 쓰지 않는 일반
-> 개발 세션에서 편집이 막히는 것을 없애기 위해서다. 남아 있는 `Write|Edit` 훅은 PostToolUse
-> `redact-secrets.py`(warn 모드) 하나뿐이고, 이는 쓰기가 **끝난 뒤** 도는 경고라 아무것도 막지
-> 못한다. 단계 계약은 이제 SKILL.md 지시와 `_workspace/.markers/` 증거로만 유지되며, 이를
-> 강제하는 기계 장치는 없다.
+> **강제 범위 (v0.32.0)**: 두 훅 모두 `_workspace/.markers/run.json`이 현재 세션과 일치할 때 —
+> 즉 **full-pipeline이 실제로 도는 동안에만** 판정한다. **하네스를 쓰지 않는 세션에서는 어떤 경로를
+> 편집해도 막히지 않는다.** v0.22.0~v0.29.0에는 Zone A에 이 게이트가 빠져 있어 무관한 세션까지
+> 차단했고, 그 오탐 때문에 v0.30.0에서 해제·v0.31.0에서 삭제했다가 v0.32.0에서 게이트를 바로잡아
+> 복원했다.
 
 상세: [docs/GUIDE.md](./docs/GUIDE.md) §2.5.
 **"하네스 때문에 뭐가 막히나?"의 전수 답변**: [docs/tool-restrictions.md](./docs/tool-restrictions.md) —

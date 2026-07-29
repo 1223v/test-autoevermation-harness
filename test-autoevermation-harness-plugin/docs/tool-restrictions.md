@@ -1,8 +1,8 @@
 # 도구 제약 전수 감사 (Tool Restriction Audit)
 
-> **한 줄 요약 (v0.31.0)**: 이 플러그인이 **사용자 세션의 도구 호출을 차단할 수 있는 지점은 단 한 곳** —
-> `record-run-context.py`의 4.5 승인 게이트(`Task|Agent` 매처)뿐이며, 그것도 하네스 파이프라인이 활성인
-> 세션에서만 발동한다. `Read`·`Write`·`Edit`·`WebFetch`·`WebSearch`·`Bash`를 막는 것은 **없다**.
+> **한 줄 요약 (v0.32.0)**: 차단 지점은 **PreToolUse 훅 2개**뿐이고, **둘 다 하네스 파이프라인이
+> 이 세션에서 실제로 도는 동안에만** 발동한다(`_workspace/.markers/run.json` 기준).
+> 파이프라인을 쓰지 않으면 `Read`·`Write`·`Edit`·`WebFetch`·`WebSearch`·`Bash` 무엇도 막히지 않는다.
 
 이 문서는 "하네스 때문에 뭐가 막히나?"라는 질문에 매번 소스를 뒤지지 않도록, 플러그인이 도구를 제약할 수
 있는 **모든 경로**를 등급별로 정리한다. 각 항목은 실제로 차단력이 있는지, 언제 발동하는지, 근거 파일이
@@ -29,7 +29,26 @@ Claude Code 공식 계약상 **도구 실행을 실제로 막을 수 있는 훅 
 
 ## Tier 1 — 실제로 차단하는 것 (PreToolUse deny)
 
-### 1.1 `scripts/record-run-context.py` — 4.5 시나리오 승인 게이트
+### 1.1 `scripts/guard-gate-artifacts.py` — 산출물 무결성·순서 게이트
+
+| 항목 | 값 |
+|---|---|
+| 매처 | `Write\|Edit` (PreToolUse) |
+| **전제 조건** | `_workspace/.markers/run.json`의 `session_id` == 현재 세션. **아니면 경로·내용과 무관하게 전부 allow** |
+| Zone A `_workspace/**` | `.markers/**` 위조, 위임 증거 없는 산출물, 순서 게이트 위반, 8단계 커버리지 필드 불변식(#21) 위반 |
+| Zone B `src/test/java/**` | 04/04b 승인 전 기록, 허용 에이전트(`test-code-generator`·`coverage-closer`·`test-fixer`·`test-editor`) 외 기록 |
+| Zone C `test_docs/**` | 선행 산출물 없는 문서 기록 |
+
+**존치 이유**: `fallback-policy.md #21`(커버리지 게이트 무효 조건)과 단계 순서 계약을 기계로 강제하는
+유일한 장치다. prose는 강제가 아니라는 v0.18 원칙이 그대로 적용된다.
+
+**이력**: v0.22.0 도입 시 Zone A와 markers 검사에 run-active 게이트가 **없어서** 하네스와 무관한
+세션에서도 `_workspace/` 편집이 막혔다. 그 오탐 때문에 v0.30.0에서 등록 해제, v0.31.0에서 파일까지
+삭제했으나 #21·순서 계약이 기계 검증을 잃었다. **v0.32.0에서 게이트를 전 Zone에 적용해 복원**했다 —
+막아야 할 것만 막는다. 회귀 방지: `test_non_pipeline_session_is_never_blocked`,
+`test_same_paths_are_guarded_once_the_run_is_active`, `test_write_guard_judges_nothing_outside_an_active_run`.
+
+### 1.2 `scripts/record-run-context.py` — 4.5 시나리오 승인 게이트
 
 | 항목 | 값 |
 |---|---|
@@ -47,29 +66,9 @@ Claude Code 공식 계약상 **도구 실행을 실제로 막을 수 있는 훅 
 
 ---
 
-## Tier 0 — 제거된 것 (이력)
+## Tier 0 — 삭제된 훅 (이력)
 
-### 0.1 `scripts/guard-gate-artifacts.py` — v0.30.0 등록 해제 → v0.31.0 파일 삭제
-
-v0.22.0~v0.29.0 동안 `Write`/`Edit`를 가로채 다음을 `deny`했다:
-
-- **Zone A** `_workspace/**` 단계 산출물 — `.markers/**` 쓰기, 위임 증거 없는 산출물 기록, 순서 게이트
-  위반, 8단계 커버리지 필드 불변식(#21) 위반. **`_workspace` 경로면 파이프라인 비활성이어도 발동**
-- **Zone B** `src/test/java/**` — 04/04b 미승인, 허용 에이전트 외 기록 (run-active 한정)
-- **Zone C** `test_docs/**` — 선행 산출물 없는 문서 기록 (run-active 한정)
-
-**해제 사유**: 하네스를 쓰지 않는 일반 개발 세션에서도 Zone A가 발동했고, 사용자가 의도적으로 인라인
-수정하려는 정당한 경우까지 봉쇄했다. 계약 위반을 막는 값보다 정상 작업을 가로막는 비용이 컸다.
-
-**현재 상태**: 삭제됨. v0.30.0에서 `hooks/hooks.json` 엔트리를 빼 실행되지 않게 한 뒤,
-v0.31.0에서 614줄 스크립트와 전용 테스트 22개를 지웠다. 실행 경로가 없는 코드를 남겨두면
-"이 훅이 지켜준다"는 오해가 계속 재생산되기 때문이다.
-
-**인지된 손실**: `fallback-policy.md #21`(커버리지 게이트 무효 조건)과 단계 순서 계약이 이제
-어디서도 기계 검증되지 않는다. `full-pipeline`·`measure-coverage` SKILL.md의 자기 규율이 유일한
-방어선이며, 해당 문구도 "훅이 차단한다"에서 "스스로 지켜라"로 함께 고쳤다.
-
-### 0.2 `guard-read.py`(Read·WebFetch) / `guard-network.py`(Bash) — v0.29.0에서 파일 삭제
+### 0.1 `guard-read.py`(Read·WebFetch) / `guard-network.py`(Bash) — v0.29.0에서 파일 삭제
 
 보호 대상인 서브에이전트는 이미 `agents/*.md`의 `tools:`로 제한되는데(WebFetch/WebSearch 보유
 에이전트 **0개**) 훅은 하네스와 무관한 세션까지 차단하면서 Read 호출당 ~54ms를 물렸다.
@@ -78,8 +77,9 @@ v0.31.0에서 614줄 스크립트와 전용 테스트 22개를 지웠다. 실행
 
 | 테스트 | 검사 내용 |
 |---|---|
-| `test_no_pretooluse_hook_can_block_a_write` | PreToolUse 매처에 `Write`/`Edit` 부재 + 가드 스크립트 미등록 |
-| `test_unregistered_write_guard_script_is_deleted` | 스크립트 파일 부재 + SKILL/policy/훅 4개 파일에 거짓 문구 재발 방지 |
+| `test_write_guard_is_registered_for_write_and_edit_only` | 가드가 `Write\|Edit` 하나로만 등록됐는지 |
+| `test_write_guard_judges_nothing_outside_an_active_run` | 전 Zone이 run-active 게이트 뒤에 있는지(구조 불변식) |
+| `test_enforcement_prose_matches_the_restored_guard` | 문서·리마인더가 실제 강제와 일치하는지 |
 | `test_write_hooks_are_post_tool_use_and_warn_only` | `Write\|Edit`에 남은 훅이 PostToolUse이고 `--mode warn`인지 |
 | `test_guard_scripts_are_deleted` | `guard-read.py`·`guard-network.py` 파일 부재 |
 | `test_hooks_json_has_no_read_or_bash_matcher` | `Read\|WebFetch`·`Bash` 매처 부재 |

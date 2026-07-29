@@ -109,21 +109,40 @@ class RemovedSecurityHooksTest(unittest.TestCase):
         self.assertNotIn("Read|WebFetch", matchers)
         self.assertNotIn("Bash", matchers)
 
-    def test_no_pretooluse_hook_can_block_a_write(self) -> None:
-        """v0.30.0: the plugin never intercepts Write/Edit before they run.
+    def test_write_guard_is_registered_for_write_and_edit_only(self) -> None:
+        """v0.32.0: the write guard is back, and it watches Write/Edit only.
 
-        guard-gate-artifacts.py was the only PreToolUse Write|Edit hook and it could
-        deny; unregistering it is what makes "this plugin blocks no writes" true.
-        The script stays on disk (its zone logic is still unit-tested) but nothing
-        wires it into the tool path.
+        v0.30.0 unregistered it to stop false positives and v0.31.0 deleted it,
+        which cost the #21 coverage invariant and the stage-ordering contract their
+        only machine check. v0.32.0 restores it behind a run-active gate instead.
         """
         hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-        for entry in hooks["hooks"]["PreToolUse"]:
-            matcher = entry.get("matcher") or ""
-            with self.subTest(matcher=matcher):
-                self.assertNotIn("Write", matcher)
-                self.assertNotIn("Edit", matcher)
-        self.assertNotIn("guard-gate-artifacts.py", json.dumps(hooks))
+        guarded = [
+            entry for entry in hooks["hooks"]["PreToolUse"]
+            if "guard-gate-artifacts.py" in json.dumps(entry)
+        ]
+        self.assertEqual(1, len(guarded), "exactly one write guard registration")
+        self.assertEqual("Write|Edit", guarded[0]["matcher"])
+        self.assertTrue((PLUGIN_ROOT / "scripts" / "guard-gate-artifacts.py").exists())
+
+    def test_write_guard_judges_nothing_outside_an_active_run(self) -> None:
+        """The single gate that makes the guard tolerable — assert it in the source.
+
+        Behavioural proof lives in tests/test_pipeline_v2.py
+        (test_non_pipeline_session_is_never_blocked); this pins the structural
+        invariant so the early-return cannot be refactored away silently.
+        """
+        source = (PLUGIN_ROOT / "scripts" / "guard-gate-artifacts.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("if not _run_active(workspace, session_id):", source)
+        gate = source.index("if not _run_active(workspace, session_id):")
+        for zone in ("_zone_a(", "_zone_b(", "_zone_c(", "MARKERS_DIR)"):
+            with self.subTest(zone=zone):
+                self.assertGreater(
+                    source.rindex(zone), gate,
+                    f"{zone} must be evaluated after the run-active gate",
+                )
 
     def test_write_hooks_are_post_tool_use_and_warn_only(self) -> None:
         """Whatever still matches Write|Edit must run after the write, not gate it."""
@@ -148,22 +167,25 @@ class RemovedSecurityHooksTest(unittest.TestCase):
         for name in ("record-run-context.py", "redact-secrets.py"):
             self.assertTrue((PLUGIN_ROOT / "scripts" / name).exists(), name)
 
-    def test_unregistered_write_guard_script_is_deleted(self) -> None:
-        """v0.31.0: an unwired hook script must not linger as runtime-dead code.
+    def test_enforcement_prose_matches_the_restored_guard(self) -> None:
+        """Prose and mechanism must agree — they drifted apart twice already.
 
-        v0.30.0 unregistered guard-gate-artifacts.py but kept the file, which left
-        614 lines that nothing could execute plus prose across 5 files still
-        promising the enforcement it no longer performed.
+        v0.30.0 unregistered the hook but left 5 files claiming it still denied
+        writes (one of them the reminder injected into every pipeline session).
+        Now that enforcement is back, the same files must say so AND must state the
+        run-active scope, so nobody re-reads them as "blocks everything".
         """
-        self.assertFalse((PLUGIN_ROOT / "scripts" / "guard-gate-artifacts.py").exists())
         for rel in ("skills/full-pipeline/SKILL.md", "skills/measure-coverage/SKILL.md",
-                    "references/fallback-policy.md", "scripts/record-run-context.py"):
+                    "references/fallback-policy.md"):
+            text = (PLUGIN_ROOT / rel).read_text(encoding="utf-8")
             with self.subTest(path=rel):
-                self.assertNotIn(
-                    "guard-gate-artifacts",
-                    (PLUGIN_ROOT / rel).read_text(encoding="utf-8"),
-                    f"{rel} still claims a hook that no longer exists",
-                )
+                self.assertIn("guard-gate-artifacts", text,
+                              f"{rel} must document the active enforcement again")
+        reminder = (PLUGIN_ROOT / "scripts" / "record-run-context.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("파이프라인이 도는 세션에서만", reminder,
+                      "the injected reminder must state the run-active scope")
 
     def test_settings_json_declares_no_deny_rules(self) -> None:
         """v0.30.0: the recommendation template must not advertise tool blocking.
@@ -446,8 +468,8 @@ class ToolRestrictionAuditDocTest(unittest.TestCase):
                             f"{name} row must list disallowedTools {tool}",
                         )
 
-    def test_sole_blocking_hook_claim_matches_hooks_json(self) -> None:
-        """Tier 1 claims exactly one deny path: record-run-context.py."""
+    def test_blocking_hook_inventory_matches_hooks_json(self) -> None:
+        """The doc's Tier 1 must list exactly the PreToolUse scripts that can deny."""
         hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
         scripts = {
             arg.rsplit("/", 1)[-1]
@@ -456,7 +478,10 @@ class ToolRestrictionAuditDocTest(unittest.TestCase):
             for arg in hook.get("args", [])
             if arg.endswith(".py")
         }
-        self.assertEqual({"record-run-context.py"}, scripts)
+        self.assertEqual({"record-run-context.py", "guard-gate-artifacts.py"}, scripts)
+        for name in scripts:
+            with self.subTest(script=name):
+                self.assertIn(name, self.text, f"Tier 1 must document {name}")
 
     def test_doc_states_posttooluse_cannot_block(self) -> None:
         # Official contract: only PreToolUse can deny; PostToolUse fires after the fact.

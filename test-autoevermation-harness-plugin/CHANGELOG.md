@@ -9,6 +9,85 @@
 
 ---
 
+## [0.32.0] - 2026-07-29
+
+**쓰기 가드를 복원한다 — 빠져 있던 게이트 한 개를 채워서.** v0.31.0이 지운 `#21` 커버리지 게이트
+무효 조건과 단계 순서 계약의 기계 강제를 되살렸다.
+
+### 재검토 — 우리가 잘못 진단했다
+
+v0.30.0에서 훅을 해제한 이유는 "쓰기를 막아서"였지만, 소스를 다시 읽어보니 원인은 다른 곳이었다.
+삭제 전 `main()`의 판정부:
+
+```python
+if _inside_workspace(abs_path, workspace) and basename in PRODUCERS...:
+    message = _zone_a(...)                    # ← run-active 검사 없음
+elif "/src/test/java/" in abs_path:
+    if _run_active(workspace, session_id):    # ← Zone B는 게이트 있음
+elif "/test_docs/" in abs_path:
+    if _run_active(workspace, session_id):    # ← Zone C도 있음
+```
+
+**Zone A와 markers 검사에만 `_run_active` 게이트가 빠져 있었다.** 그래서 하네스를 쓰지 않는 세션도
+`_workspace/` 경로만 건드리면 차단됐다. 문제는 "훅이 쓰기를 막는다"가 아니라 **"파이프라인 밖에서도
+막는다"**였는데, 그 한 줄 때문에 계약 전체를 버린 셈이다.
+
+### Restored — `scripts/guard-gate-artifacts.py` + 전용 테스트 22개
+
+`f4814b0`에서 복원한 뒤 `main()`에 **단일 전제 게이트**를 추가했다:
+
+```python
+if not _run_active(workspace, session_id):
+    _allow(); return 0        # markers·Zone A·B·C 전부 이 뒤에 온다
+```
+
+- 파이프라인이 도는 세션 → `#21` 불변식·순서 게이트·위임 증거·테스트 파일 소유권 전부 기계 강제
+- 그 외 모든 세션 → 경로·내용과 무관하게 전부 allow
+
+`hooks/hooks.json`에 `Write|Edit` PreToolUse로 재등록. 매처는 `Write|Edit` 하나뿐이며 `Read`·
+`WebFetch`·`WebSearch`·`Bash`는 여전히 건드리지 않는다.
+
+### Added — 게이트 계약 회귀 테스트 3종
+
+이 게이트가 다시 빠지면 v0.22의 오탐이 그대로 재발하므로 양방향으로 고정했다.
+
+| 테스트 | 검사 |
+|---|---|
+| `test_non_pipeline_session_is_never_blocked` | run.json 없는 세션에서 marker 위조·빈 config·순서 위반 09·미위임 02·미승인 테스트·이른 문서 **6개 경로가 전부 통과** |
+| `test_same_paths_are_guarded_once_the_run_is_active` | 같은 경로가 run 활성 시엔 차단(게이트가 가드를 무력화한 게 아님을 확인) |
+| `test_write_guard_judges_nothing_outside_an_active_run` | 소스에서 `_zone_a/b/c`·markers 검사가 전부 게이트 **뒤**에 오는지 구조 검사 |
+
+기존 테스트 3개(`test_symlink_alias_into_workspace_is_still_guarded`,
+`test_hook_owned_marker_files_cannot_be_forged_by_write_tool`,
+`test_pipeline_named_file_outside_workspace_is_not_guarded`)는 run 활성화 없이 `main()`을 호출해
+새 게이트 아래에서 무의미해지므로 `_activate_run`을 추가했다 — 안 고쳤으면 통과하되 아무것도
+검증하지 않는 테스트가 될 뻔했다.
+
+### Changed — 프롬프트·문서를 강제와 재동기화
+
+v0.30.0의 교훈(문구와 메커니즘이 어긋나면 LLM이 없는 보장을 믿는다)을 반대 방향으로 적용했다.
+`record-run-context.py`의 `_STAGE_CONTRACT_REMINDER`(매 파이프라인 세션에 주입되는 프롬프트),
+`full-pipeline/SKILL.md`(3곳)·`measure-coverage/SKILL.md`·`fallback-policy.md #21`을 "훅이 deny한다"로
+되돌리되 **전부 "파이프라인이 도는 세션에서만"을 함께 명시**했다. `test_enforcement_prose_matches_the_restored_guard`가
+문구·메커니즘 재드리프트를 막는다.
+
+`docs/tool-restrictions.md`는 Tier 1을 2개(guard-gate + record-run-context)로 갱신하고 각 항목에
+전제 조건을 명시했다. `README.md`·`docs/GUIDE.md` §2.5·`settings.json` 주석도 동일하게 정정.
+
+### 검증
+
+실제 훅 경로(`node launch.cjs` → python → stdin/stdout JSON 계약)로 end-to-end 확인:
+
+```
+run.json 없음 : markers 위조 ALLOW / 빈 config ALLOW / 순서 위반 ALLOW / 미승인 테스트 ALLOW
+run.json 있음 : markers 위조 DENY  / 빈 config DENY  / 순서 위반 DENY  / 미승인 테스트 DENY
+                무관 파일(README.md) ALLOW
+```
+
+테스트 119 → **141개**, 전부 통과.
+
+---
+
 ## [0.31.0] - 2026-07-29
 
 실행되지 않는 코드를 지우고, **코드가 사라진 만큼 문서의 거짓 주장도 함께 없앴다.** v0.30.0이 훅 등록을

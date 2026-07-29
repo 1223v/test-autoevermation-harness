@@ -6,9 +6,8 @@ PreToolUse hook (matcher: ``Skill|Task|Agent``) + PostToolUse hook
 
 full-pipeline 실행의 **증거 기록자**. 아래 마커를 ``_workspace/.markers/``에 남긴다.
 
-v0.31.0: 이 마커를 읽어 Write/Edit를 차단하던 가드 훅은 삭제됐다(CHANGELOG 참조). 마커는 이제
-durable-resume 판정(``allowedArtifacts``)과 사후 검증에만 쓰이며, 단계 계약 위반을 막는
-장치는 없다:
+guard-gate-artifacts.py가 판정에 사용하는 마커를 남긴다. run.json은 그 가드의 발동 조건이기도
+하다 — 이 마커가 없는 세션에서는 가드가 아무것도 판정하지 않는다(v0.32.0):
 
   * ``run.json``                        — full-pipeline Skill 호출 시 cwd와 대상
                                           projectRoot에 기록. {"session_id", "ts",
@@ -77,15 +76,14 @@ PIPELINE_AGENTS = {
 }
 
 _STAGE_CONTRACT_REMINDER = (
-    "[full-pipeline 단계 계약 — 자기 규율] 각 단계는 SKILL.md 단계 계약 표의 "
+    "[full-pipeline 단계 계약 — 훅 물리 강제] 각 단계는 SKILL.md 단계 계약 표의 "
     "subagent에 Task 위임으로만 수행한다. 위임 없이 오케스트레이터가 직접 수행한 "
-    "단계는 무효다. 지킬 불변식: (1) spawn 마커 없는 _workspace 단계 산출물을 "
-    "기록하지 않는다, (2) 하네스 활성 세션에서 오케스트레이터가 src/test/java를 "
-    "직접 쓰지 않는다, (3) 선행 산출물 없이 후속 산출물을 기록하지 않는다(순서 "
-    "게이트). 산출물 JSON은 단계 완료 즉시 Write하라. durable-resume stub은 "
-    "detect_pipeline_state 호출 이후에만 유효하다. "
-    "주의: 위 규칙을 강제하는 훅은 없다(v0.31.0에서 Write/Edit 가드 삭제) — "
-    "이 훅은 증거를 기록만 하며, 위반을 막지 않는다."
+    "단계는 무효다: guard-gate-artifacts 훅이 (1) spawn 마커 없는 _workspace 단계 "
+    "산출물 기록, (2) 오케스트레이터의 src/test/java 직접 기록, (3) 선행 산출물 "
+    "없는 후속 산출물 기록(순서 게이트)을 deny한다. 산출물 JSON은 단계 완료 즉시 "
+    "Write하라 — 산출물 없는 단계는 미수행으로 간주되어 후속 기록이 차단된다. "
+    "durable-resume stub은 detect_pipeline_state 호출 이후에만 유효하다. "
+    "이 강제는 파이프라인이 도는 세션에서만 적용된다(run.json 기준)."
 )
 
 
@@ -335,7 +333,7 @@ def _allowed_stub_artifacts(
     "그 단계가 한 번 돌았다"만 증명하지 "지금 코드에 대해 돌았다"를 증명하지 않으므로,
     소스가 바뀐 뒤 낡은 green 리포트를 stub으로 복원하면 바뀐 코드를 한 번도 실행하지
     않고 "전부 통과"로 보고하게 된다. 오케스트레이터가 산문으로 "재사용 가능"이라
-    판단하더라도 이 allowlist에 없는 stub은 기록해서는 안 된다(v0.31.0: 강제 장치 없음).
+    판단하더라도 이 allowlist에 없으면 guard-gate-artifacts가 기록을 deny한다.
     """
     if result.get("status") != "ok" or result.get("harnessProvenance") is not True:
         return []

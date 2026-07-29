@@ -152,25 +152,23 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | 훅 | 시점 | 동작 |
 |---|---|---|
 | `scripts/record-run-context.py` | PreToolUse(Skill·Task·Agent) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 cwd와 대상 `projectRoot`의 `_workspace/.markers/run.json`(하네스 활성·라우팅) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 대상 프로젝트에 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state`의 실제 요청 root·커버리지 임계값과 응답을 결합해 durable-resume allowlist를 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
+| `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **위임·산출물 물리 강제**: spawn 마커·테스트 파일 소유권·순서 게이트와 8단계 커버리지 불변식을 검사한다. **파이프라인이 도는 세션에서만 판정**(아래) |
 | `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 마스킹(warn 모드) |
 
-**쓰기 차단 훅 제거(v0.30.0 등록 해제 → v0.31.0 삭제).** `scripts/guard-gate-artifacts.py`(614줄)는
-PreToolUse(Write·Edit)로 등록돼 spawn 마커·테스트 파일 소유권·순서 게이트·8단계 커버리지 불변식
-위반을 `deny`했다. v0.30.0에서 `hooks.json` 엔트리를 제거해 **이 플러그인은 쓰기를 차단하지 않게**
-됐고, v0.31.0에서 실행되지 않는 스크립트와 전용 테스트 22개를 삭제했다.
+**쓰기 가드의 단일 게이트(v0.32.0).** `guard-gate-artifacts.py`는 이제
+`_workspace/.markers/run.json`의 `session_id`가 현재 세션과 일치할 때 — 즉 **full-pipeline이 실제로
+도는 동안에만** 판정한다. 그 외에는 경로·내용과 무관하게 전부 allow다.
 
-근거: 하네스를 쓰지 않는 일반 개발 세션에서도 `_workspace`·`src/test/java` 경로 편집이 막혔고,
-사용자가 의도적으로 인라인 수정하려는 정당한 경우까지 봉쇄됐다.
+이 한 줄이 이 훅의 역사 전체를 설명한다. v0.22.0 도입 시 Zone B/C에는 run-active 게이트가 있었지만
+**markers 검사와 Zone A에는 없었다.** 그래서 하네스를 쓰지 않는 세션에서도 `_workspace/` 경로만
+건드리면 차단됐고, 그 오탐 때문에 v0.30.0에서 훅을 등록 해제하고 v0.31.0에서 파일까지 삭제했다.
+결과적으로 `fallback-policy.md #21`(커버리지 게이트 무효 조건)과 단계 순서 계약이 기계 검증을 잃었다.
+v0.32.0은 **빠져 있던 게이트를 전 Zone에 적용**해 강제를 되살렸다 — 문제는 "쓰기를 막는 것"이 아니라
+"파이프라인 밖에서도 막는 것"이었기 때문이다.
 
-**인지된 손실**: `fallback-policy.md #21`(커버리지 게이트 무효 조건)과 단계 순서 계약이 이제
-어디서도 기계 검증되지 않는다. 이 보장은 v0.30.0 등록 해제 시점에 이미 사라졌으므로 v0.31.0
-삭제가 새로 없앤 것은 아니지만, 그만큼 `full-pipeline`·`measure-coverage` SKILL.md의 자기 규율이
-유일한 방어선이다 — 해당 문구도 "훅이 차단한다"에서 "스스로 지켜라"로 함께 고쳤다.
-
-현재 PreToolUse는 `Skill|Task|Agent`(증거 기록) 하나뿐이고, `Write|Edit`에 남은 훅은 PostToolUse
-`redact-secrets.py`(warn) — 쓰기가 끝난 뒤 도는 경고라 차단력이 없다.
-회귀 방지: `test_no_pretooluse_hook_can_block_a_write`, `test_unregistered_write_guard_script_is_deleted`
-(스크립트 부재 + 4개 파일의 거짓 문구 재발 차단).
+회귀 방지: `test_non_pipeline_session_is_never_blocked`(6개 경로가 파이프라인 밖에서 전부 통과),
+`test_same_paths_are_guarded_once_the_run_is_active`(같은 경로가 실행 중엔 차단),
+`test_write_guard_judges_nothing_outside_an_active_run`(전 Zone이 게이트 뒤에 있는지 구조 검사).
 
 > 도구 제약 가능 경로(훅·에이전트 frontmatter·MCP 환경변수·`settings.json`)의 **전수 감사**는
 > [tool-restrictions.md](./tool-restrictions.md)에 등급별로 정리했다. "하네스 때문에 뭐가 막히나?"는
