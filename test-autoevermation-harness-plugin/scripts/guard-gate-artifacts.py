@@ -23,7 +23,6 @@ Decision table (아래 전부 run-active 전제):
 
 Zone A — ``_workspace`` 단계 산출물 (basename 매칭):
   * ``_workspace/.markers/**``                 -> deny (훅 전용 증거, 도구 위조 금지)
-                                                   (v0.32.0: run-active일 때만)
   * 오케스트레이터 소유 산출물(00/03c/04b/09b/_resume/timing/result)
       - 00_config-harness.json: Write가 schemaVersion=2 JSON 객체 + "springProfile" 포함 필수
         (빈 껍데기 config 차단), Edit는 deny. 그 외 -> allow
@@ -114,7 +113,8 @@ ORCHESTRATOR_ARTIFACTS = {
     "timing.json",
 }
 
-# 순서 게이트: 산출물 -> 선행 필수 산출물 (run-active일 때만 적용)
+# 순서 게이트: 산출물 -> 선행 필수 산출물
+# (main()의 전역 run-active 게이트를 통과한 호출에만 도달한다 — v0.32.0)
 SEQUENCE_PRECONDITIONS = {
     "01_spec-reviewer_criteria.json": ("00_config-harness.json",),
     "02_ast_targets.json": ("00_config-harness.json",),
@@ -424,7 +424,7 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
                     return message
         if basename == "09b_conformance_repair.json" and _parse_content(tool_input) is None:
             return "09b_conformance_repair.json은 유효한 JSON 객체여야 한다."
-        if basename == "09b_conformance_repair.json" and _run_active(workspace, session_id):
+        if basename == "09b_conformance_repair.json":
             missing = [
                 pre for pre in SEQUENCE_PRECONDITIONS[basename]
                 if not _artifact_exists(workspace, pre)
@@ -495,8 +495,9 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
                 % (basename, producer, _DELEGATION_HINT)
             )
 
-    # 순서 게이트 (run-active 한정, stub 면제 — 단독 스킬 세션의 정당한 경로 보호)
-    if not stub and _run_active(workspace, session_id):
+    # 순서 게이트 (stub 면제 — 단독 스킬 세션의 정당한 경로 보호).
+    # run-active는 main()의 전역 게이트가 이미 보장하므로 여기서 재검사하지 않는다.
+    if not stub:
         missing = [
             pre for pre in SEQUENCE_PRECONDITIONS.get(basename, ())
             if not _artifact_exists(workspace, pre)

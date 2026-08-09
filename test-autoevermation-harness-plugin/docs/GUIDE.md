@@ -143,7 +143,13 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 `setup-harness`의 `E3b`가 `health` 3종을 실호출해 세션에 실제로 연결됐는지 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브가 이를 재확인한다
 (실패 시 하드 중단 — [environment-setup.md](../references/environment-setup.md)).
 
-각 서버는 보조 MCP 리소스(`ast://index`, `spec://glossary`, `build://metadata` 등)와 프롬프트도 노출한다.
+세 서버 모두 **MCP tool만 노출한다 — 리소스·프롬프트는 없다.** v0.33.0에서 리소스 4종(`ast://index`,
+`ast://dependency-graph`, `spec://glossary`, `spec://requirement-matrix`)과 프롬프트 3종
+(`explain_target_shape`, `review_specs_for_testing`, `suggest_test_command`)을 삭제했다. FastMCP 보일러플레이트
+([RESEARCH_NOTES.md](../RESEARCH_NOTES.md) §1)에서 그대로 옮겨진 것들로, 에이전트 11개 전원의 도구 목록에
+`ReadMcpResourceTool`이 없어 파이프라인이 호출할 수 없었고 전부 살아 있는 tool·에이전트의 열등한 중복이었다.
+게다가 `ast://` 2종은 tool과 달리 `paths` 인자가 없어 매 읽기마다 allow root 전체를 `_analyze()`했고,
+프롬프트 2종은 실제 계약에서 드리프트해 틀린 안내(무조건 `--offline`, Boot ≤3.3에 `@MockitoBean`)를 했다.
 **MCP 서버는 stdio라 사용자에게 질문할 수 없다** — 조건을 신호(`degraded`/`requiresConfirmation`/error code)로
 노출만 하고, 질문/중단 판단은 스킬·에이전트 계층이 한다([fallback-policy.md](../references/fallback-policy.md) 공통규칙 3).
 

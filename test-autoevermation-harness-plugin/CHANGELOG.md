@@ -9,6 +9,70 @@
 
 ---
 
+## [0.33.0] - 2026-08-09
+
+### Removed — MCP 리소스 4종·프롬프트 3종 (도달 불가 보일러플레이트, 약 215줄)
+
+세 MCP 서버가 노출하던 리소스·프롬프트를 전부 삭제했다. 이제 **`@mcp.tool()`만 노출**한다.
+
+| 삭제 | 서버 | 정본(중복 대상) |
+|---|---|---|
+| `build://metadata` (`build_metadata`) | build-test | `detect_build_tool` — 삭제분은 `root` 인자가 없어 CWD 고정 |
+| `build://test-reports` (`test_reports`) | build-test | `parse_junit_xml`·`parse_jacoco_report` — 삭제분은 경로만 반환 |
+| `suggest_test_command` (prompt) | build-test | `run_targeted_tests` |
+| `spec://glossary` (`get_glossary`) | spec-doc | `extract_acceptance_criteria`의 `glossary` 필드 |
+| `spec://requirement-matrix` (`get_requirement_matrix`) | spec-doc | `requirements[].sourceDoc` 추적성 |
+| `review_specs_for_testing` (prompt) | spec-doc | `agents/spec-reviewer.md` |
+| `ast://index` (`ast_index`) | repo-ast | `extract_test_targets` |
+| `ast://dependency-graph` (`ast_dependency_graph`) | repo-ast | tool의 `dependencyGraph` 필드 |
+| `explain_target_shape` (prompt) | repo-ast | `ast-structure-analyzer`·`source-code-analyzer` |
+
+**근거 (히스토리 조사).** 9종 전부 v0.10.0 최초 커밋에서 만들어진 뒤 **45커밋·32릴리스 동안 한 번도
+수정되지 않았고**(`git log -S <name>` = 생성 커밋 1건뿐), 112KB CHANGELOG에 **이름 등장 0회**였다.
+출처는 `RESEARCH_NOTES.md` §1의 FastMCP 보일러플레이트로, `ast_index`·`explain_target_shape`는
+**그 SDK 예제 이름 그대로**다. "노출 컴포넌트: tools/resources/prompts"라는 SDK 소개 문장을 따라 세
+종류를 채운 것이지 하네스 요구사항이 아니었다.
+
+**왜 방치됐나.** 파이프라인 에이전트 11개 전원의 도구 목록에 `ReadMcpResourceTool`이 없어
+**리소스·프롬프트는 구조적으로 호출 불가**했다. 사용자만 `@`멘션·`/mcp__server__prompt`로 닿을 수
+있어(공식: code.claude.com/docs/en/mcp) 검증도 갱신도 받지 않았고, 그 결과 실제 계약에서 **드리프트해
+틀린 안내**를 하게 됐다:
+- `suggest_test_command`: `-o`/`--offline`을 무조건 부착. 실제 경로는 `_network_allowed()`
+  (`BUILD_TEST_ALLOW_NETWORK`)로 분기한다.
+- `explain_target_shape`: `@MockitoBean`을 무조건 지시. 이 플러그인은 Boot 2.0–4.x를 지원하고
+  `version-compatibility.md` §2-B/2-C가 Boot ≤3.3을 `@MockBean`으로 분기하므로, 해당 대상에는
+  **컴파일되지 않는 코드**를 안내했다.
+
+**성능.** 저하 없음 — 오히려 개선이다. `ast://` 2종은 tool과 달리 `paths` 인자가 없어 매 읽기마다
+allow root **전체**를 `_analyze()`(전 리포 JavaParser 파싱)했다. tool 표면·파이프라인 프롬프트
+(`agents/*.md`, `skills/**/SKILL.md`)는 일절 변경하지 않았다.
+
+**카스케이드.** `get_requirement_matrix`가 유일 소비자였던 `_REQUIREMENT_MATRIX` 전역과
+`_extract_requirement_headings()`도 함께 제거했다. `index_docs()` 반환 계약(`status`/`indexed_files`/
+`chunk_count`/`unreadable`/`warnings`/`errors`)에 headings가 없어 출력은 불변이다.
+`_GLOSSARY`·`_build_glossary_from_chunks()`는 `extract_acceptance_criteria`가 실사용하므로 **유지**.
+
+**재발 방지.** `RESEARCH_NOTES.md` §1에 "이 프로젝트는 의도적으로 tool만 노출한다"는 경고를 고정하고,
+서버 3종 모듈 docstring에도 같은 계약을 명시했다. `docs/GUIDE.md` §2.4의 "각 서버는 보조 MCP 리소스…도
+노출한다"(삭제 대상을 광고하던 유일한 문장)를 사실로 교체했다.
+
+### Changed — `guard-gate-artifacts.py` 중복 run-active 재검사 제거
+
+v0.32.0이 `main()`에 전역 run-active 게이트를 세우면서 `_zone_a()` 내부의 두
+`_run_active(workspace, session_id)` 호출은 **동일 인자로 항상 True**가 확정됐다. 매 Write/Edit마다
+`run.json`을 2회 더 열고 JSON 파싱하던 낭비를 제거했다 — **판정 동작은 완전히 동일**하다.
+낡아진 주석("run-active일 때만/한정") 3곳도 정정했다. `_run_active()` 함수 자체는 `main()`이 쓰므로 유지.
+
+### Changed — 테스트 재타겟(커버리지 보존)
+
+`test_mutation_removal.py`의 `test_test_reports_resource_ignores_stale_mutations_xml`이 삭제된
+`build_test.test_reports()`를 호출했다. 이 테스트가 지키는 회귀("stale mutations XML을 리포트로
+오인하지 않는다")의 로직은 `_find_junit_xml`/`_find_jacoco_xml`에 있으므로 호출 대상만 그 둘로 바꾸고
+`test_report_discovery_ignores_stale_mutations_xml`로 개명했다. **테스트 141개 전부 통과(개수 불변)** —
+회귀 커버리지 손실 없음.
+
+---
+
 ## [0.32.0] - 2026-07-29
 
 **쓰기 가드를 복원한다 — 빠져 있던 게이트 한 개를 채워서.** v0.31.0이 지운 `#21` 커버리지 게이트

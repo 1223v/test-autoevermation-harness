@@ -7,6 +7,14 @@ Requirements:
 - mcp package (python3 -m pip install -r mcp/requirements.txt)
 - stdlib only for parsing/IO (no heavy deps)
 
+Exposed surface: ``@mcp.tool()`` ONLY. v0.33.0 deleted the ``spec://glossary`` /
+``spec://requirement-matrix`` resources and the ``review_specs_for_testing`` prompt — they
+were FastMCP boilerplate (RESEARCH_NOTES §1) that no agent could reach (no
+``ReadMcpResourceTool`` in any agent's tool list). The glossary is already returned as a
+first-class field by ``extract_acceptance_criteria``; requirement traceability is served by
+``requirements[].sourceDoc``; and the prompt duplicated ``agents/spec-reviewer.md``, the
+maintained SSOT for that workflow. Do not re-add resources/prompts here.
+
 Environment variables:
   SPEC_DOC_ALLOWLIST  comma-separated directory names allowed to index (e.g. "docs,specs,requirements")
   SPEC_DOC_REDACT     "off" to disable secret redaction; default is on
@@ -225,14 +233,11 @@ def _chunk_text(text: str, source: str) -> list[dict[str, Any]]:
 _INDEX: list[dict[str, Any]] = []
 # Glossary extracted from indexed docs
 _GLOSSARY: dict[str, str] = {}
-# Requirement matrix: doc -> list of requirement headings
-_REQUIREMENT_MATRIX: dict[str, list[str]] = {}
 
 
 def _clear_index() -> None:
     _INDEX.clear()
     _GLOSSARY.clear()
-    _REQUIREMENT_MATRIX.clear()
 
 
 def _build_glossary_from_chunks(chunks: list[dict[str, Any]]) -> dict[str, str]:
@@ -253,29 +258,6 @@ def _build_glossary_from_chunks(chunks: list[dict[str, Any]]) -> dict[str, str]:
                 if term and definition and term not in glossary:
                     glossary[term] = definition[:200]
     return glossary
-
-
-def _extract_requirement_headings(text: str) -> list[str]:
-    """Extract markdown/adoc headings that look like requirements."""
-    headings: list[str] = []
-    # Markdown headings
-    for match in re.finditer(r"^#{1,4}\s+(.+)$", text, re.MULTILINE):
-        heading = match.group(1).strip()
-        # Keep headings that look like requirements (contain must/shall/요구/기능/제약/given/when/then)
-        if re.search(
-            r"(?i)(must|shall|should|요구|기능|제약|조건|given|when|then|requirement|spec|criteria)",
-            heading,
-        ):
-            headings.append(heading)
-    # AsciiDoc headings (== Title)
-    for match in re.finditer(r"^={1,5}\s+(.+)$", text, re.MULTILINE):
-        heading = match.group(1).strip()
-        if re.search(
-            r"(?i)(must|shall|should|요구|기능|제약|조건|given|when|then|requirement|spec|criteria)",
-            heading,
-        ):
-            headings.append(heading)
-    return headings
 
 
 # ---------------------------------------------------------------------------
@@ -505,10 +487,6 @@ def index_docs(paths: list[str]) -> dict:
         src_key = str(fpath.resolve())
         chunks = _chunk_text(redacted, src_key)
         all_chunks.extend(chunks)
-        # Collect requirement headings for matrix
-        headings = _extract_requirement_headings(redacted)
-        if headings:
-            _REQUIREMENT_MATRIX[src_key] = headings
         indexed_files.append(src_key)
 
     for raw_path in paths:
@@ -717,110 +695,6 @@ def extract_acceptance_criteria(paths: list[str] | None = None) -> dict:
             ["Verify document paths and re-run index_docs() with correct allowlist."]
         ),
     }
-
-
-# ---------------------------------------------------------------------------
-# Resources
-# ---------------------------------------------------------------------------
-
-@mcp.resource("spec://glossary")
-def get_glossary() -> str:
-    """
-    Returns the glossary of domain terms extracted from indexed specification documents.
-    Format: JSON-like text with term: definition pairs.
-    """
-    if not _GLOSSARY:
-        return (
-            "# Spec Glossary\n\n"
-            "No glossary entries available. Run index_docs() first to populate the index.\n"
-        )
-    lines = ["# Spec Glossary\n"]
-    for term, definition in sorted(_GLOSSARY.items(), key=lambda x: x[0].lower()):
-        lines.append(f"**{term}**: {definition}\n")
-    return "\n".join(lines)
-
-
-@mcp.resource("spec://requirement-matrix")
-def get_requirement_matrix() -> str:
-    """
-    Returns the requirement matrix: a mapping of source documents to their
-    requirement-related headings, extracted during indexing.
-    """
-    if not _REQUIREMENT_MATRIX:
-        return (
-            "# Requirement Matrix\n\n"
-            "No requirements indexed yet. Run index_docs() first.\n"
-        )
-    lines = ["# Requirement Matrix\n"]
-    for doc, headings in sorted(_REQUIREMENT_MATRIX.items()):
-        lines.append(f"## {doc}\n")
-        for h in headings:
-            lines.append(f"- {h}")
-        lines.append("")
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Prompts
-# ---------------------------------------------------------------------------
-
-@mcp.prompt()
-def review_specs_for_testing(spec_paths: str = "", domain_keywords: str = "") -> str:
-    """
-    Prompt template for reviewing specification documents for testability.
-
-    Args:
-        spec_paths: Comma-separated list of specification document paths.
-        domain_keywords: Comma-separated domain keywords to focus on.
-    """
-    paths_section = (
-        f"Specification paths to review:\n{spec_paths}"
-        if spec_paths
-        else "Use all currently indexed specification documents."
-    )
-    keywords_section = (
-        f"\nFocus domain keywords: {domain_keywords}"
-        if domain_keywords
-        else ""
-    )
-    return f"""You are a test specification reviewer. Your task is to analyze specification
-documents and extract acceptance criteria suitable for test case generation.
-
-{paths_section}{keywords_section}
-
-## Instructions
-
-1. Call `index_docs(paths=[...])` to index the specification documents listed above.
-   - If a document is unreadable, report it as SPEC_DOC_UNREADABLE and continue.
-
-2. Call `extract_acceptance_criteria()` to extract all acceptance criteria.
-   - Normalize Gherkin-style (Given/When/Then) scenarios.
-   - Extract must/shall/해야/금지 obligation sentences as rules.
-   - Separate prohibitions from positive requirements.
-
-3. Call `search_requirements(query="...")` for key domain terms to find related sections.
-
-4. Return a SpecReviewResult JSON with:
-   - status: "ok" | "partial" | "failed"
-   - summary: concise description of what was found
-   - requirements[]: positive acceptance criteria with id, given, when, then, sourceDoc
-   - acceptanceCriteria[]: all criteria (union of requirements and prohibitions)
-   - prohibitions[]: negative/forbidden conditions
-   - glossary: domain term definitions extracted from documents
-   - evidence[]: list of supporting sources
-   - warnings[]: issues encountered (unreadable docs, etc.)
-   - errors[]: blocking errors
-   - nextActions[]: recommended follow-up steps
-
-## Quality Rules
-
-- Do NOT skip any requirement heading or obligation sentence.
-- Assign a unique id to each criterion (format: AC-XXXXXX or RULE-XXXXXX).
-- Always include sourceDoc for traceability.
-- Redaction is applied automatically — do not attempt to recover masked values.
-- No network access is permitted during this review.
-- Report every unreadable document explicitly with path and reason.
-"""
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,14 @@ Design source of truth:
                         build-test-mcp design + TestRunResult schema)
   - Build-tool detection and JUnit/JaCoCo report parsing are implemented inline.
 
+Exposed surface: ``@mcp.tool()`` ONLY. v0.33.0 deleted the ``build://metadata`` /
+``build://test-reports`` resources and the ``suggest_test_command`` prompt — they were
+FastMCP boilerplate (RESEARCH_NOTES §1) that no agent could reach (no
+``ReadMcpResourceTool`` in any agent's tool list) and that duplicated
+``detect_build_tool`` / ``parse_junit_xml`` / ``run_targeted_tests`` in a worse form.
+The prompt had also drifted: it hardcoded ``-o``/``--offline`` while the real path gates
+that flag on ``_network_allowed()``. Do not re-add resources/prompts here.
+
 Standard library only (subprocess, xml.etree, json, os, shlex). Python 3.10+.
 
 Security posture (RESEARCH_NOTES §build-test-mcp, §권한과 보안):
@@ -1546,50 +1554,6 @@ def check_dependency_cache(build_tool: str = "", root: str = ".") -> dict:
             "CI=BUILD_TEST_ALLOW_NETWORK=1 옵트인 또는 사전 캐시 워밍업. 근거: Gradle Dependency Caching."
         ),
     }
-
-
-# ---------------------------------------------------------------------------
-# Resources
-# ---------------------------------------------------------------------------
-
-@mcp.resource("build://metadata")
-def build_metadata() -> str:
-    """Build-tool metadata for the current working directory (JSON)."""
-    return json.dumps(_detect(os.getcwd()), indent=2)
-
-
-@mcp.resource("build://test-reports")
-def test_reports() -> str:
-    """Discovered test and coverage report paths for the CWD (JSON)."""
-    root = os.getcwd()
-    return json.dumps({
-        "junitXml": _find_junit_xml(root),
-        "jacocoXml": _find_jacoco_xml(root),
-    }, indent=2)
-
-
-# ---------------------------------------------------------------------------
-# Prompts
-# ---------------------------------------------------------------------------
-
-@mcp.prompt()
-def suggest_test_command(build_tool: str = "auto", test_pattern: str = "") -> str:
-    """Suggest the narrowest, network-off test command for the given build tool/pattern."""
-    pat = test_pattern or "<FullyQualifiedTestClass>"
-    if build_tool == "maven":
-        cmd = f"mvn -B -o test -Dtest={shlex.quote(pat)} jacoco:report"
-    elif build_tool == "gradle":
-        cmd = f"./gradlew --offline test --tests {shlex.quote(pat)} jacocoTestReport"
-    else:
-        cmd = ("Detect the build tool first (detect_build_tool). "
-               "Then for gradle: `./gradlew --offline test --tests <pat> jacocoTestReport`; "
-               "for maven: `mvn -B -o test -Dtest=<pat> jacoco:report`.")
-    return (
-        "Run the NARROWEST possible test scope with the network OFF.\n"
-        f"Suggested command: {cmd}\n"
-        "Then parse JUnit XML (parse_junit_xml), coverage (parse_jacoco_report), "
-        "and evaluate with coverage_gate."
-    )
 
 
 def main() -> None:

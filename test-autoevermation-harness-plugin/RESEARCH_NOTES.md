@@ -6,7 +6,7 @@
 - 패키지: **`mcp`** (CLI 추가기능 포함 시 `mcp[cli]`). 공식: [modelcontextprotocol/python-sdk](https://github.com/modelcontextprotocol/python-sdk)
 - 최소 런타임: **Python 3.10+**
 - 고수준 API: **FastMCP** — `from mcp.server.fastmcp import FastMCP`
-- 노출 컴포넌트: **tools**(부수효과/POST 유사), **resources**(컨텍스트 로드/GET 유사), **prompts**(재사용 템플릿)
+- SDK가 노출할 수 있는 컴포넌트: **tools**(부수효과/POST 유사), **resources**(컨텍스트 로드/GET 유사), **prompts**(재사용 템플릿)
 - transport: **stdio**(로컬 기본), SSE(폐지 예정), Streamable HTTP(원격 권장)
 - 구현 패턴:
   ```python
@@ -18,15 +18,20 @@
       """대상 패키지/파일에서 테스트 대상 후보를 추출한다."""
       ...
 
-  @mcp.resource("ast://index")
-  def ast_index() -> str: ...
-
-  @mcp.prompt()
-  def explain_target_shape(fqcn: str) -> str: ...
-
   if __name__ == "__main__":
       mcp.run(transport="stdio")
   ```
+
+> ⚠️ **이 프로젝트는 의도적으로 `@mcp.tool()`만 노출한다. resource·prompt를 추가하지 말 것.**
+> 위 "SDK가 노출할 수 있는 3종"은 SDK 능력 설명이지 이 하네스의 요구사항이 아니다. 이 문서의 초판
+> 스니펫에는 `@mcp.resource("ast://index")` / `@mcp.prompt() explain_target_shape(...)` 예시가
+> 들어 있었고, 그 **예시 이름 그대로** 서버 3종에 리소스 4종·프롬프트 3종이 구현됐다. 이후
+> **45커밋·32릴리스 동안 한 번도 수정되지 않았고 CHANGELOG 언급 0회**였다 — 소비자가 없었기 때문이다.
+> 파이프라인 에이전트 11개의 도구 목록에는 `ReadMcpResourceTool`이 없어 **리소스·프롬프트는 구조적으로
+> 호출 불가**하고, 사용자만 `@`멘션·`/mcp__server__prompt`로 닿을 수 있다. 그 결과 검증도 갱신도 받지
+> 않은 채 실제 계약에서 드리프트해 틀린 안내를 하게 됐다(무조건 `--offline` vs 실제
+> `BUILD_TEST_ALLOW_NETWORK` 분기; 무조건 `@MockitoBean` vs Boot ≤3.3 `@MockBean` — §8).
+> **v0.33.0에서 7종 전부 삭제.** 새 기능은 tool로 추가하고, 재사용 프롬프트는 `agents/*.md`에 둔다.
 - `.mcp.json` 연결: `command: "python3"`, `args: ["${CLAUDE_PLUGIN_ROOT}/mcp/<server>.py"]` 또는 콘솔 엔트리포인트.
 
 ## 2. Java AST: JavaParser + Symbol Solver

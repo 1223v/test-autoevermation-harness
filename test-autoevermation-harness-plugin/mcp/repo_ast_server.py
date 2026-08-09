@@ -6,8 +6,15 @@ AST/symbol analysis for the Spring test-harness plugin.
 
 Design contract (see RESEARCH_NOTES.md sections 1-2):
 
-* High-level API: ``from mcp.server.fastmcp import FastMCP`` with ``@mcp.tool()``,
-  ``@mcp.resource()`` and ``@mcp.prompt()`` decorators; stdio transport.
+* High-level API: ``from mcp.server.fastmcp import FastMCP`` with ``@mcp.tool()``
+  decorators ONLY; stdio transport. v0.33.0 deleted the ``ast://index`` /
+  ``ast://dependency-graph`` resources and the ``explain_target_shape`` prompt — they were
+  FastMCP boilerplate (RESEARCH_NOTES §1; ``ast_index``/``explain_target_shape`` were the
+  SDK example's own names) that no agent could reach, duplicated ``extract_test_targets``,
+  and — unlike the tools — took no ``paths`` argument, so each read ran ``_analyze()`` over
+  the ENTIRE allow root. The prompt had also drifted: it prescribed ``@MockitoBean``
+  unconditionally although this harness branches to ``@MockBean`` for Boot ≤3.3
+  (version-compatibility.md §2-B/2-C). Do not re-add resources/prompts here.
 * Java AST is produced by a bundled JavaParser symbol-solver CLI jar invoked via
   ``subprocess`` returning JSON. It is the ONLY backend: a missing jar or JDK is
   always a hard failure (``JAVAPARSER_REQUIRED``, fallback-policy.md #2).
@@ -974,46 +981,6 @@ def build_server() -> Any:
         returned in ``unresolvedSymbols``. Method bodies are never returned.
         """
         return _analyze(paths, kinds=kinds)
-
-    @mcp.resource("ast://index")
-    def ast_index() -> str:
-        """Return a JSON index of test targets discovered under the allow root."""
-        root = _allow_root() or Path.cwd()
-        result = _analyze([str(root)])
-        index = {
-            "root": str(root),
-            "degraded": result["degraded"],
-            "targets": [
-                {"fqcn": t["fqcn"], "kind": t["kind"], "stereotype": t.get("stereotype")}
-                for t in result["testTargets"]
-            ],
-            "unresolvedSymbols": result["unresolvedSymbols"],
-        }
-        return json.dumps(index, indent=2)
-
-    @mcp.resource("ast://dependency-graph")
-    def ast_dependency_graph() -> str:
-        """Return the collaborator dependency graph as JSON (nodes + edges)."""
-        root = _allow_root() or Path.cwd()
-        result = _analyze([str(root)])
-        return json.dumps(result["dependencyGraph"], indent=2)
-
-    @mcp.prompt()
-    def explain_target_shape(fqcn: str) -> str:
-        """Prompt template: explain a target's testable shape for harnessing."""
-        return (
-            f"Using only structure-only AST metadata for `{fqcn}` (never source "
-            "bodies), explain its testable shape for a Spring test harness:\n"
-            "1. Classify the Spring stereotype/kind (controller/service/"
-            "repository/component/pojo) and the recommended test slice "
-            "(@WebMvcTest+MockMvc, @DataJpaTest, or a plain unit test).\n"
-            "2. List public methods that are test targets and the collaborators "
-            "(injected fields) that should be mocked with @MockitoBean.\n"
-            "3. Call out test seams / risk points (clock, randomness, external "
-            "I/O, filesystem) that need deterministic substitution.\n"
-            "4. Note any unresolved symbols that reduce confidence.\n"
-            "Do not invent members that are not present in the AST metadata."
-        )
 
     return mcp
 

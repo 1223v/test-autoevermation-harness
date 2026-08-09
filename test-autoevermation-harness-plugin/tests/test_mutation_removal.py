@@ -7,7 +7,6 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -177,14 +176,23 @@ tasks.jacocoTestReport { reports { xml.required.set(true) } }
                 self.assertEqual([], result["missing"])
                 self.assertNotIn("junitEngine", result)
 
-    def test_test_reports_resource_ignores_stale_mutations_xml(self) -> None:
+    def test_report_discovery_ignores_stale_mutations_xml(self) -> None:
+        """Report discovery must not mistake a leftover mutations XML for a real report.
+
+        v0.33.0: this used to go through the `build://test-reports` MCP resource, which
+        was deleted as unreachable boilerplate. The regression it guards lives in the
+        discovery helpers themselves, so it now calls them directly — same coverage,
+        one fewer duplicate surface.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_jacoco_report(root)
             _write_stale_report(root)
 
-            with mock.patch.object(build_test.os, "getcwd", return_value=tmp):
-                reports = json.loads(build_test.test_reports())
+            reports = {
+                "junitXml": build_test._find_junit_xml(tmp),
+                "jacocoXml": build_test._find_jacoco_xml(tmp),
+            }
 
         self.assertEqual({"junitXml", "jacocoXml"}, set(reports))
         self.assertIsNotNone(reports["jacocoXml"])
