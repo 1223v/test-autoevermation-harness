@@ -1,3 +1,25 @@
+"""Regression guard: PITest-based mutation testing stays removed (v0.25.0).
+
+This file is NOT leftover from a deleted feature — it was created BY the commit that
+deleted it (268b469, "Remove mutation testing from harness"). Its job is to fail loudly
+if mutation testing ever creeps back into the tool surface, the build/CI examples, or
+the report-discovery paths. The repo uses this pattern elsewhere: see
+`RegexFallbackRemovalTests` in test_update_persistence.py, which guards the v0.31.0
+regex-fallback removal the same way.
+
+Why the stale-report cases still matter. v0.25.0 deliberately did NOT touch the target
+project's own build files or CI, because a user's `info.solidsoft.pitest` / `pitest-maven`
+configuration is their asset. So a real user can still have a leftover PIT report sitting
+on disk at `build/reports/pitest/mutations.xml` — PIT's actual Gradle output path
+(pitest.org). These tests prove the harness treats that file as absent rather than
+mistaking it for live evidence and advancing the pipeline on it.
+
+Scope note (v0.33.0): five `detect_pipeline_state` entry-stage tests that had accreted
+here in v0.25.1 — because these JUnit/JaCoCo fixtures were handy — moved to
+test_pipeline_state_contract.py. They were unrelated to mutation and made this file's
+name misleading.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -40,30 +62,8 @@ def _write_jacoco_report(root: Path, *, missed: int = 0, covered: int = 100) -> 
     return report
 
 
-def _write_junit_report(root: Path, *, failed: bool = False) -> Path:
-    report = root / "build" / "test-results" / "test" / "TEST-OrderServiceTest.xml"
-    report.parent.mkdir(parents=True, exist_ok=True)
-    failure = '<failure type="AssertionError">expected true</failure>' if failed else ""
-    report.write_text(
-        f"""<testsuite name="OrderServiceTest" tests="1" failures="{int(failed)}">
-  <testcase classname="OrderServiceTest" name="placesOrder">{failure}</testcase>
-</testsuite>""",
-        encoding="utf-8",
-    )
-    return report
-
-
-def _write_empty_junit_report(root: Path) -> Path:
-    report = root / "build" / "test-results" / "test" / "TEST-Empty.xml"
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(
-        '<testsuite name="Empty" tests="0" failures="0"></testsuite>',
-        encoding="utf-8",
-    )
-    return report
-
-
 def _write_stale_report(root: Path) -> Path:
+    """A leftover PIT report at PIT's real Gradle output path (pitest.org)."""
     report = root / "build" / "reports" / "pitest" / "mutations.xml"
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(
@@ -231,108 +231,6 @@ class StaleReportTests(unittest.TestCase):
         self.assertEqual(6, result["recommendedEntryStage"])
         self.assertNotIn("pitestReport", result)
         self.assertNotIn("pitestPath", result["evidence"])
-
-    def test_pipeline_state_maps_durable_evidence_to_new_entry_stages(self) -> None:
-        cases = (
-            (False, False, "5", 6),
-            (False, True, "8", 6),
-            (True, False, "6", 8),
-            (True, True, "8", 9),
-        )
-        for has_junit, has_jacoco, highest, entry in cases:
-            with self.subTest(junit=has_junit, jacoco=has_jacoco):
-                with tempfile.TemporaryDirectory() as tmp:
-                    root = Path(tmp)
-                    test_file = root / "src" / "test" / "java" / "OrderServiceTest.java"
-                    test_file.parent.mkdir(parents=True)
-                    test_file.write_text("class OrderServiceTest {}", encoding="utf-8")
-                    index = root / "test_docs" / "INDEX.md"
-                    index.parent.mkdir(parents=True)
-                    index.write_text("# Harness tests", encoding="utf-8")
-                    if has_junit:
-                        _write_junit_report(root)
-                    if has_jacoco:
-                        _write_jacoco_report(root)
-
-                    result = build_test.detect_pipeline_state(tmp)
-
-                self.assertEqual(highest, result["highestCompletedStage"])
-                self.assertEqual(entry, result["recommendedEntryStage"])
-
-    def test_low_coverage_jacoco_reenters_stage_8_instead_of_skipping_gate(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            test_file = root / "src" / "test" / "java" / "OrderServiceTest.java"
-            test_file.parent.mkdir(parents=True)
-            test_file.write_text("class OrderServiceTest {}", encoding="utf-8")
-            index = root / "test_docs" / "INDEX.md"
-            index.parent.mkdir(parents=True)
-            index.write_text("# Harness tests", encoding="utf-8")
-            _write_junit_report(root)
-            _write_jacoco_report(root, missed=99, covered=1)
-
-            state = build_test.detect_pipeline_state(tmp)
-            gate = build_test.coverage_gate(tmp)
-
-        self.assertEqual("8", state["highestCompletedStage"])
-        self.assertFalse(state["jacocoReport"]["gatePassed"])
-        self.assertEqual(8, state["recommendedEntryStage"])
-        self.assertFalse(gate["pass"])
-
-    def test_unknown_thresholds_are_conservative_until_explicitly_supplied(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            test_file = root / "src" / "test" / "java" / "OrderServiceTest.java"
-            test_file.parent.mkdir(parents=True)
-            test_file.write_text("class OrderServiceTest {}", encoding="utf-8")
-            index = root / "test_docs" / "INDEX.md"
-            index.parent.mkdir(parents=True)
-            index.write_text("# Harness tests", encoding="utf-8")
-            _write_junit_report(root)
-            _write_jacoco_report(root, missed=4, covered=96)
-
-            conservative = build_test.detect_pipeline_state(tmp)
-            configured = build_test.detect_pipeline_state(
-                tmp, line=0.95, branch=0.95, method=0.95, klass=0.95
-            )
-
-        self.assertEqual(8, conservative["recommendedEntryStage"])
-        self.assertEqual(9, configured["recommendedEntryStage"])
-
-    def test_failed_junit_report_reenters_stage_6_even_with_full_coverage(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            test_file = root / "src" / "test" / "java" / "OrderServiceTest.java"
-            test_file.parent.mkdir(parents=True)
-            test_file.write_text("class OrderServiceTest {}", encoding="utf-8")
-            index = root / "test_docs" / "INDEX.md"
-            index.parent.mkdir(parents=True)
-            index.write_text("# Harness tests", encoding="utf-8")
-            _write_junit_report(root, failed=True)
-            _write_jacoco_report(root)
-
-            state = build_test.detect_pipeline_state(tmp)
-
-        self.assertEqual("8", state["highestCompletedStage"])
-        self.assertEqual(1, state["junitReport"]["failed"])
-        self.assertEqual(6, state["recommendedEntryStage"])
-
-    def test_zero_test_junit_report_is_not_green(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            test_file = root / "src" / "test" / "java" / "OrderServiceTest.java"
-            test_file.parent.mkdir(parents=True)
-            test_file.write_text("class OrderServiceTest {}", encoding="utf-8")
-            index = root / "test_docs" / "INDEX.md"
-            index.parent.mkdir(parents=True)
-            index.write_text("# Harness tests", encoding="utf-8")
-            _write_empty_junit_report(root)
-            _write_jacoco_report(root)
-
-            state = build_test.detect_pipeline_state(tmp)
-
-        self.assertEqual(0, state["junitReport"]["passed"])
-        self.assertEqual(6, state["recommendedEntryStage"])
 
 
 if __name__ == "__main__":

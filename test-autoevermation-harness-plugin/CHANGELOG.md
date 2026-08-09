@@ -9,6 +9,33 @@
 
 ---
 
+## [0.33.1] - 2026-08-09
+
+### Changed — 테스트 파일 의도 정리: `test_mutation_removal.py` 드리프트 해소
+
+동작 변경 없음(테스트 재배치 + 문서화). 테스트 141개 그대로, 커버리지 손실 0.
+
+`test_mutation_removal.py`가 "이미 지운 mutation 기능의 잔재 아니냐"는 오해를 반복적으로
+유발했다. 실제로는 잔재가 아니라 **제거를 지키는 회귀 가드**이며, 근거는 파일을 만든 커밋이
+곧 기능을 지운 커밋(`268b469`, v0.25.0)이라는 사실이다. 같은 패턴을 이 리포는 이미
+`test_update_persistence.py`의 `RegexFallbackRemovalTests`(v0.31.0 정규식 폴백 제거)에도 쓴다.
+
+오해의 진짜 원인은 파일 드리프트였다. v0.25.1이 JUnit/JaCoCo 픽스처가 여기 있다는 이유로
+`detect_pipeline_state` 진입단계 테스트 5개를 이 파일에 끼워넣어, 14개 중 5개가 mutation과
+무관해졌다. 그 5개를 **`tests/test_pipeline_state_contract.py`**로 분리했다(9 + 5 = 14).
+이동한 5개에서 5회 복붙돼 있던 프로젝트 시드 블록은 `_seed_project()`로 묶었다.
+
+`test_mutation_removal.py`에는 목적을 밝히는 모듈 docstring을 추가했다 — 특히 stale 리포트
+가드가 왜 지금도 유효한지: v0.25.0은 대상 프로젝트의 빌드 파일·CI를 **의도적으로 건드리지
+않았으므로**(사용자 자산), 사용자 디스크에 PIT의 실제 Gradle 출력 경로인
+`build/reports/pitest/mutations.xml`(pitest.org)이 남아 있는 것은 실제 시나리오다. 이 가드들은
+하네스가 그 파일을 살아 있는 증거로 오인해 파이프라인을 전진시키지 않음을 보장한다.
+
+이동으로 고아가 된 픽스처(`_write_junit_report`·`_write_empty_junit_report`)는 원본 파일에서
+제거했다.
+
+---
+
 ## [0.33.0] - 2026-08-09
 
 ### Removed — MCP 리소스 4종·프롬프트 3종 (도달 불가 보일러플레이트, 약 215줄)
