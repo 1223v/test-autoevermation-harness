@@ -80,7 +80,7 @@ Claude Code 공식 계약상 **도구 실행을 실제로 막을 수 있는 훅 
 | `test_write_guard_is_registered_for_write_and_edit_only` | 가드가 `Write\|Edit` 하나로만 등록됐는지 |
 | `test_write_guard_judges_nothing_outside_an_active_run` | 전 Zone이 run-active 게이트 뒤에 있는지(구조 불변식) |
 | `test_enforcement_prose_matches_the_restored_guard` | 문서·리마인더가 실제 강제와 일치하는지 |
-| `test_write_hooks_are_post_tool_use_and_warn_only` | `Write\|Edit`에 남은 훅이 PostToolUse이고 `--mode warn`인지 |
+| `test_write_hooks_are_post_tool_use_and_warn_only` | PostToolUse의 `Write\|Edit` 항목(redact-secrets)이 `--mode warn`인지 (PreToolUse의 `Write\|Edit` 가드는 별도 — Tier 1.1) |
 | `test_guard_scripts_are_deleted` | `guard-read.py`·`guard-network.py` 파일 부재 |
 | `test_hooks_json_has_no_read_or_bash_matcher` | `Read\|WebFetch`·`Bash` 매처 부재 |
 
@@ -91,7 +91,9 @@ Claude Code 공식 계약상 **도구 실행을 실제로 막을 수 있는 훅 
 ### 2.1 `scripts/redact-secrets.py` (PostToolUse `Write|Edit`, `--mode warn`)
 
 쓰기가 **끝난 뒤** 실행되므로 구조적으로 차단 불가. `warn` 모드는 매치를 **보고만** 하고 파일을 수정하지
-않는다(파일 수정은 `strip` 모드 전용이며 훅에서 쓰지 않는다). 탐지 대상: API 키·토큰, 패스워드, JDBC
+않는다(파일 수정은 `strip` 모드 전용이며 훅에서 쓰지 않는다). 보고 경로는 공식 PostToolUse 출력 계약을 따른다 — 발견 시
+`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":…},"systemMessage":…}`를 stdout에 내고 **exit 0**
+(v0.34.0; 이전의 exit 1은 PostToolUse에서 사용자에게만 보이는 non-blocking error라 모델에 전달되지 않았다 — exit 2만 stderr를 Claude에 보낸다). 탐지 대상: API 키·토큰, 패스워드, JDBC
 URL, AWS 키, PEM 블록, 이메일, Authorization 헤더.
 
 ### 2.2 `settings.json`의 `permissions`
@@ -191,8 +193,7 @@ for f in glob.glob('$HOME/.claude/plugins/marketplaces/*/test-autoevermation-har
 "
 ```
 
-`PreToolUse`에 `Write|Edit`가 보이면 **아직 v0.29.0 이하**다 — `/plugin update` 후 `/reload-plugins`가
-필요하다. 훅 변경은 세션 시작 시점에 로드되므로 `/reload-plugins` 없이는 이전 버전 경로를 계속 쓴다.
+현재(v0.32.0+) 정상 상태는 `PreToolUse`에 `Skill|Task|Agent`(record-run-context)와 `Write|Edit`(guard-gate-artifacts), `PostToolUse`에 `detect_pipeline_state`와 `Write|Edit`(redact-secrets)가 보이는 것이다. `PreToolUse`에 `Read|WebFetch`나 `Bash` 매처가 보이면 v0.28.0 이하이므로 `/plugin update` 후 `/reload-plugins`가 필요하다. 훅 변경은 세션 시작 시점에 로드되므로 `/reload-plugins` 없이는 이전 버전 경로를 계속 쓴다.
 
 ---
 

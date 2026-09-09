@@ -1,6 +1,6 @@
 ---
 name: setup-harness
-description: Spring 테스트 하네스를 돌리기 위한 환경 세팅(Phase E — Python·MCP 런타임, MCP 라이브 연결, JDK 21+, JavaParser jar, JDT LS)과 상태줄 설치를 수행한다. "환경 세팅", "하네스 설치", "환경 설정", "초기 설치", "MCP 설치", "setup", "세팅해줘", "환경 점검/복구"처럼 실행 환경 준비가 필요한 상황에서 자동 호출된다. 플러그인 설치 후 최초 1회 실행하며, 환경이 깨졌을 때 재실행하면 빠진 항목만 멱등하게 복구한다. CI(claude -p)에서는 질문 없이 결정적 항목을 자동 세팅하고, 미충족 시 하드 중단한다.
+description: Spring 테스트 하네스를 돌리기 위한 환경 세팅(Phase E — Python·MCP 런타임, MCP 라이브 연결, JDK 21+, JavaParser jar, JDT LS)과 상태줄 설치를 수행한다. "환경 세팅", "하네스 설치", "환경 설정", "초기 설치", "MCP 설치", "setup", "세팅해줘", "환경 점검/복구"처럼 실행 환경 준비가 필요한 상황에서 자동 호출된다. 플러그인 설치 후 최초 1회 실행하며, 환경이 깨졌을 때 재실행하면 빠진 항목만 멱등하게 복구한다. 비대화형(AskUserQuestion 사용 불가) 세션에서는 질문 없이 결정적 항목을 자동 세팅하고, 미충족 시 하드 중단한다.
 ---
 
 ## 목적
@@ -33,24 +33,25 @@ description: Spring 테스트 하네스를 돌리기 위한 환경 세팅(Phase 
 /test-autoevermation-harness-plugin:setup-harness
 ```
 
-> **위임 금지 — 메인 루프 전용.** 이 스킬은 MCP `health` 도구 호출과 `AskUserQuestion`을 사용하는데, 둘 다 **서브에이전트에서 사용할 수 없다**. `Task(subagent_type=...)`로 위임하지 말고 메인 루프에서 직접 수행한다.
+> **위임 금지 — 메인 루프 전용.** 이 스킬은 `AskUserQuestion`으로 항목별 세팅 동의를 받는데, `AskUserQuestion`은 **서브에이전트 도구 목록에서 제거된다**([Sub-agents](https://code.claude.com/docs/en/sub-agents) — MCP 도구는 서브에이전트도 쓸 수 있지만 질문은 불가). `Agent(subagent_type=...)`로 위임하지 말고 메인 루프에서 직접 수행한다.
 
 ---
 
 ## 인터랙티브 모드 감지
 
-다음 중 하나라도 해당하면 **CI 모드**(질문 없이 자동 세팅)로 동작한다:
+**비대화형(CI) 모드**(질문 없이 결정적 항목 자동 세팅, 비결정적 항목 하드 중단)는 다음 중 하나로 판정한다(공식 근거: [Sub-agents](https://code.claude.com/docs/en/sub-agents) — 서브에이전트에서 `AskUserQuestion` 제거, [headless](https://code.claude.com/docs/en/headless) — `dontAsk`·`--permission-prompts none`에서 거부/제거, [Hooks](https://code.claude.com/docs/en/hooks) — plain `claude -p`에서는 도구가 있어도 호출이 차단됨. 환경변수나 `-p` 플래그 자체는 모델이 관측할 수 없다):
 
-- 환경 변수 `CI=true` 또는 `CLAUDE_NO_PROMPT=true`
-- `claude -p` 플래그로 호출된 비대화형 세션
+1. 호출 인자에 `skipInterview: true`가 명시된 경우
+2. 현재 세션의 도구 목록에 `AskUserQuestion`이 **없는** 경우(서브에이전트, `--permission-prompts none`)
+3. 도구는 있으나 **첫 `AskUserQuestion` 호출이 차단·거부**된 경우(plain `claude -p`는 차단, `dontAsk`는 거부) — 이후 다시 묻지 않고 비대화형 규칙을 적용한다
 
 ---
 
 ## 단계별 절차
 
-### TODO 리스트로 진행한다
+### 체크리스트로 진행한다
 
-시작 시 `TodoWrite`로 아래 항목을 만들고 `pending → in_progress → completed`로 하나씩 체크한다(진척 가시화).
+시작 시 아래 항목을 응답 텍스트에 체크리스트로 표시하고, 항목별 결과(`ok` / `fixed` / `failed` / `skipped`)를 갱신하며 진행 상황을 보고한다(진척 가시화). 별도 작업 관리 도구는 쓰지 않는다 — `TodoWrite`는 기본 비활성이고 최신 모델(Opus 4.8·Sonnet 5·Fable 5 이상)에서는 task 도구가 제공되지 않는다([Tools reference](https://code.claude.com/docs/en/tools-reference)).
 
 ```
 E1 Python 3.10+ · E2 MCP SDK · E3 MCP 서버 3종 등록 · E3b MCP 라이브 연결 검증 ·
@@ -88,7 +89,7 @@ S1 상태줄 설치(선택)
 E3의 모듈 로드 검사만으로는 플러그인 MCP 등록 실패(세션에 도구 미노출)를 못 잡는다. 따라서 3개 서버의 무부작용 `health` 도구를 **실제로 호출**해 연결을 검증한다.
 
 ```
-repo-ast-mcp.health()   → { server, pluginVersion, javaparser:{jarFound, jarPath, javaOk, requireJavaparser}, allowRoot }
+repo-ast-mcp.health()   → { server, pluginVersion, javaparser:{jarFound, jarPath, javaOk, requireJavaparser, jarPersisted, jarStale}, allowRoot }
 spec-doc-mcp.health()   → { server, pluginVersion, ... }
 build-test-mcp.health() → { server, pluginVersion, networkAllowed, ... }
 ```
@@ -146,10 +147,10 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/
     "E1": "ok (python 3.12.4)",
     "E2": "ok (mcp[cli] 1.4.1 @ plugin venv)",
     "E3": "ok (repo-ast, spec-doc, build-test)",
-    "E3b": "ok (health x3, pluginVersion 0.28.0)",
+    "E3b": "ok (health x3, pluginVersion <plugin.json version>)",
     "E4": "ok (java 21.0.3)",
     "E5": "ok (bundled mvnw)",
-    "E6": "ok (target/astcli-1.0.0-shaded.jar — built)",
+    "E6": "ok (${CLAUDE_PLUGIN_DATA}/javaparser/astcli-1.0.0-shaded.jar — jarPersisted:true)",
     "E7": "ok (jdtls provisioned)",
     "E10": "ok (JDK 21 LTS — inline mock-maker 지원)",
     "S1": "installed (consent granted)"

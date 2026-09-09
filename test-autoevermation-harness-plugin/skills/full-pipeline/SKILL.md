@@ -19,11 +19,11 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 ## 실행 모드 · `_workspace/` · 부분 재실행 (성능)
 
-**실행 모드: 서브에이전트 팬아웃/파이프라인.** 1·2단계는 상호 통신이 불필요한 독립 작업이므로 `Task(subagent_type=...)` 병렬 호출을 쓴다(에이전트 팀의 `TeamCreate`/`SendMessage` 조율 비용·지연을 피함). 이후는 순차 의존이라 파이프라인으로 잇는다.
+**실행 모드: 서브에이전트 팬아웃/파이프라인.** 1·2단계는 상호 통신이 불필요한 독립 작업이므로 `Agent(subagent_type=...)` 병렬 호출을 쓴다(에이전트 팀의 `TeamCreate`/`SendMessage` 조율 비용·지연을 피함). 이후는 순차 의존이라 파이프라인으로 잇는다.
 
 **`_workspace/` 파일 기반 전달.** 각 단계 산출물(JSON)을 메인 컨텍스트로 통째로 옮기지 말고 `_workspace/{단계}_{에이전트}_{산출물}.json`에 저장하고, 다음 단계에는 **경로만** 전달한다. 메인 컨텍스트에는 `{status, 핵심수치, 경로}` 요약만 환원한다 → 컨텍스트 토큰 절감.
 
-**단계 계약(위임 필수 — 훅 물리 강제).** 각 단계는 아래 표의 주체로만 수행한다. **위임 없이 오케스트레이터가 직접 수행한 단계는 무효다** — "직접 하는 편이 더 빠르다/결과가 같다"는 위임 생략 사유가 될 수 없다. `record-run-context.py`(Skill/Task/Agent 훅)가 스폰 증거를 `_workspace/.markers/`에 기록하고, `guard-gate-artifacts.py`(Write/Edit 훅)가 ① spawn 마커 없는 단계 산출물 기록, ② 오케스트레이터의 `src/test/java` 직접 기록(예외: test-fixer patch 적용 Edit), ③ 선행 산출물 없는 후속 산출물 기록(순서 게이트)을 deny한다. 산출물 JSON은 단계 완료 **즉시** Write한다 — 산출물 없는 단계는 미수행으로 간주되어 후속 단계 기록이 차단된다. 훅 deny를 받으면 인라인 수행을 중단하고 해당 단계를 표의 주체로 재실행하라.
+**단계 계약(위임 필수 — 훅 물리 강제).** 각 단계는 아래 표의 주체로만 수행한다. **위임 없이 오케스트레이터가 직접 수행한 단계는 무효다** — "직접 하는 편이 더 빠르다/결과가 같다"는 위임 생략 사유가 될 수 없다. `record-run-context.py`(Skill/Agent 훅 — 구 Task alias 포함)가 스폰 증거를 `_workspace/.markers/`에 기록하고, `guard-gate-artifacts.py`(Write/Edit 훅)가 ① spawn 마커 없는 단계 산출물 기록, ② 오케스트레이터의 `src/test/java` 직접 기록(예외 없음 — 보정도 test-fixer가 직접 수정), ③ 선행 산출물 없는 후속 산출물 기록(순서 게이트)을 deny한다. 산출물 JSON은 단계 완료 **즉시** Write한다 — 산출물 없는 단계는 미수행으로 간주되어 후속 단계 기록이 차단된다. 훅 deny를 받으면 인라인 수행을 중단하고 해당 단계를 표의 주체로 재실행하라.
 
 > **강제 범위(v0.32.0)**: 이 훅은 `_workspace/.markers/run.json`이 현재 세션과 일치할 때 — 즉 **full-pipeline이 실제로 도는 동안에만** 판정한다. 하네스와 무관한 세션의 편집은 경로와 무관하게 전부 통과한다.
 
@@ -32,17 +32,17 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 | 단계 | 필수 수행 주체 | 산출물(`_workspace/`) |
 |---|---|---|
 | 0 | `configure-harness` **스킬 호출** (E1~E10 **세팅** 수행 금지 — `setup-harness` 소관. E-verify **프로브만** 허용) | `00_config-harness.json` |
-| 1 | `Task(subagent_type="spec-reviewer")` | `01_spec-reviewer_criteria.json` |
-| 2 | `Task(subagent_type="ast-structure-analyzer")` | `02_ast_targets.json` |
-| 3 | `Task(subagent_type="source-code-analyzer")` | `03_source_seams.json` |
-| 3.5 | `Task(subagent_type="refactor-advisor")` + 오케스트레이터 게이트 | `03b_refactor_advisory.json` · `03c_advisory_gate.json` |
-| 4 | `Task(subagent_type="scenario-generator")` | `04_scenario_set.json` |
+| 1 | `Agent(subagent_type="spec-reviewer")` | `01_spec-reviewer_criteria.json` |
+| 2 | `Agent(subagent_type="ast-structure-analyzer")` | `02_ast_targets.json` |
+| 3 | `Agent(subagent_type="source-code-analyzer")` | `03_source_seams.json` |
+| 3.5 | `Agent(subagent_type="refactor-advisor")` + 오케스트레이터 게이트 | `03b_refactor_advisory.json` · `03c_advisory_gate.json` |
+| 4 | `Agent(subagent_type="scenario-generator")` | `04_scenario_set.json` |
 | 4.5 | 오케스트레이터: `test_docs/scenarios/*.md` **저장 후** 승인 질문 | `04b_approval.json` |
-| 5 | `Task(subagent_type="test-code-generator")` (테스트 파일 소유권=에이전트) | `05_test-gen_files.json` |
-| 6 | `Task(subagent_type="test-runner")` | `06_run_result.json` |
-| 7 | `Task(subagent_type="test-fixer")` (patch 적용만 오케스트레이터 Edit) | `07_repair_result.json` |
-| 8 | `measure-coverage` 게이트 루프 (`Task(subagent_type="coverage-closer")`) | `08_coverage_result.json` |
-| 9 | `Task(subagent_type="scenario-conformance-verifier")` | `09_conformance.json` (+9.5: `09b_conformance_repair.json`) |
+| 5 | `Agent(subagent_type="test-code-generator")` (테스트 파일 소유권=에이전트) | `05_test-gen_files.json` |
+| 6 | `Agent(subagent_type="test-runner")` | `06_run_result.json` |
+| 7 | `Agent(subagent_type="test-fixer")` (테스트 수정 소유권=에이전트, 메인 트리 직접 수정) | `07_repair_result.json` |
+| 8 | `measure-coverage` 게이트 루프 (`Agent(subagent_type="coverage-closer")`) | `08_coverage_result.json` |
+| 9 | `Agent(subagent_type="scenario-conformance-verifier")` | `09_conformance.json` (+9.5: `09b_conformance_repair.json`) |
 
 **Phase 0 컨텍스트 확인(부분 재실행 · schema v2 상태 복원).** `_workspace/`는 휘발성이므로 생성 테스트, 승인 시나리오, JUnit XML, JaCoCo XML을 영속 증거로 사용한다.
 
@@ -117,7 +117,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/script
 | `buildTool` | `string` | 아니오 | `"미지정"` → 0단계 #5·#13 확정 | `gradle` 또는 `maven` |
 | `junitPolicy` | `string` | 아니오 | `"jupiter-style"` | `jupiter-style`(BOM 위임) 또는 `strict-5x` |
 | `testScope` | `string` | 아니오 | `"mixed"` | `unit` / `slice` / `integration` / `mixed` |
-| `javaVersion` | `string` | 아니오 | `"미지정"` → 0단계 #13 확정 | `17`–`26` |
+| `javaVersion` | `string` | 아니오 | `"미지정"` → 0단계 #13 확정 | `8`–`26` (Boot 2.x baseline 8, 3.x+ 17 — version-compatibility.md) |
 | `springVersion` | `string` | 아니오 | `"미지정"` → 0단계 #4·#13 확정 | Spring Boot 버전 (예: `3.4.5`) |
 | `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
 | `lspAvailable` | `boolean` | 아니오 | `true` | JDT LS 연결 여부. E7(JDT LS)은 `setup-harness`의 필수 항목이므로 통과 시 항상 `true` — 미가용이면 **E-verify 게이트에서 하드 중단**(세팅은 `setup-harness` 소관) |
@@ -187,7 +187,7 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 
 ### 0단계: configure-harness (인터랙티브 설정)
 
-대화형 CLI에서는 `configure-harness` 스킬로 사용자에게 3항목(스펙 경로 추가 / 대상 폴더·패키지 선별 / 커버리지 임계값·제외)을 AskUserQuestion으로 질문하고 `HarnessConfig`를 만든다. 비대화형(`claude -p`/CI)에서는 인터뷰를 건너뛰고 `HarnessRequest` + 커버리지 기본값으로 `HarnessConfig`를 구성한다.
+대화형 CLI에서는 `configure-harness` 스킬로 사용자에게 3항목(스펙 경로 추가 / 대상 폴더·패키지 선별 / 커버리지 임계값·제외)을 AskUserQuestion으로 질문하고 `HarnessConfig`를 만든다. 비대화형(`AskUserQuestion` 도구 부재 또는 첫 호출 차단 — 판정 정본은 `configure-harness` 「인터랙티브 모드 감지」)에서는 인터뷰를 건너뛰고 `HarnessRequest` + 문서화된 커버리지 기본값으로 `HarnessConfig`를 구성하되, #13 필수 항목이 비면 `configure-harness`가 하드 중단한다.
 
 ```
 /test-autoevermation-harness-plugin:configure-harness
@@ -204,9 +204,8 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 **1a. ingest-specs 호출**
 
 ```
-Task(
+Agent(
   subagent_type="spec-reviewer",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -228,9 +227,8 @@ Task(
 **1b. analyze-ast 호출 (1a와 동시)**
 
 ```
-Task(
+Agent(
   subagent_type="ast-structure-analyzer",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -257,9 +255,8 @@ Task(
 ### 3단계: 순차 — analyze-source
 
 ```
-Task(
+Agent(
   subagent_type="source-code-analyzer",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -291,9 +288,8 @@ Task(
 1. **판정** — `refactor-advisor` 호출:
 
 ```
-Task(
+Agent(
   subagent_type="refactor-advisor",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -335,9 +331,8 @@ Task(
 > `astResult`·`sourceResult`는 **3.5단계 게이트에서 제외 대상이 필터링된 버전**을 전달한다(플래그 0건·skip이면 원본 그대로).
 
 ```
-Task(
+Agent(
   subagent_type="scenario-generator",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -382,9 +377,8 @@ Task(
 ### 5단계: 순차 — generate-tests
 
 ```
-Task(
+Agent(
   subagent_type="test-code-generator",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -428,16 +422,15 @@ Task(
 )
 ```
 
-결과를 `genResult`로 저장. **파일 기록은 test-code-generator가 자가 검증 게이트(기록→parse→대조) 수행 과정에서 이미 완료했다 — 오케스트레이터가 `files[].content`로 다시 Write하지 않는다(이중 기록 금지, 소유권은 에이전트).** 오케스트레이터는 `files[]`의 `targetCallCheck`만 검사한다: 없거나 `"mismatch"`인 항목은 디스크에서 삭제·결과에서 제외하고 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다 — 필드 누락은 게이트 미수행으로 간주한다(별도 5.5단계 없이 이 필드 검사로 게이트를 강제한다). **역방향도 금지다: 오케스트레이터가 테스트 본문을 인라인 작성하는 것은 계약 위반** — 하네스 활성 세션의 `src/test/java` Write는 test-code-generator·coverage-closer·test-fixer만 훅이 허용하고, 시나리오 승인(`04b_approval.json`) 이전 기록은 누구든 차단된다.
+결과를 `genResult`로 저장. **파일 기록은 test-code-generator가 자가 검증 게이트(기록→parse→대조) 수행 과정에서 이미 완료했다 — 오케스트레이터가 `files[].content`로 다시 Write하지 않는다(이중 기록 금지, 소유권은 에이전트).** 오케스트레이터는 `files[]`의 `targetCallCheck`만 검사한다: 없거나 `"mismatch"`인 항목은 디스크에서 삭제·결과에서 제외하고 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다 — 필드 누락은 게이트 미수행으로 간주한다(별도 5.5단계 없이 이 필드 검사로 게이트를 강제한다). **역방향도 금지다: 오케스트레이터가 테스트 본문을 인라인 작성하는 것은 계약 위반** — 하네스 활성 세션의 `src/test/java` Write는 test-code-generator·coverage-closer·test-fixer·test-editor(`TEST_WRITE_AGENTS`)만 훅이 허용하고, 시나리오 승인(`04b_approval.json`) 이전 기록은 누구든 차단된다.
 
 ---
 
 ### 6단계: 순차 — run-tests
 
 ```
-Task(
+Agent(
   subagent_type="test-runner",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -450,7 +443,7 @@ Task(
 지시:
 - build-test-mcp의 detect_build_tool, list_test_tasks, run_targeted_tests, parse_junit_xml을 사용하라.
 - targetScope 클래스만 실행하라(Gradle: --tests, Maven: -Dtest=).
-- 전체 task는 targetScope가 비어 있을 때만 fallback.
+- targetScope가 비면 test-runner가 `TARGET_SCOPE_UNSPECIFIED`를 반환한다 — 대화형은 AskUserQuestion("대상 지정 / 전체 실행")으로 확정 후 재호출, 비대화형은 중단(#8). 전체 task는 사용자가 전체 실행을 택했을 때만.
 - JUnit XML 리포트를 우선 파싱하라.
 - 쉘 인자 escaping 필수. 실제 네트워크 호출 금지.
 - Write/Edit 도구 사용 금지.
@@ -472,9 +465,8 @@ Task(
 `retryCount = 0`부터 시작해 **그린이 될 때까지** 반복한다 — `maxRepairRetries`는 진전 추적 단위일 뿐 고정 상한이 아니다(fallback-policy.md #12).
 
 ```
-Task(
+Agent(
   subagent_type="test-fixer",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -494,13 +486,13 @@ Task(
 - SPEC_MISMATCH: spec-doc-mcp로 criteria 재확인 후 assertion 수정(scenarioDocs의 given/when/then 대조).
 - SYMBOL_UNRESOLVED: repo-ast-mcp로 시그니처 재확인.
 - build-test-mcp.parse_junit_xml로 실패 메시지 정밀 파싱.
-- isolation: worktree 환경 전제.
+- 메인 작업 트리의 테스트 파일을 직접 최소 diff로 수정하고, 적용한 변경을 patches[]에 unified diff로 기록하라.
 - RepairResult JSON으로 반환하라.
 """
 )
 ```
 
-**패치 반영**: `test-fixer`는 `isolation: worktree`로 격리 실행되므로 worktree 안의 수정은 메인 작업 트리에 반영되지 않는다. 반환된 `patches[]`의 각 unified diff를 **메인 트리의 대응 파일에 적용**한다 — `path`가 worktree 절대경로면 프로젝트 상대경로로 재매핑하고, diff의 변경 hunk를 Edit(old→new 치환)으로 옮긴다. 적용 결과를 `_workspace/07_repair_result.json`에 저장한 뒤, `run-tests`를 `rerunTargets`로 재실행한다. **그린이 될 때까지 재시도**한다(fallback-policy.md #12). `retryCount`/`maxRepairRetries`는 **진전 추적 단위**일 뿐 상한이 아니다 — 실패가 줄어드는 한 계속하고, **직전과 동일한 실패가 3회 연속(무진전)**이면 `partial`로 잔여 실패를 전량 보고하고 중단한다. (이 patch-apply Edit는 이 세션의 `spawn-test-fixer` 마커가 있을 때만 훅이 허용한다 — test-fixer 위임 없이 오케스트레이터가 직접 고치는 경로가 아니다.)
+**재실행**: `test-fixer`는 메인 작업 트리에서 직접 수정하므로(`isolation` 없음 — worktree는 미커밋 테스트를 볼 수 없다) 오케스트레이터가 패치를 다시 적용하지 않는다. 반환된 `RepairResult`(`patches[]`는 증거)를 `_workspace/07_repair_result.json`에 저장한 뒤, `run-tests`를 `rerunTargets`로 재실행한다. **그린이 될 때까지 재시도**한다(fallback-policy.md #12). `retryCount`/`maxRepairRetries`는 **진전 추적 단위**일 뿐 상한이 아니다 — 실패가 줄어드는 한 계속하고, **직전과 동일한 실패가 3회 연속(무진전)**이면 `partial`로 잔여 실패를 전량 보고하고 중단한다. (오케스트레이터가 `src/test/java`를 직접 Write/Edit하는 경로는 없으며 훅 Zone B가 deny한다.)
 
 ---
 
@@ -546,9 +538,8 @@ Task(
 ```
 
 ```
-Task(
+Agent(
   subagent_type="scenario-conformance-verifier",
-  model="inherit",
   prompt="""
 입력:
 {
@@ -597,7 +588,7 @@ round = 1..3 (하드 캡):
        (scenarioResults에서 unsatisfied 항목의 scenarioId/testClass/testMethods/verdict/
        nonconformanceClass/notes), originalTests, relatedSources, springProfile, scenarioDocs를 전달.
        failResult는 생략.
-       7단계와 동일하게 worktree patches[]를 메인 트리에 적용.
+       7단계와 동일하게 test-fixer가 직접 수정하므로 재적용 없이 `09b_conformance_repair.json` 저장 후 재실행.
      - missing → test-code-generator 호출: 해당 시나리오만 부분 재생성(5단계와 동일 프롬프트,
        scenarios를 missing 시나리오로 한정 — targetCallCheck 게이트 적용으로 재발 방지).
   2. 6단계 run-tests를 영향 클래스 한정으로 재실행. 실패하면 기존 7단계 보정 루프(#12) 재진입
@@ -752,7 +743,7 @@ Markdown 보고서는 아래 구조로 출력한다.
 | 0.6단계 콜드 캐시 (#18) | `primed:false` → 대화형=승인 후 6단계 1회 `online=True` 프라이밍 / CI=`BUILD_TEST_ALLOW_NETWORK=1` 옵트인·워밍업 안내 |
 | 7단계 보정 루프 (#12) | **그린 될 때까지 재시도**(진전 있는 한 계속). 동일 실패 시그니처 **3회 연속(무진전)**이면 `partial`로 잔여 전량 보고 후 종료 |
 | 8단계 커버리지 게이트 (#12/#21) | 게이트 충족까지 재측정/보정. 동일 미커버 집합 **3회 연속(무진전)**이면 `partial` + `remainingGaps[]` 전량 보고(임의 제외 금지). **RA advisory는 스킵 사유 아님** — `gatePassed:false`∧`iterations<1`(또는 `remainingGaps` 빈 배열)인 결과는 게이트 미수행으로 무효, 8단계 재실행(훅이 기록 차단) |
-| **위임 우회(훅 deny 수신)** | 인라인 수행을 즉시 중단하고 해당 단계를 단계 계약 표의 subagent로 `Task` 위임 재실행. deny는 정상 교정 경로이므로 `warnings`에 기록하지 않는다 |
+| **위임 우회(훅 deny 수신)** | 인라인 수행을 즉시 중단하고 해당 단계를 단계 계약 표의 subagent로 `Agent` 위임 재실행. deny는 정상 교정 경로이므로 `warnings`에 기록하지 않는다 |
 | 9단계 적합성 (#16) | `unmet` 존재 시 **9.5단계 자동 보정 루프**(unsatisfied→test-fixer 모드 B / missing→부분 재생성 → 매 라운드 6→8→9 회귀, 최대 3라운드·동일 unmet 집합 즉시 무진전 중단, 대화형·CI 동일 자동 수행) → 소진 후 잔여: 대화형=`AskUserQuestion`(수동 보정 계속/partial 종료), CI=`status: "partial"` + 잔여 전량 보고. 임의 제외 금지 |
 | junitPolicy `strict-5x` | `warnings`에 버전 충돌 경고 추가 후 진행 |
 

@@ -283,9 +283,9 @@ def _jdk_available() -> bool:
 
 
 def _require_javaparser() -> bool:
-    """Strict mode: when truthy, the JavaParser jar + JDK are REQUIRED and the
-    pure-Python regex fallback is disabled (fallback-policy.md #2). Missing
-    capability becomes a hard failure instead of a silent degrade."""
+    """Strict-mode flag reader (kept for the health() report). Since v0.31.0 the
+    JavaParser jar + JDK are always required and there is no regex fallback, so
+    the flag no longer changes behaviour (fallback-policy.md #2)."""
     val = os.environ.get("REPO_AST_REQUIRE_JAVAPARSER", "").strip().lower()
     return val in {"1", "true", "yes", "on"}
 
@@ -306,8 +306,9 @@ def _plugin_version() -> Optional[str]:
 def _run_java_cli(jar: str, target: Path) -> Optional[dict[str, Any]]:
     """Invoke the JavaParser CLI jar and parse its JSON output.
 
-    Returns the parsed dict, or ``None`` on any failure (caller falls back to the
-    pure-Python extractor). Never raises.
+    Returns the parsed dict, or ``None`` on any failure (the caller then excludes
+    the file and flags ``degraded:true`` — there is no fallback extractor since
+    v0.31.0). Never raises.
     """
     java = os.environ.get("REPO_AST_JAVA_BIN", "java")
     try:

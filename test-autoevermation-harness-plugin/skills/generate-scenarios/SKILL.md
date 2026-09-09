@@ -54,9 +54,8 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
 2. **subagent 호출**
 
    ```
-   Task(
+   Agent(
      subagent_type="scenario-generator",
-     model="inherit",
      prompt="""
    다음 세 가지 분석 결과를 수렴해 테스트 시나리오를 설계하라.
 
@@ -193,6 +192,6 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
 | 선행 결과 전부 없음 | 세 입력 모두 `null` | `status: "failed"`, 선행 단계 실행 안내 |
 | 일부 결과 누락 | 1~2개 입력 `null` | `status: "partial"`, 누락 항목 `warnings` 기록 후 진행 |
 | `scenarios` 비어 있음 | 매핑 실패 | `status: "partial"`, 스펙/AST 보완 안내 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 보안: read-only. spec-doc-mcp·repo-ast-mcp 접근만 허용. Write/Edit/Bash 금지.

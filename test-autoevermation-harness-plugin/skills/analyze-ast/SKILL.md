@@ -42,7 +42,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
 
 | 필드 | 타입 | 필수 | 기본값 | 설명 |
 |---|---|---|---|---|
-| `projectRoot` | `string` | 아니오 | `"미지정"` → 현재 작업 디렉터리 | 분석할 Spring 프로젝트 루트 |
+| `projectRoot` | `string` | 아니오 | `"미지정"` → 대화형 질문 / 비대화형 중단(fallback-policy #13, 자동 cwd 금지) | 분석할 Spring 프로젝트 루트 |
 | `targets` | `string[]` | 아니오 | `[]` → auto-detect | 분석 대상 패키지 또는 FQCN 목록 |
 | `targetModules` | `string[]` | 아니오 | `[]` → auto-detect | 멀티 모듈 프로젝트에서 대상 모듈 이름 |
 
@@ -53,15 +53,14 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
 ## 단계별 절차
 
 1. **입력 정규화**
-   - `projectRoot`가 `"미지정"`이면 현재 작업 디렉터리를 사용한다.
+   - `projectRoot`가 `"미지정"`이면 자동으로 cwd를 쓰지 않는다 — 대화형은 `AskUserQuestion`으로 확정, 비대화형은 `status:"failed"`로 중단(#13).
    - `targets`가 비어 있으면 auto-detect 플래그를 설정한다.
 
 2. **subagent 호출**
 
    ```
-   Task(
+   Agent(
      subagent_type="ast-structure-analyzer",
-     model="inherit",
      prompt="""
    다음 입력으로 AST 구조를 추출하라.
 
@@ -153,7 +152,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
 |---|---|---|
 | `SYMBOL_UNRESOLVED` | 의존 클래스 심볼 해석 불가 | `status: "partial"`, `nextActions`에 LSP 보강 권고 |
 | `UNSUPPORTED_PROJECT_SHAPE` | 멀티 모듈 구조 미지원 | `status: "partial"`, 지원 범위 내 모듈만 처리 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 성능: 대상 스코프로만 파싱. 전체 트리 파싱 금지. 결과 캐시 키는 파일 해시.
 보안: read-only. vendor/build/generated 디렉터리 read deny. 코드 본문 미반환.

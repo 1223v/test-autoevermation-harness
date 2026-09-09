@@ -5,7 +5,7 @@ description: 테스트 실패 원인을 유형별로 분류하고 최소 diff �
 
 ## 목적
 
-`run-tests`가 반환한 실패 결과를 받아 실패 유형(`TEST_COMPILE_FAILED`, `TEST_RUNTIME_FAILED`, `FLAKY_SUSPECTED`, `SPEC_MISMATCH`, `SYMBOL_UNRESOLVED`)을 분류하고 **최소 diff** 수정을 적용한다. 추가로 **모드 B(적합성 보정)**: full-pipeline 9.5단계가 전달하는 `nonconformantItems[]`(9단계 verifier의 `unsatisfied` 시나리오 — 테스트는 통과하지만 시나리오와 불일치)를 `SCENARIO_NONCONFORMANT`로 보정한다. 무작정 재생성은 금지한다. flaky 의심 시 `Thread.sleep` 대신 await/clock 주입 등 결정적 방식을 제안한다. 수정 후 `run-tests`에 재실행 대상을 전달한다. **그린이 될 때까지 재시도**하되 — `retryCount`/`maxRepairRetries`는 진전 추적 단위일 뿐 고정 상한이 아니다(fallback-policy.md #12) — **직전과 동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`로 잔여 실패를 전량 보고하고 중단한다. `isolation: worktree` 실행을 권장한다.
+`run-tests`가 반환한 실패 결과를 받아 실패 유형(`TEST_COMPILE_FAILED`, `TEST_RUNTIME_FAILED`, `FLAKY_SUSPECTED`, `SPEC_MISMATCH`, `SYMBOL_UNRESOLVED`)을 분류하고 **최소 diff** 수정을 적용한다. 추가로 **모드 B(적합성 보정)**: full-pipeline 9.5단계가 전달하는 `nonconformantItems[]`(9단계 verifier의 `unsatisfied` 시나리오 — 테스트는 통과하지만 시나리오와 불일치)를 `SCENARIO_NONCONFORMANT`로 보정한다. 무작정 재생성은 금지한다. flaky 의심 시 `Thread.sleep` 대신 await/clock 주입 등 결정적 방식을 제안한다. 수정 후 `run-tests`에 재실행 대상을 전달한다. **그린이 될 때까지 재시도**하되 — `retryCount`/`maxRepairRetries`는 진전 추적 단위일 뿐 고정 상한이 아니다(fallback-policy.md #12) — **직전과 동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`로 잔여 실패를 전량 보고하고 중단한다. 수정은 메인 작업 트리에서 직접 수행한다(`isolation: worktree`는 쓰지 않는다 — 공식 worktree는 원격 기본 브랜치의 추적 파일만 체크아웃해 미커밋 테스트가 보이지 않는다).
 
 ---
 
@@ -78,9 +78,8 @@ description: 테스트 실패 원인을 유형별로 분류하고 최소 diff �
 3. **subagent 호출**
 
    ```
-   Task(
+   Agent(
      subagent_type="test-fixer",
-     model="inherit",
      prompt="""
    다음 실패 결과를 분석하고 최소 diff로 수정하라.
 
@@ -106,7 +105,7 @@ description: 테스트 실패 원인을 유형별로 분류하고 최소 diff �
    - SCENARIO_NONCONFORMANT(모드 B, nonconformantItems 존재 시): 테스트가 통과 중이어도 시나리오와 불일치하면 보정하라 — scenarioDocs와 repo-ast parse_java_file의 methodCalls를 대조해 // when 호출을 시나리오 target 메서드로 교정하고, given stub·then 단언을 시나리오에 맞게 최소 수정(단언 강화만 허용, 완화 금지). 수정 후 methodCalls로 target 호출을 재확인하라. 교정으로 green 테스트가 red가 될 수 있으며 이는 정상이다(이어지는 실패는 통상 절차로 보정).
    - build-test-mcp.parse_junit_xml로 실패 메시지와 스택 트레이스를 정밀 파싱하라.
    - 수정 후 rerunTargets에 재실행 대상 클래스 목록을 포함하라.
-   - isolation: worktree 환경에서 실행하는 것을 전제로 작업하라.
+   - 메인 작업 트리의 테스트 파일을 직접 최소 diff로 수정하고, 적용한 변경을 patches[]에 unified diff로 기록하라.
    - 결과를 아래 JSON 스키마에 맞게 반환하라.
 
    출력 스키마:
@@ -127,9 +126,9 @@ description: 테스트 실패 원인을 유형별로 분류하고 최소 diff �
    )
    ```
 
-4. **패치 적용**
-   - `patches[]`의 각 diff를 해당 `path` 파일에 Edit으로 적용한다.
-   - 적용 후 변경 내용을 `evidence`에 기록한다.
+4. **패치 증거 기록(재적용 없음)**
+   - test-fixer가 메인 작업 트리에 이미 적용했으므로 호출자는 `patches[]`를 다시 Edit하지 않는다(하네스 활성 세션에서는 훅 Zone B가 오케스트레이터의 `src/test/java` Edit를 deny).
+   - `patches[]`(unified diff)를 `evidence`에 기록한다.
 
 5. **재실행 요청**
    - `rerunTargets`를 `run-tests` 스킬에 전달해 재실행을 요청한다.
@@ -189,6 +188,6 @@ description: 테스트 실패 원인을 유형별로 분류하고 최소 diff �
 | `failResult`·`nonconformantItems` 모두 없음 | 입력 누락 | `status: "failed"`, 즉시 반환 |
 | 무진전 (동일 실패 3회 연속) | 진전 없음 | `partial`로 잔여 전량 보고 후 중단, 수동 검토 안내 (#12) |
 | 패치 적용 실패 | Edit 도구 오류 | `errors`에 기록, 해당 파일 건너뜀 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
-보안: `isolation: worktree` 권장. broad catch/over-mock/sleep 패턴 금지. build-test-mcp + repo-ast-mcp + spec-doc-mcp 모두 접근 가능.
+보안: 수정은 `src/test/java`로 한정(훅 Zone B). broad catch/over-mock/sleep 패턴 금지. build-test-mcp + repo-ast-mcp + spec-doc-mcp 모두 접근 가능.

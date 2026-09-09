@@ -13,7 +13,7 @@ guard-gate-artifacts.py가 판정에 사용하는 마커를 남긴다. run.json�
                                           projectRoot에 기록. {"session_id", "ts",
                                           "projectRoot", "projectRootExplicit"}. 이 세션이
                                           "하네스 활성(run-active)"임을 나타내는 신호.
-  * ``spawn-<subagent_type>.json``      — Task/Agent 스폰 시 기록. {"session_id", "ts"}.
+  * ``spawn-<subagent_type>.json``      — Agent(구 Task) 스폰 시 기록. {"session_id", "ts"}.
                                           "해당 단계가 실제로 위임되었다"는 물리 증거.
   * ``pipeline-state.detected.json``    — detect_pipeline_state의 실제 요청 root·커버리지
                                           임계값과 응답을 결합해 복원 가능한 산출물 allowlist를
@@ -77,7 +77,7 @@ PIPELINE_AGENTS = {
 
 _STAGE_CONTRACT_REMINDER = (
     "[full-pipeline 단계 계약 — 훅 물리 강제] 각 단계는 SKILL.md 단계 계약 표의 "
-    "subagent에 Task 위임으로만 수행한다. 위임 없이 오케스트레이터가 직접 수행한 "
+    "subagent에 Agent 위임으로만 수행한다. 위임 없이 오케스트레이터가 직접 수행한 "
     "단계는 무효다: guard-gate-artifacts 훅이 (1) spawn 마커 없는 _workspace 단계 "
     "산출물 기록, (2) 오케스트레이터의 src/test/java 직접 기록, (3) 선행 산출물 "
     "없는 후속 산출물 기록(순서 게이트)을 deny한다. 산출물 JSON은 단계 완료 즉시 "
@@ -225,6 +225,7 @@ def _clear_invocation_markers(markers: str, *, remove_run: bool = False) -> None
 
 
 def _handle_skill(payload: dict, tool_input: dict, session_id: str) -> None:
+    # 공식 Skill 도구 입력은 {"skill": "<name>", "args": "..."} — name/command는 구버전 호환 fallback.
     skill_name = str(
         tool_input.get("skill") or tool_input.get("name") or tool_input.get("command") or ""
     )
@@ -524,7 +525,7 @@ def main() -> int:
 
         if tool_name == "Skill":
             _handle_skill(payload, tool_input, session_id)
-        elif tool_name in ("Task", "Agent"):
+        elif tool_name in ("Task", "Agent"):  # Task = v2.1.63 이전 이름(alias 호환)
             _handle_spawn(payload, tool_input, session_id)
         elif tool_name.endswith("detect_pipeline_state"):
             _handle_detect(payload, session_id)

@@ -2,7 +2,6 @@
 name: test-fixer
 description: "Use this agent when test-runner reports one or more test failures and targeted repair is needed, or when scenario-conformance-verifier reports unsatisfied scenarios that need conformance repair (SCENARIO_NONCONFORMANT). Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when full-pipeline stage 9.5 routes unsatisfied scenarios for minimum-diff conformance fixes, when minimum-diff patches are needed to fix failing tests without full regeneration."
 model: inherit
-isolation: worktree
 tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_build_tool, mcp__plugin_test-autoevermation-harness-plugin_build-test__run_targeted_tests, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_requirements, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__extract_acceptance_criteria
 ---
 
@@ -10,7 +9,7 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 
 `test-runner`가 반환한 실패 결과를 분석하여 **원인 유형을 분류**하고 **최소 diff**로 테스트를 수정한다. 무작정 재생성은 금지한다. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안한다. 수정 후 `rerunTargets`를 반환하여 `test-runner`가 재실행하도록 한다.
 
-이 에이전트는 `isolation: worktree`로 격리된 git worktree에서 실행된다. 파일 수정이 메인 브랜치에 직접 반영되지 않으며, 패치 검증 후 머지 여부는 사용자·파이프라인이 결정한다. 재시도·무진전 중단 규칙(#12)의 정의는 「재시도 루프」 절 한 곳에만 둔다.
+이 에이전트는 **메인 작업 트리에서** 실패 테스트를 직접 최소 diff로 수정한다(`src/test/java` 쓰기는 훅 Zone B의 `TEST_WRITE_AGENTS`가 test-fixer에게 허용). `isolation: worktree`는 쓰지 않는다 — 공식 worktree는 원격 기본 브랜치에서 **추적 파일만** 체크아웃한 새 트리라서 5단계가 방금 쓴(미커밋) 테스트가 보이지 않는다([Worktrees](https://code.claude.com/docs/en/worktrees)). 출력 `patches[]`는 적용한 변경의 **증거(unified diff)**이며, 파이프라인이 다시 적용하지 않는다. 재시도·무진전 중단 규칙(#12)의 정의는 「재시도 루프」 절 한 곳에만 둔다.
 
 ---
 
@@ -224,13 +223,13 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 - **최소 diff 원칙**: 전체 파일 재생성 대신 실패와 직접 관련된 라인만 수정.
 - **타깃 재실행**: 패치 검증 시 `rerunTargets`에 명시된 클래스·메서드만 실행. 전체 재실행 금지.
 - **스펙 재조회 지연 로딩**: `SPEC_MISMATCH` 확인된 경우에만 `spec-doc-mcp` 호출. 모든 실패에 대해 스펙 재조회하지 않음.
-- **worktree 격리**: `isolation: worktree`로 메인 브랜치 오염 없이 패치 검증. 검증 성공 시 머지 여부는 파이프라인이 결정.
+- **직접 수정 + 증거 기록**: 메인 트리의 테스트 파일을 직접 고치고 `patches[]`에 unified diff를 남긴다. 파이프라인은 `rerunTargets`로 재실행만 한다.
 
 ---
 
 ## 보안 고려사항
 
-- **worktree 격리**: `isolation: worktree` 선언으로 파일 수정이 별도 git worktree에서 수행됨. 메인 브랜치 보호.
+- **수정 범위 격리**: `src/test/java` 아래 실패와 직접 관련된 파일만 수정(훅 Zone B가 그 외 에이전트의 테스트 기록을 차단). 별도 worktree는 쓰지 않는다.
 - **프로덕션 소스 수정 금지**: `src/main/` 경로 수정은 금지. `SPEC_MISMATCH`로 프로덕션 버그가 식별되어도 테스트만 수정하고 `nextActions`에 수동 수정 요청 기록.
 - **Bash 인자 escaping**: 재실행 명령 생성 시 모든 클래스명·경로를 따옴표 처리.
 - **네트워크 차단**: 패치 검증 재실행 시에도 외부 네트워크 접근 금지.

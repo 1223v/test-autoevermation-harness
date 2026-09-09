@@ -57,7 +57,7 @@ AST 구조 추출  ───┘                                                 
 - **품질 루프**: JaCoCo near-100% 커버리지 게이트(기본 LINE≥0.95/BRANCH≥0.90/METHOD≥0.95/CLASS=1.00)는
   미커버 gap이 줄어드는 동안 반복하고, 동일 gap이 3회 연속이면 `partial`로 잔여를 전량 보고한다.
 - **독립 실행**: oh-my-claudecode 등 외부 플러그인에 의존하지 않는다. Claude Code 네이티브 기능
-  (플러그인·`Task` 서브에이전트·`AskUserQuestion`·MCP·훅)만 필수다 — Python 3.10+는 없으면
+  (플러그인·`Agent` 서브에이전트·`AskUserQuestion`·MCP·훅)만 필수다 — Python 3.10+는 없으면
   자동 설치된다(v0.15.0+, 전 OS: macOS/Linux/WSL/Windows). 상세: [DEPENDENCIES.md](../DEPENDENCIES.md).
 
 ---
@@ -70,11 +70,11 @@ AST 구조 추출  ───┘                                                 
 test-autoevermation-harness-plugin/
 ├── .claude-plugin/plugin.json   ← 매니페스트: skills/·.mcp.json·.lsp.json 등록(표준 hooks/hooks.json은 자동 로드)
 ├── skills/        (15종)        ← /test-autoevermation-harness-plugin:<name> 명령. 절차(무엇을 어떤 순서로)의 정의
-├── agents/        (11종)        ← Task(subagent_type=...)로 호출되는 서브에이전트. 실제 분석/생성 수행
+├── agents/        (11종)        ← Agent(subagent_type=...)로 호출되는 서브에이전트. 실제 분석/생성 수행
 ├── mcp/           (서버 3종)    ← Python FastMCP stdio 서버. 결정적 작업(파싱·빌드실행·리포트 해석)
 │   └── javaparser-cli/          ← JavaParser 기반 정밀 AST CLI (mvnw 동봉, 필수 빌드)
-├── hooks/hooks.json + scripts/  ← 네트워크 가드·경로 가드·시크릿 redaction (런타임 보안)
-├── references/    (7종)         ← 정책·절차의 SSOT 문서 (스킬·에이전트가 인용)
+├── hooks/hooks.json + scripts/  ← 산출물·위임 게이트(PreToolUse deny)·실행 증거 기록·시크릿 warn 보고
+├── references/    (9종)         ← 정책·절차의 SSOT 문서 (스킬·에이전트가 인용)
 ├── docs/                        ← 이 가이드 + pipeline-flow.md(다이어그램)
 └── .lsp.json                    ← (필수) Eclipse JDT LS 등록
 ```
@@ -157,9 +157,9 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 
 | 훅 | 시점 | 동작 |
 |---|---|---|
-| `scripts/record-run-context.py` | PreToolUse(Skill·Task·Agent) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 cwd와 대상 `projectRoot`의 `_workspace/.markers/run.json`(하네스 활성·라우팅) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 대상 프로젝트에 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state`의 실제 요청 root·커버리지 임계값과 응답을 결합해 durable-resume allowlist를 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
+| `scripts/record-run-context.py` | PreToolUse(Skill·Agent — 구 Task alias 포함) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 cwd와 대상 `projectRoot`의 `_workspace/.markers/run.json`(하네스 활성·라우팅) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 대상 프로젝트에 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state`의 실제 요청 root·커버리지 임계값과 응답을 결합해 durable-resume allowlist를 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
 | `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **위임·산출물 물리 강제**: spawn 마커·테스트 파일 소유권·순서 게이트와 8단계 커버리지 불변식을 검사한다. **파이프라인이 도는 세션에서만 판정**(아래) |
-| `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 마스킹(warn 모드) |
+| `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 패턴을 **보고**(warn 모드 — 파일을 수정하지 않으며, 발견 내용은 `hookSpecificOutput.additionalContext`로 모델에 전달) |
 
 **쓰기 가드의 단일 게이트(v0.32.0).** `guard-gate-artifacts.py`는 이제
 `_workspace/.markers/run.json`의 `session_id`가 현재 세션과 일치할 때 — 즉 **full-pipeline이 실제로
@@ -214,7 +214,7 @@ AST-only degrade는 더 이상 허용되지 않는다.
 
 ### 3.1 실행 모델 — 서브에이전트 팬아웃 + 파일 기반 전달
 
-- 1·2단계(스펙 인덱싱 ∥ AST 추출)만 **병렬**(`Task` 팬아웃), 나머지는 산출물 의존이라 **순차 파이프라인**.
+- 1·2단계(스펙 인덱싱 ∥ AST 추출)만 **병렬**(`Agent` 팬아웃), 나머지는 산출물 의존이라 **순차 파이프라인**.
 - 각 단계 산출물(JSON)은 메인 컨텍스트로 옮기지 않고 `_workspace/{단계}_{산출물}.json`에 저장하고
   **경로만** 다음 단계에 전달한다(컨텍스트 토큰 절감 + 감사 추적 + 부분 재실행의 기반).
 - 각 서브에이전트의 `total_tokens`/`duration_ms`는 완료 시점에 `_workspace/timing.json`에 즉시 누적한다
@@ -225,7 +225,7 @@ AST-only degrade는 더 이상 허용되지 않는다.
 
 | 단계 | 스킬 / 에이전트 | 하는 일 | 산출물 |
 |---|---|---|---|
-| **사전(선행)** | **setup-harness** | 환경 세팅 체크리스트 E1~E10을 TodoWrite로 만들어 **세팅**(설치·빌드·프로비저닝). 필수: E1 Python·E2 MCP SDK·E3 서버등록·**E3b MCP 라이브 연결 검증(`health` 3종 실호출)**·**E4 JDK 21+**·**E5/mvnw**·**E6 JavaParser jar**·**E7 JDT LS**·E10 실행JDK↔Mockito. 추가로 S1 상태줄 설치(선택). **사용자가 명시적으로 1회 실행** | — |
+| **사전(선행)** | **setup-harness** | 환경 세팅 체크리스트 E1~E10을 응답 텍스트 체크리스트로 표시하며 **세팅**(설치·빌드·프로비저닝). 필수: E1 Python·E2 MCP SDK·E3 서버등록·**E3b MCP 라이브 연결 검증(`health` 3종 실호출)**·**E4 JDK 21+**·**E5/mvnw**·**E6 JavaParser jar**·**E7 JDT LS**·E10 실행JDK↔Mockito. 추가로 S1 상태줄 설치(선택). **사용자가 명시적으로 1회 실행** | — |
 | **E-verify** | configure-harness (Preflight) / full-pipeline(재사용·재개 경로) | 세팅 완료를 **검증만** 한다(프로브: `health`×3 · `java -version` · jar 존재 · `setup_jdtls.py --check-only` · 실행JDK↔Mockito). **세팅하지 않는다** — 미충족이면 파이프라인 **미시작**(하드 중단) + `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"` | — |
 | **0** | configure-harness | 3항목 인터뷰(스펙 경로/대상 선별/커버리지 임계) → `HarnessConfig` | `00_config-harness.json` |
 | **0.5** | configure-harness | `detect_spring_profile`로 Boot 2.0–4.x 프로파일 확정. 미감지→질문(CI 중단), 충돌→확정 질문. **가정 금지** | (HarnessConfig에 병합) |
@@ -267,8 +267,9 @@ AST-only degrade는 더 이상 허용되지 않는다.
   재검증, **비결정적 항목**(버전 미감지·프로파일 충돌·미지정 입력)은 `status:"failed"` + remediation으로
   하드 중단. 승인 게이트(3.5/4.5)는 자동 포함/승인 + 기록. 빌드 파일 자동 주입과 자동 온라인 전환은 **금지**
   (`BUILD_TEST_ALLOW_NETWORK=1` 옵트인).
-- CI 모드 감지: `skipInterview: true` · 환경변수 `CI=true`/`CLAUDE_NO_PROMPT=true` · `claude -p` 세션 ·
-  인터뷰 3항목이 모두 채워진 HarnessRequest.
+- 비대화형 감지(공식 근거로 관측 가능한 신호만): `skipInterview: true` · 도구 목록에 `AskUserQuestion`이 없음
+  (서브에이전트·`--permission-prompts none`) · 첫 `AskUserQuestion` 호출이 차단·거부됨(plain `claude -p`·`dontAsk`).
+  환경변수·`-p` 플래그는 모델이 관측할 수 없으므로 조건이 아니다. 정본: `configure-harness` 「인터랙티브 모드 감지」.
 
 ### 3.5 부분 재실행 · 상태 복원
 
@@ -282,7 +283,7 @@ Phase 0는 **세 신호**로 실행 범위를 정한다(정본: [SKILL.md](../sk
    `_workspace/` stub + `_resume.json`을 복원해 **알맞은 단계부터 재개**(대화형=`AskUserQuestion`, CI=`recommendedEntryStage`).
    **기존 손수 짠 테스트만**이면(`foreignTestsPresent:true`, `test_docs/` 없음) 5단계 완료로 보지 않고 **0단계부터 정식
    생성**하되 기존 테스트를 `existingTestPaths`로 넘겨 공존 보완. 아무 증거도 없으면 0단계 초기 실행.
-3. **`_workspace/` 존재 + 새 입력** → 기존 `_workspace/`를 `_workspace_{timestamp}/`로 옮겨 보존 후 초기 실행.
+3. **`_workspace/` 존재 + 새 입력** → 기존 `_workspace/`를 `_workspace_legacy_{YYYYMMDD_HHMMSS}/`로 옮겨 보존 후 초기 실행.
 
 | 요청 예 | 재실행 | 재사용 |
 |---|---|---|
@@ -452,7 +453,7 @@ rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 `test_docs/scenarios/*.md`, 커버리지/JUnit 리포트)가 남아 있으면 다음 실행은 처음이 아니라
 `detect_pipeline_state`가 판정한 단계부터 **재개**된다(§3.5 신호 2). 완전한 초기화(0단계 `configure-harness`
 인터뷰부터)를 원하면 `src/test/java`의 생성 테스트와 `test_docs/`까지 함께 정리해야 한다. 새 입력으로 다시
-돌리면 기존 `_workspace/`는 자동으로 `_workspace_{timestamp}/`로 보존된다. `test_docs/`는 사람이 읽는 영속
+돌리면 기존 `_workspace/`는 자동으로 `_workspace_legacy_{YYYYMMDD_HHMMSS}/`로 보존된다. `test_docs/`는 사람이 읽는 영속
 산출물이라 보통 유지한다(§7).
 상태줄을 설치했다면 `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청해 원복한다(§5.5).
 
@@ -494,8 +495,8 @@ Spring 프로젝트를 연 Claude Code 세션에서:
 
 ### 5.3 비대화형 / CI
 
-`claude -p`로 호출하면 인터뷰·게이트가 자동 정책으로 대체된다(§3.4). **미지정 필수 입력은 하드 중단**되므로
-`HarnessRequest`를 채워서 호출한다:
+`claude -p`로 호출하면 `AskUserQuestion` 호출이 차단되므로 인터뷰·게이트가 비대화형 정책으로 대체된다(§3.4). **미지정 필수 입력은 하드 중단**되므로
+`HarnessRequest`를 채워서 호출한다(하네스 자체는 JDK 21+가 필요하다 — E4):
 
 ```bash
 claude -p --output-format json "/test-autoevermation-harness-plugin:full-pipeline {
@@ -513,7 +514,7 @@ CI 주의사항:
 - 빌드 파일 자동 주입 금지 → JaCoCo XML 설정은 미리 반영한다.
 - 기본 오프라인 → 캐시가 비어 있으면 사전 워밍업(예: `mvn dependency:go-offline`)을 해 두거나
   `BUILD_TEST_ALLOW_NETWORK=1`을 옵트인한다.
-- GitHub Actions 예제: [examples/ci/gradle-ci.yml](../examples/ci/gradle-ci.yml) · [maven-ci.yml](../examples/ci/maven-ci.yml)
+- GitHub Actions 예제 [examples/ci/gradle-ci.yml](../examples/ci/gradle-ci.yml) · [maven-ci.yml](../examples/ci/maven-ci.yml)는 **대상 프로젝트의 빌드·테스트 워크플로**(생성된 테스트를 CI에서 돌리는 쪽)이며 하네스(`claude -p …full-pipeline`)를 호출하지 않는다. 하네스를 CI에서 돌리려면 위 `claude -p` 명령을 별도 step으로 추가하고 `setup-harness`를 선행한다.
 
 ### 5.4 이어서 작업하기 (부분 재실행)
 
@@ -568,7 +569,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 
 - **하네스가 생성한 테스트/승인 시나리오가 있으면**(`resumable:true`): `_workspace/`가 없어도(fresh clone·`git
   checkout`·새 세션) 처음부터 다시 돌지 않는다. stub과 `_resume.json`을 복원하고 재진입 단계를 확정한다 —
-  대화형은 `AskUserQuestion`으로 `[6 run-tests] [8 measure-coverage] [9 verify-scenarios] [4 시나리오 재설계]` 중 고른다.
+  대화형은 `AskUserQuestion`으로 `[4 시나리오 재설계] [5 생성] [6 run-tests] [8 measure-coverage] [9 verify-scenarios]` 중 고른다.
   CI/비대화형은 `recommendedEntryStage`를 사용한다. 여기서 **green JUnit**은 파서 결과가 `status:"ok"`, `passed>0`, `failed=[]`인 경우만 뜻한다. JUnit이 없거나 실패/partial이거나 테스트가 0개면 6, green JUnit 뒤 JaCoCo가 없거나 현재 임계 미달이면 8, green JUnit과 현재 임계를 통과한 JaCoCo가 모두 있으면 9다(승인 시나리오만 있고 테스트가 없으면 5). 상태줄에 `↩ resumed @ stage N` 표시(§5.5).
 - **기존(손수 짠) 테스트만 있으면**(`foreignTestsPresent:true`, `test_docs/` 없음): 이건 "5단계 완료"가 아니다.
   하네스는 **0단계부터 정식으로** 스펙·AST·소스 분석 → 시나리오 설계 → 테스트 생성을 진행한다. 단, 감지된
@@ -634,7 +635,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 - `coverageMaxIterations`(기본 3 — 진전 추적 단위)
 - `refactorAdvisory{enabled, thresholds}` (인터뷰 항목 아님 — HarnessRequest로만 오버라이드)
 
-전체 스키마 정본: [configure-harness/SKILL.md](../skills/configure-harness/SKILL.md) 「5단계」.
+전체 스키마 정본: [configure-harness/SKILL.md](../skills/configure-harness/SKILL.md) 「4단계: HarnessConfig 생성」.
 
 ### 6.3 환경변수 (.mcp.json / opt-in)
 
@@ -687,7 +688,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | 항목 | 구현 |
 |---|---|
 | 네트워크 기본 차단 | build-test MCP 서버가 `BUILD_TEST_ALLOW_NETWORK=0`(`.mcp.json` 기본값)을 읽어 gradle `--offline`/maven `-o`를 강제. 유일한 예외는 사용자가 승인한 1회 캐시 프라이밍(`online=True`) |
-| 경로 allowlist | repo-ast `REPO_AST_ALLOW_ROOT`, spec-doc `SPEC_DOC_ALLOWLIST`+`SPEC_DOC_WORKSPACE` — 프로젝트 밖·vendor/build/generated read 거부 |
+| 경로 allowlist | repo-ast `REPO_AST_ALLOW_ROOT`(프로젝트 루트 밖 경로 거부), spec-doc `SPEC_DOC_ALLOWLIST`+`SPEC_DOC_WORKSPACE`(허용 디렉터리 밖 문서 거부) — MCP 서버 입력 경계이며, 도구 수준 Read deny(vendor/build/generated)는 없다 |
 | 소스 노출 최소화 | repo-ast는 메서드 본문 미반환(구조 메타만), 에이전트 결과에 소스 원문 금지 |
 | 민감정보 | `redact-secrets.py` 훅 + spec-doc redaction (토큰·이메일·접속문자열) |
 | 쉘 안전 | `run_targeted_tests`가 shlex로 인자 escaping 강제 |
@@ -701,7 +702,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 |---|---|---|
 | MCP 서버 3종이 연결 안 됨 | (자동 설치 실패 — 오프라인/`node` 부재/`HARNESS_AUTO_PYTHON=0`) | **세션 시작 화면에 표시된 수동 폴백 명령**(v0.13.1+, SessionStart 훅 exit 2 안내)을 따른다: Python 3.10+ 설치 → `python3 -m pip install -r mcp/requirements.txt` (Windows: `py -3 -m pip ...`) → `/reload-plugins`. 상세 진단은 `mcp-logs-plugin-*` 로그의 `launch`/`bootstrap` 줄 |
 | `E3b`/E-verify에서 하드 중단(`health` 3종 호출 실패) | 플러그인 비활성/MCP 서버 미등록/세션에 도구 미노출 | `/test-autoevermation-harness-plugin:setup-harness` 실행 → 그래도 실패하면 플러그인 활성화 여부 확인 → `node mcp/launch.cjs --ensure-only` 수동 실행 → `/reload-plugins`(또는 Claude Code 재시작) |
-| 플러그인 스킬이 아예 안 보임 / 설치 상태가 깨짐 | 플러그인 캐시 손상 | 공식 트러블슈팅: `rm -rf ~/.claude/plugins/cache` → Claude Code 재시작 → 재설치(§4.6) |
+| 플러그인 스킬이 아예 안 보임 / 설치 상태가 깨짐 | 플러그인 캐시 손상 | 이 플러그인 캐시만 삭제: `rm -rf ~/.claude/plugins/cache/test-autoevermation-harness` → Claude Code 재시작 → 재설치(§4.6). `plugins/cache` 전체 삭제는 다른 플러그인까지 지우므로 피한다 |
 | `JAVAPARSER_REQUIRED`로 하드 중단 | JavaParser jar 빌드 실패/JDK 21+ 없음 | §4.3대로 `./mvnw -q -DskipTests package` 재시도 또는 `REPO_AST_JAVAPARSER_JAR` 사전 지정. JDK 21+ 미탐지가 원인이면 먼저 JDK를 설치 |
 | `java -version`가 21 미만/미탐지로 `setup-harness`(E4) 중단 | JDK 21+ 미설치 또는 PATH에 구버전 JDK만 존재 | JDK 21+ 설치 후 PATH 갱신(jar 빌드 17+ ⊂ JDT LS 21+를 아우르는 단일 기준) — E10(대상 프로젝트 테스트 실행 JDK)과는 별개 |
 | 커버리지(8)가 리포트를 못 찾음 | Gradle JaCoCo XML 기본 OFF | 0.6단계 JaCoCo 주입 승인 또는 provisioning 스니펫 반영 |
@@ -722,7 +723,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | [README.md](../README.md) | 요약 소개·설치·표 위주 레퍼런스 |
 | **GUIDE.md (이 문서)** | 동작 원리·사용법 종합 가이드 |
 | [docs/pipeline-flow.md](./pipeline-flow.md) | 전체 흐름 Mermaid 다이어그램 |
-| [skills/full-pipeline/SKILL.md](../skills/full-pipeline/SKILL.md) | 오케스트레이션 정본(단계별 Task 호출·실패표) |
+| [skills/full-pipeline/SKILL.md](../skills/full-pipeline/SKILL.md) | 오케스트레이션 정본(단계별 Agent 호출·실패표) |
 | [skills/full-pipeline/references/orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) | `_workspace/` 규약·부분 재실행 매트릭스·timing |
 | [references/environment-setup.md](../references/environment-setup.md) | 환경 세팅 체크리스트(E1~E12) + **E-verify 검증 프로브** SSOT |
 | [references/fallback-policy.md](../references/fallback-policy.md) | fallback 정책 SSOT |
@@ -731,6 +732,8 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | [references/build-provisioning.md](../references/build-provisioning.md) | JaCoCo XML 주입·캐시 프라이밍 SSOT |
 | [references/version-compatibility.md](../references/version-compatibility.md) | Boot 2.0–4.x 프로파일별 전체 코드 템플릿 |
 | [references/custom-components.md](../references/custom-components.md) | 커스텀 스테레오타입 인식 규칙 |
+| [references/agent-result-envelope.md](../references/agent-result-envelope.md) | 11개 서브에이전트 공통 결과 봉투(status/summary/evidence/warnings/errors/nextActions) |
+| [references/test-code-invariants.md](../references/test-code-invariants.md) | 생성 테스트 코드 불변식(프로파일별 import·애노테이션·금지 패턴) |
 | [RESEARCH_NOTES.md](../RESEARCH_NOTES.md) | 핀 고정 버전·API·공식문서 근거(런타임 SSOT) |
 | [DEPENDENCIES.md](../DEPENDENCIES.md) | OMC 비의존 선언·런타임 의존성 표 |
 | [CHANGELOG.md](../CHANGELOG.md) | 버전별 변경 이력 |

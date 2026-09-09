@@ -12,7 +12,7 @@ Claude Code CLI 기반 Spring 테스트코드 자동 생성 플러그인.
 > 전체 템플릿: [references/version-compatibility.md](./references/version-compatibility.md).
 
 > **독립 실행(OMC 비의존):** 이 플러그인은 `oh-my-claudecode`나 다른 외부 플러그인에 의존하지 않는다.
-> Claude Code 네이티브 기능(플러그인 시스템·`Task` 서브에이전트·`AskUserQuestion`·MCP·훅)과 표준 툴체인
+> Claude Code 네이티브 기능(플러그인 시스템·`Agent` 서브에이전트·`AskUserQuestion`·MCP·훅)과 표준 툴체인
 > (Python 3.10+, JDK 21+, Maven은 선택 — `mvnw` 동봉)만으로 동작한다. 상세: [DEPENDENCIES.md](./DEPENDENCIES.md).
 > 모델도 `inherit`라 opus 없이 어떤 모델 환경에서도 실행된다.
 
@@ -367,10 +367,10 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"   # 다�
 
 ## 보안 기본값
 
-- **네트워크**: 기본 차단. 명시적으로 허용한 도메인만 접근 가능.
-- **경로 allowlist**: 프로젝트 루트 외부 파일 참조 금지. generated/vendor/build output read deny.
-- **민감정보 redaction**: `scripts/redact-secrets.py`로 토큰·비밀번호·접속문자열 마스킹.
-- **hooks**: 사용자 권한·비샌드박스 실행이므로 보수적(알림 위주). `hooks/hooks.json` 참조.
+- **네트워크(빌드)**: build-test MCP 서버가 `BUILD_TEST_ALLOW_NETWORK=0`(`.mcp.json` 기본값)을 읽어 gradle `--offline`/maven `-o`를 붙인다 — 빌드 CLI 플래그이지 도구·도메인 차단이 아니다. 도메인 allowlist는 없다.
+- **경로 경계(MCP 입력)**: repo-ast `REPO_AST_ALLOW_ROOT`(프로젝트 루트 밖 경로 거부), spec-doc `SPEC_DOC_ALLOWLIST`/`SPEC_DOC_WORKSPACE`. 도구 수준 Read deny(generated/vendor/build)는 없다.
+- **민감정보 보고**: `scripts/redact-secrets.py --mode warn`(PostToolUse)이 토큰·비밀번호·접속문자열 패턴을 **보고**한다 — 파일을 수정(마스킹)하지 않는다.
+- **hooks**: PreToolUse deny 2종(`guard-gate-artifacts.py` 산출물·위임 게이트, `record-run-context.py` 4.5 승인 게이트)은 하네스 파이프라인이 도는 세션에서만 발동하고, 그 외에는 아무것도 막지 않는다. `docs/tool-restrictions.md` 참조.
 - **쉘 인자 escaping**: build-test-mcp(`run_targeted_tests`)에서 shlex로 강제.
 - **CI secrets**: GitHub Actions Secrets에만 저장. 로그 출력 금지.
 - **secret scanning**: GitHub 저장소 기능(Settings > Security > Secret scanning)으로 운영.
@@ -380,9 +380,9 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"   # 다�
 
 ## 버전 호환성
 
-> **모델:** 모든 에이전트와 `Task` 호출은 `model: inherit`로 선언되어 **현재 세션 모델**을 그대로 사용한다.
+> **모델:** 모든 에이전트는 frontmatter `model: inherit`로 선언되어 **현재 세션 모델**을 그대로 사용한다. 스킬의 `Agent(...)` 호출은 `model` 파라미터를 넘기지 않는다(Agent 도구의 `model` 값은 `sonnet`/`opus`/`haiku`/`fable`뿐이며 `inherit`는 frontmatter 전용 — [Sub-agents](https://code.claude.com/docs/en/sub-agents)).
 > opus 전용이 아니므로 sonnet·haiku 등 어떤 모델 환경에서도 동작한다. 특정 티어를 강제하려면 해당
-> `agents/*.md`의 `model:` 또는 스킬의 `Task(model="...")`를 명시 pin한다.
+> `agents/*.md`의 `model:`을 명시 pin한다.
 
 > **대상 Spring Boot 범위:** **2.0 – 4.x** (버전 프로파일 자동 분기). 아래 "권장/최소"는 latest(4.x) 프로파일 기준이며,
 > Boot 2.x/3.x 대상은 프로파일에 맞춰 Java 8/17·`javax`/`jakarta`·JUnit4/5·`@MockBean`/`@MockitoBean`가 적용된다.

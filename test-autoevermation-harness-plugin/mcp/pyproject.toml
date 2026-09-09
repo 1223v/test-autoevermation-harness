@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 # repo-ast 서버의 JavaParser 백엔드는 별도 jar(mcp/javaparser-cli)로 빌드한다.
-# jar가 없으면 순수 Python 정규식 fallback으로 동작한다(정확도 저하).
+# jar가 없으면 JAVAPARSER_REQUIRED 하드 실패다(v0.31.0에서 정규식 fallback 삭제 — 대체 경로 없음).
 
 [project.scripts]
 test-autoevermation-harness-repo-ast = "repo_ast_server:main"

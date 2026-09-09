@@ -172,7 +172,7 @@ disallowedTools: Bash
 2. **slice / integration 시나리오**(MockMvc 등 간접 호출): target 메서드는 직접 호출되지 않으므로 기계 대조 대신 다음을 체크리스트로 수행하고 `evidence`에 대조 결과를 기록한다 — ① 시나리오 `when`의 HTTP verb/경로 문자열이 `perform(...)` 요청과 일치, ② 시나리오 `given`의 협력자 stub 메서드명이 `methodCalls`에 존재(예: `findActiveOrders`). 완료 시 `targetCallCheck: "manual-verified"`.
 3. **불일치 시**: 해당 테스트 메서드의 `// when`을 시나리오 `target`에 맞게 **1회 자가 수정**하고 재검증한다. 여전히 불일치면 그 파일을 결과 `files`에서 **제외**(이미 기록했다면 삭제)하고 `warnings`에 `SCENARIO_TARGET_MISMATCH`(scenarioId·기대 메서드·실제 호출 목록 포함)를 기록, `status: partial`. `targetCallCheck: "mismatch"`.
 
-`methodCalls`가 비어 있으면 기계 대조가 불가하므로 2번 체크리스트를 적용하고 `warnings`에 사유를 남긴다 — "호출 정보 없음"과 "실제 호출 없음"의 구분은 repo-ast 응답의 `degraded` 플래그로 한다(`degraded:true`=regex 폴백, 정보 없음. 플러그인 배포 기본값 `REQUIRE_JAVAPARSER=1`에서는 이 상태가 곧 #2 하드 중단 신호다).
+`methodCalls`가 비어 있으면 기계 대조가 불가하므로 2번 체크리스트를 적용하고 `warnings`에 사유를 남긴다 — 단, repo-ast 응답에 `degraded:true`가 있으면 그 파일은 JavaParser가 읽지 못해 결과에서 **제외된** 것이다(v0.31.0부터 대체 추출기 없음): 읽기 기반으로 대체 판정하지 말고 `status:"failed"` + `errors`에 `degraded` 대상 파일과 remediation을 기록해 중단한다(fallback-policy #20).
 
 ### 패키지 위치
 - 대상 클래스와 동일 패키지의 `src/test/java`
@@ -255,7 +255,7 @@ junit4 프로파일이면: 슬라이스/컨텍스트 테스트에 `@RunWith(Spri
 |---|---|---|
 | `SYMBOL_UNRESOLVED` | `repo-ast-mcp`로 대상 시그니처 확인 불가 | 해당 시나리오 생성 보류. `warnings`에 기록. 나머지 시나리오는 정상 생성. `status: partial` |
 | `SCENARIO_TARGET_MISMATCH` | 생성된 테스트의 `// when`이 시나리오 `target` 메서드를 호출하지 않음(`methodCalls` 대조 실패, 1회 자가 수정 후에도 불일치) | 해당 파일 결과에서 제외(기록했다면 삭제). `warnings`에 scenarioId·기대 메서드·실제 호출 목록 기록. 나머지는 정상 생성. `status: partial` |
-| 빌드 도구 미감지 | `detect_build_tool` 실패 | `buildChanges`를 Gradle/Maven 양쪽으로 병기. `warnings`에 수동 선택 요청 |
+| 빌드 도구 미감지 | `detect_build_tool` 실패 | `status:"failed"` + `errors`에 `BUILD_TOOL_UNDETECTED`. 임의 기본값·양쪽 병기 금지 — 호출자가 질문(대화형)/중단(비대화형)한다(fallback-policy #5) |
 | 테스트 소스 루트 없음 | `testSourceRoot` 경로 부재 | 디렉터리를 생성한 뒤 파일 기록. `evidence`에 생성 경로 기록 |
 | 전체 시나리오 실패 | 모든 시나리오가 `SYMBOL_UNRESOLVED` | `failed` 반환. `nextActions`에 AST 재분석 권고 |
 

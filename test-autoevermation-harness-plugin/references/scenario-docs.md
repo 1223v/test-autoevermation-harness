@@ -86,7 +86,7 @@ approvedAt: 2026-06-27
 ```markdown
 # 테스트 시나리오 인덱스 (living documentation)
 
-> 생성: 2026-06-27 14:00 · 프로젝트: `/path/to/project` · 하네스 v0.7.0
+> 생성: 2026-06-27 14:00 · 프로젝트: `/path/to/project` · 하네스 v<version — plugin.json에서 읽은 실제 값>
 
 ## 요약
 - 시나리오: 8 (승인 7 / 제외 1)
@@ -146,7 +146,7 @@ approvedAt: 2026-06-27
 5. **판정**: `satisfied`(매핑+통과 확증+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·미실행·target 불일치·단언 부족) / `missing`(매핑 테스트 없음, `MAPPING_MISSING`).
    `unsatisfied`/`missing`에는 `nonconformanceClass`(`WRONG_TARGET_CALL`/`THEN_GAP`/`GIVEN_MISMATCH`/`NOT_EXECUTED`/`MAPPING_MISSING`)를 기록한다(9.5단계 보정 라우팅 힌트).
    각 시나리오에 `judgment`를 기록한다 — 실행 확증(2)·target 대조(3)가 모두 기계 근거면 `"machine"`,
-   읽기 기반 대체 판정(XML 부재 추론·repo-ast `degraded` 폴백)이 섞이면 `"read-based"`.
+   읽기 기반 대체 판정(XML 부재 추론)이 섞이면 `"read-based"` (repo-ast `degraded:true`는 대체 판정 대상이 아니라 #20 중단 신호다).
 
 산출 후:
 - 각 `scenarios/<id>.md`의 "테스트 코드 매핑"·"검증 결과" 섹션을 채우고 `INDEX.md`를 갱신한다.

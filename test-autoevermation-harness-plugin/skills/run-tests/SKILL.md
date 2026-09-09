@@ -45,8 +45,8 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
 |---|---|---|---|---|
 | `buildTool` | `string` | 아니오 | `"미지정"` → auto-detect | `gradle` 또는 `maven` |
 | `task` | `string` | 아니오 | `"미지정"` → auto-detect | 실행할 테스트 task 이름 |
-| `targetScope` | `object\|string[]` | 아니오 | `{}` → 생성된 파일 전체 | 실행 대상 — 정본 형상은 test-runner 에이전트의 `{classes[], packages[], methods[]}`. string[] 전달 시 `classes`로 매핑 |
-| `projectRoot` | `string` | 아니오 | 현재 작업 디렉터리 | 프로젝트 루트 절대 경로 |
+| `targetScope` | `object\|string[]` | 아니오 | 없음 — 비면 `TARGET_SCOPE_UNSPECIFIED` 신호 → 대화형 질문/비대화형 중단(#8, 임의 전체 실행 금지) | 실행 대상 — 정본 형상은 test-runner 에이전트의 `{classes[], packages[], methods[]}`. string[] 전달 시 `classes`로 매핑 |
+| `projectRoot` | `string` | 아니오 | 없음 — 미지정이면 질문(대화형)/중단(비대화형), 자동 cwd 금지(#13) | 프로젝트 루트 절대 경로 |
 | `rerunTargets` | `string[]` | 아니오 | `[]` | repair-tests가 전달하는 재실행 대상 |
 
 `buildTool`이 `"미지정"`이면 `build-test-mcp.detect_build_tool`로 auto-detect. 탐지 실패 시 `BUILD_TOOL_UNDETECTED` 오류로 즉시 반환.
@@ -66,9 +66,8 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
 3. **subagent 호출**
 
    ```
-   Task(
+   Agent(
      subagent_type="test-runner",
-     model="inherit",
      prompt="""
    다음 입력으로 테스트를 실행하라.
 
@@ -85,7 +84,7 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
    - build-test-mcp의 `run_targeted_tests` 도구를 사용하라.
    - targetScope가 있으면 해당 클래스만 실행하라(Gradle: --tests, Maven: -Dtest=).
    - rerunTargets가 있으면 해당 클래스를 우선 실행하라.
-   - 전체 test task 실행은 targetScope가 비어 있을 때만 fallback으로 허용한다.
+   - targetScope가 비어 있어도 임의로 전체 test task를 실행하지 말고 `status:"failed"` + `errors:["TARGET_SCOPE_UNSPECIFIED"]`로 신호만 반환하라(#8) — 호출자가 대화형이면 AskUserQuestion으로 "대상 지정/전체 실행"을 확정해 재호출하고, 비대화형이면 중단한다. 사용자가 명시적으로 전체 실행을 택한 경우에만 전체 task를 실행한다.
    - 표준 출력보다 surefire XML / JUnit XML 리포트를 우선 파싱하라(build-test-mcp.parse_junit_xml 사용).
    - 실제 네트워크 호출을 금지한다. 쉘 인자를 반드시 escaping하라.
    - Write/Edit 도구를 사용하지 마라.
@@ -184,7 +183,7 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
 | `TEST_COMPILE_FAILED` | 컴파일 오류 | `failed[]`에 기록, `repair-tests` 안내 |
 | `TEST_RUNTIME_FAILED` | 런타임 오류 | `failed[]`에 기록, `repair-tests` 안내 |
 | `FLAKY_SUSPECTED` | 비결정적 실패 패턴 | `failed[]`에 기록, `warnings`에 flaky 경고 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 보안: 쉘 인자 escaping 필수. 실제 네트워크 호출 금지. Write/Edit 권한 없음.
-성능: targetScope 한정 실행 기본. 전체 task는 fallback.
+성능: targetScope 한정 실행 기본. 전체 task는 사용자가 명시적으로 전체 실행을 택했을 때만.

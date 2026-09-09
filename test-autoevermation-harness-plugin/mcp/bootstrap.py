@@ -198,7 +198,7 @@ def main():
         py = ensure_venv()
 
     if ensure_only:
-        # 실패 시 exit 1 — 호출자(run-server.sh)가 SessionStart exit 2 + stderr로
+        # 실패 시 exit 1 — 호출자(launch.cjs --ensure-only; POSIX 수동 폴백 run-server.sh)가 SessionStart exit 2 + stderr로
         # 변환해 사용자 화면에 수동 폴백 명령을 표시한다(세션은 계속 진행됨)
         if py is None:
             log("dependency provisioning failed; MCP servers will be unavailable")

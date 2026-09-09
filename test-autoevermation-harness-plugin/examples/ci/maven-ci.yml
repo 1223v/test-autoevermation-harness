@@ -1,4 +1,4 @@
-# GitHub Actions CI — Maven + Spring Boot 4.1.0 + Java 17
+# GitHub Actions CI — Maven + Spring Boot 4.1.0 + Java 21
 #
 # Secret scanning은 GitHub 저장소 설정(Settings > Security > Secret scanning)에서
 # 활성화하는 저장소 기능이다. 이 워크플로에 secret scanning 스텝을 추가하지 않는다.
@@ -31,11 +31,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 17 (Temurin) with Maven cache
+      - name: Set up Java 21 (Temurin) with Maven cache
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
           cache: maven
           # Maven 의존성 캐시 키를 pom.xml 기준으로 고정
           cache-dependency-path: "**/pom.xml"

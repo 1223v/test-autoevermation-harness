@@ -215,7 +215,7 @@ decidedAt: —
 
 ## 5. HarnessConfig 오버라이드
 
-`HarnessConfig`(정본: configure-harness SKILL.md 「5단계」)의 선택 필드로 제어한다:
+`HarnessConfig`(정본: configure-harness SKILL.md 「4단계: HarnessConfig 생성」)의 선택 필드로 제어한다:
 
 ```json
 "refactorAdvisory": {

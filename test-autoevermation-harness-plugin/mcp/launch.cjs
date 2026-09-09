@@ -4,7 +4,8 @@
  * .mcp.json/hooks.json은 exec form(`command: "node"` + args)으로 이 파일을 실행한다.
  * 공식 문서 근거: 훅/플러그인 exec form은 셸을 거치지 않고 실행 파일을 직접 spawn하며,
  * "node + 스크립트 경로 패턴은 node.exe가 실제 바이너리이므로 모든 플랫폼에서 동작"(hooks 문서).
- * POSIX 전용이던 run-server.sh는 수동 폴백으로 유지된다(동작 패리티 유지 대상).
+ * POSIX 전용이던 run-server.sh는 수동 폴백으로 남아 있다(`<server.py>`와 `--ensure-only`만 지원,
+ * 훅이 쓰는 `script` 서브커맨드는 없음 — 정본은 이 파일).
  *
  * 사용:
  *   node launch.cjs <server.py> [args...]      # .mcp.json — Python+의존성 보장 후 bootstrap.py 경유 서버 실행

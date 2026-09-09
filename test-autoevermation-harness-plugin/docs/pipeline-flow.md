@@ -8,7 +8,7 @@
 [references/fallback-policy.md](../references/fallback-policy.md).
 
 > 표기 규칙: 사각형=처리 단계, 마름모=의사결정/게이트, 둥근모서리=시작/종료. 점선 화살표=루프/되돌아감.
-> 대화형(사람 있음)은 `AskUserQuestion`, 비대화형·CI(`claude -p`)는 자동 세팅 또는 하드 중단으로 분기한다.
+> 대화형(사람 있음)은 `AskUserQuestion`, 비대화형·CI(`AskUserQuestion` 도구가 없거나 첫 호출이 차단됨 — `claude -p`/`dontAsk`/`--permission-prompts none`)는 자동 세팅 또는 하드 중단으로 분기한다.
 
 ---
 
@@ -47,7 +47,7 @@ flowchart TD
 
     K --> L["6단계 — run-tests<br/>(test-runner)"]
     L --> M{"실패 있음?"}
-    M -- "예" --> N["7단계 — repair-tests<br/>(test-fixer) 원인 분류 → 최소 diff 보정<br/>(생성 원칙·scenarioRef 보존) → patches[] 메인 반영"]
+    M -- "예" --> N["7단계 — repair-tests<br/>(test-fixer) 원인 분류 → 최소 diff 보정<br/>(생성 원칙·scenarioRef 보존) → 메인 트리 직접 보정(patches[]=증거)"]
     N -. "그린까지 재시도<br/>(무진전 3회 → partial)" .-> L
     M -- "아니오 (그린)" --> O["8단계 — measure-coverage<br/>(coverage-closer) near-100% 게이트 루프"]
 
@@ -79,7 +79,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Start(["/test-autoevermation-harness-plugin:setup-harness"]) --> Todo["TodoWrite로 체크리스트 생성<br/>E1·E2·E3·E3b·E4·E5·E6·E7·E10 + S1<br/>pending → in_progress → completed"]
+    Start(["/test-autoevermation-harness-plugin:setup-harness"]) --> Todo["체크리스트 표시(응답 텍스트)<br/>E1·E2·E3·E3b·E4·E5·E6·E7·E10 + S1<br/>ok / fixed / failed / skipped"]
     Todo --> Detect["각 항목 감지(detect)"]
 
     Detect --> Auto{"자동 가능 항목?<br/>E1·E2 런타임 · E6 JavaParser jar · E7 JDT LS"}

@@ -24,9 +24,10 @@ Decision table (아래 전부 run-active 전제):
 Zone A — ``_workspace`` 단계 산출물 (basename 매칭):
   * ``_workspace/.markers/**``                 -> deny (훅 전용 증거, 도구 위조 금지)
   * 오케스트레이터 소유 산출물(00/03c/04b/09b/_resume/timing/result)
-      - 00_config-harness.json: Write가 schemaVersion=2 JSON 객체 + "springProfile" 포함 필수
-        (빈 껍데기 config 차단), Edit는 deny. 그 외 -> allow
-      - 나머지 -> allow
+      - 00_config-harness.json / _resume.json / pipeline_result.json:
+        Write는 schemaVersion=2 JSON 객체 필수(00은 "springProfile" 포함 — 빈 껍데기 차단;
+        pipeline_result.json은 09_conformance.json 집계값과 대조), Edit는 deny
+      - 09b: Write는 JSON 객체 필수 + 순서 게이트(09 선행) / 03c·04b·timing.json: 무검사 allow
   * producer 산출물(01/02/03/03b/04/05/06/07/09) 및 08:
       - Edit                                    -> deny (전체 Write만 — 검증 불가)
       - Write, 내용이 JSON 객체 아님             -> deny
@@ -47,11 +48,12 @@ Zone A — ``_workspace`` 단계 산출물 (basename 매칭):
 Zone B — ``src/test/java/**``:
   * 04_scenario_set.json 또는 04b_approval.json 부재
                                                 -> deny (4.5 승인 전 기록 금지 — 누구든)
-  * agent_type ∈ {test-code-generator, coverage-closer, test-fixer}
+  * agent_type ∈ TEST_WRITE_AGENTS
+    {test-code-generator, coverage-closer, test-fixer, test-editor}
                                                 -> allow
-  * 메인 에이전트 + Edit + spawn-test-fixer 마커(세션 일치)
-                                                -> allow (7/9.5단계 patch-apply)
-  * 그 외                                        -> deny (오케스트레이터 인라인 작성 금지)
+  * 그 외                                        -> deny (오케스트레이터 인라인 작성/수정 금지 —
+                                                   test-fixer가 메인 트리에서 직접 고치므로
+                                                   오케스트레이터 patch-apply 예외는 없다, v0.34.0)
 
 Zone C — ``test_docs/**``:
   * test_docs/scenarios/*.md without 04         -> deny
@@ -63,10 +65,11 @@ Zone D — 그 외 전부 allow. run-active가 아닌 세션도 전부 allow(위
                                                    깨서는 안 된다; 판정 로직 자체는
                                                    fail-closed).
 
-Hook JSON 입력 (실증됨, probe-hook-stdin.py 2026-07):
+Hook JSON 입력 (공식 계약 — Hooks reference §Common input fields / §PreToolUse,
+  https://code.claude.com/docs/en/hooks; 회귀 확인용 프로브: scripts/dev/probe-hook-stdin.py):
   { "tool_name": "Write"|"Edit", "tool_input": {"file_path", "content"(Write)},
     "session_id": "...", "cwd": "...",
-    "agent_id"/"agent_type": 서브에이전트 내부 호출 시 채워짐(메인은 null) }
+    "agent_id"/"agent_type": 훅이 서브에이전트 안에서 발화할 때 채워짐(메인은 없음) }
 
 Hook JSON 출력 (PreToolUse 결정 계약 — hookSpecificOutput 중첩 필수; top-level
 permissionDecision은 무시되어 fail-open):
@@ -147,9 +150,9 @@ _CONTRACT_HINT = (
 )
 
 _DELEGATION_HINT = (
-    "full-pipeline 단계 계약: 각 단계는 지정된 subagent에 Task 위임으로만 수행하며, "
+    "full-pipeline 단계 계약: 각 단계는 지정된 subagent에 Agent 위임으로만 수행하며, "
     "위임 없이 오케스트레이터가 직접 수행한 단계는 무효다. 해당 단계를 "
-    "Task(subagent_type=...)로 재실행한 뒤 산출물을 기록하라."
+    "Agent(subagent_type=...)로 재실행한 뒤 산출물을 기록하라."
 )
 
 
@@ -491,7 +494,7 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
         elif not _spawned(workspace, producer, session_id):
             return (
                 "위임 없이 산출물 기록: %s를 쓰려면 이 세션에서 "
-                "Task(subagent_type=%s)로 해당 단계를 실제 수행했어야 한다. %s"
+                "Agent(subagent_type=%s)로 해당 단계를 실제 수행했어야 한다. %s"
                 % (basename, producer, _DELEGATION_HINT)
             )
 
@@ -514,8 +517,8 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
 # ------------------------------------------------------------------- Zone B
 
 
-def _zone_b(tool_name: str, workspace: str, session_id: str, agent_type: str) -> str:
-    """src/test/java 기록 판정 (run-active 전제). deny 메시지 또는 ''."""
+def _zone_b(workspace: str, session_id: str, agent_type: str) -> str:
+    """src/test/java 기록 판정 (run-active 전제, Write/Edit 공통 — 도구 종류와 무관). deny 메시지 또는 ''."""
     if not (
         _artifact_exists(workspace, "04_scenario_set.json")
         and _artifact_exists(workspace, "04b_approval.json")
@@ -528,8 +531,9 @@ def _zone_b(tool_name: str, workspace: str, session_id: str, agent_type: str) ->
         )
     if agent_type in TEST_WRITE_AGENTS:
         return ""
-    if not agent_type and tool_name == "Edit" and _spawned(workspace, "test-fixer", session_id):
-        return ""  # 7/9.5단계: test-fixer patch를 오케스트레이터가 적용
+    # v0.34.0: test-fixer는 isolation 없이 메인 트리에서 직접 수정하므로
+    # "오케스트레이터 Edit + spawn-test-fixer 마커" 예외는 없다(있으면 스폰 마커만으로
+    # 메인 세션의 src/test/java Edit가 전부 통과하는 구멍이 된다).
     if agent_type:
         return (
             "하네스 활성 세션에서 %s 에이전트는 src/test/java를 기록할 수 없다 "
@@ -537,8 +541,8 @@ def _zone_b(tool_name: str, workspace: str, session_id: str, agent_type: str) ->
         )
     return (
         "하네스 활성 세션에서 오케스트레이터의 테스트 인라인 작성/수정 금지: "
-        "5단계 생성은 Task(subagent_type=test-code-generator)에, 실패 보정은 "
-        "Task(subagent_type=test-fixer)에 위임하라. %s" % _DELEGATION_HINT
+        "5단계 생성은 Agent(subagent_type=test-code-generator)에, 실패 보정은 "
+        "Agent(subagent_type=test-fixer)에 위임하라. %s" % _DELEGATION_HINT
     )
 
 
@@ -616,7 +620,7 @@ def main() -> int:
         ):
             message = _zone_a(basename, tool_name, tool_input, workspace, session_id, agent_type)
         elif "/src/test/java/" in abs_path:
-            message = _zone_b(tool_name, workspace, session_id, agent_type)
+            message = _zone_b(workspace, session_id, agent_type)
         elif "/test_docs/" in abs_path:
             message = _zone_c(abs_path, workspace)
 

@@ -14,7 +14,7 @@
 ## 공통 규칙 (전 항목 공통)
 
 1. **대화형 CLI**: fallback 조건이 발생하면 `AskUserQuestion`으로 사용자에게 묻고, 답에 따라 진행/중단한다.
-2. **비대화형 / CI(`claude -p`)**: `AskUserQuestion`이 불가능하다. **결정적 환경 세팅 항목**(`setup-harness`의 E2 MCP SDK
+2. **비대화형 / CI(`claude -p` 등 — 판정 규칙은 아래 「비대화형 감지」)**: `AskUserQuestion`이 불가능하다. **결정적 환경 세팅 항목**(`setup-harness`의 E2 MCP SDK
    `pip install`, E6 JavaParser jar `./mvnw package`, E7 JDT LS `setup_jdtls.py`처럼 고정 명령으로 고칠 수 있는 것)은 `setup-harness` 안에서 **자동 세팅**한 뒤 재검증한다.
    자동 세팅이 실패하거나 **비결정적 항목**(버전·프로파일·미지정 입력처럼 사람이 골라야 하는 것)은 **하드 중단**한다 —
    `status: "failed"`, `errors`에 조건과 **remediation(해결 명령)**을 명시하고 비정상 종료(exit≠0). **침묵 degrade·임의 기본값 금지.**
@@ -32,7 +32,7 @@
 |---|---|---|---|
 | 1 | **MCP Python SDK(`mcp[cli]`) 미설치** | **`setup-harness`·E2에서 선세팅.** 대화형: AskUserQuestion "함께 세팅할까요?" → 예: `python3 -m pip install -r mcp/requirements.txt` 후 재검증 / 아니오: 중단. **CI: 자동 설치** 후 재검증, 실패 시 중단 | `setup-harness` E2; [environment-setup.md](./environment-setup.md) E2 |
 | 2 | **JavaParser jar / JDK 미가용** | **필수 — degrade 없음.** `setup-harness`·E6에서 자동 빌드: 대화형=`AskUserQuestion`("예 — jar 빌드(`./mvnw package`)" / "아니오 — 중단"만, 정규식 degrade 선택지 없음). CI=자동 빌드+persist(`cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"` — jar를 업데이트 생존 위치 `${CLAUDE_PLUGIN_DATA}/javaparser/`에 복사), 실패 시 **하드 중단**(`JAVAPARSER_REQUIRED`). `REPO_AST_JAVAPARSER_JAR` 사전 지정도 가능. `.mcp.json`이 기본 `REPO_AST_REQUIRE_JAVAPARSER=1`을 설정하므로 repo-ast는 jar 미가용 시 항상 `status:"failed"`를 반환한다(정규식 fallback은 v0.31.0에서 **삭제**됐다 — 단독 사용 시에도 대체 경로는 없다. JavaParser가 특정 파일만 못 읽으면 그 파일은 결과에서 제외되고 `degraded:true` + `warnings`에 파일명이 명시된다) | `repo-ast`(`status:failed`+`JAVAPARSER_REQUIRED`); `setup-harness` E6; `ast-structure-analyzer` |
-| 3 | **JDT LS(LSP) 미가용** | **필수 — degrade 없음.** `setup-harness`·E7에서 `scripts/setup_jdtls.py`(PATH → brew → tarball → `${CLAUDE_PLUGIN_DATA}/jdtls`)로 자동 설치하고 Java 21+를 요구한다. 설치/검증 실패 시 **하드 중단**(AST-only degrade로 진행하지 않음). `lspAvailable:false` 상태로는 파이프라인 진행을 금지한다. 대화형: 설치 실패 시 중단. CI: 동일하게 하드 중단 | `setup-harness` E7(필수); `source-code-analyzer`, `analyze-source` |
+| 3 | **JDT LS(LSP) 미가용** | **필수 — degrade 없음.** `setup-harness`·E7에서 `scripts/setup_jdtls.py`(PATH → brew → tarball → `${CLAUDE_PLUGIN_DATA}/jdtls`)로 자동 설치하고 Java 21+를 요구한다. 설치/검증 실패 시 **하드 중단**(AST-only degrade로 진행하지 않음). `lspAvailable:false` 상태로는 파이프라인 진행을 금지한다(3단계 source-code-analyzer 등 LSP 의존 단계). 단, 3.5단계 refactor-advisor는 **보조 게이트**이므로 `JDT_LS_UNAVAILABLE` 경고 후 계속한다(#19). 대화형: 설치 실패 시 중단. CI: 동일하게 하드 중단 | `setup-harness` E7(필수); `source-code-analyzer`, `analyze-source` |
 | 4 | **Boot 버전 미감지** | **0.5단계(E9)에서 확정.** 대화형: AskUserQuestion으로 Boot major/프로파일 질문, 충족 안 되면 중단. CI: 중단(`HarnessRequest.springVersion` 명시) | `build-test` `detect_spring_profile` `degraded:true`+`INTERVIEW_REQUIRED`; `configure-harness` 0.5단계 |
 | 5 | **gradle/maven 빌드도구 미감지** | **0.5단계(E8)에서 확정.** 대화형: AskUserQuestion으로 빌드도구 질문 후 진행. CI: 중단(`HarnessRequest.buildTool` 명시) | `build-test` `detect_build_tool` `status:partial`+`BUILD_TOOL_UNDETECTED`; `configure-harness`/`test-runner` |
 | 6 | **namespace(javax/jakarta)·JUnit 엔진 자동 override** | **0.5단계(E9)에서 확정. 자동 적용 금지.** 빌드파일 값과 소스/기존테스트 값이 충돌하면 대화형=AskUserQuestion으로 어느 쪽을 따를지 확인 후 적용 / CI=중단 | `build-test` `detect_spring_profile` `requiresConfirmation:true`+`conflicts[]`; `configure-harness` |
@@ -67,7 +67,7 @@
 
 ## 비대화형 감지
 
-`claude -p`/CI 여부는 `configure-harness`의 `skipInterview`/실행 컨텍스트로 판단한다. 비대화형에서:
+비대화형 여부는 `skipInterview:true`, 또는 `AskUserQuestion` 도구가 도구 목록에 없거나 첫 호출이 차단됨(공식: 서브에이전트·`--permission-prompts none`에서 제거, `dontAsk`에서 거부, plain `claude -p`에서 차단)으로 판정한다 — 정본은 `configure-harness` 「인터랙티브 모드 감지」. 환경변수·`-p` 플래그 자체는 모델이 관측할 수 없다. 비대화형에서:
 - **결정적 환경 세팅 항목**(`setup-harness`의 E2/E6/E7: `pip install`·`./mvnw package`·`setup_jdtls.py`)은 질문 대신 **자동 세팅** 후 재검증한다. 자동 세팅 실패 시 하드 중단(#2·#3·#20).
 - 그 외 "AskUserQuestion" 항목(비결정적 데이터·런타임 선택)은 **하드 중단 + remediation 안내**로 대체된다(침묵 진행 아님).
 

@@ -52,7 +52,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 | `junitPolicy` | `string` | 아니오 | `"jupiter-style"` | `jupiter-style`(BOM 위임) 또는 `strict-5x`(정책 예외, 명시 필요) |
 | `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
 | `astResult` | `AstAnalysisResult` | 아니오 | `null` | 메서드 시그니처 확인용 |
-| `projectRoot` | `string` | 아니오 | 현재 작업 디렉터리 | 프로젝트 루트 절대 경로 — 절대경로 파일 출력의 기준 |
+| `projectRoot` | `string` | 아니오 | 없음 — 미지정이면 질문(대화형)/중단(비대화형), 자동 cwd 금지(#13) | 프로젝트 루트 절대 경로 — 절대경로 파일 출력의 기준 |
 | `testSourceRoot` | `string` | 아니오 | `{projectRoot}/src/test/java` | 테스트 소스 루트 |
 
 `junitPolicy: "strict-5x"` 사용 시 빌드 파일에 명시적 version pin과 CHANGELOG 경고를 `buildChanges`에 포함한다.
@@ -69,9 +69,8 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 2. **subagent 호출**
 
    ```
-   Task(
+   Agent(
      subagent_type="test-code-generator",
-     model="inherit",
      prompt="""
    다음 시나리오 집합으로 테스트 코드를 작성하라.
 
@@ -132,7 +131,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
      "files": [
        {
          "path": string,
-         "content": string,
+         "content": string (선택 — 파일은 에이전트가 자가 검증 게이트 중 이미 기록했으므로 대용량이면 생략, 소비자는 path를 Read),
          "scenarioRef": string,
          "testClass": string,
          "targetCallCheck": "matched" | "manual-verified" | "mismatch"
@@ -151,13 +150,13 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 
 3. **결과 검증**
    - `files`가 비어 있으면 `status: "failed"`.
-   - `files[]` 중 `targetCallCheck`가 없거나 `"mismatch"`인 항목은 Write 대상에서 제외하고 해당 시나리오를 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다 — 필드 누락은 게이트 미수행으로 간주한다.
+   - `files[]` 중 `targetCallCheck`가 없거나 `"mismatch"`인 항목은 결과에서 제외하고(에이전트가 이미 기록했다면 에이전트가 삭제) 해당 시나리오를 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다 — 필드 누락은 게이트 미수행으로 간주한다.
    - `warnings`에 "UNRESOLVED_SIGNATURE" 항목이 있으면 해당 시나리오는 생성 보류로 표기하고 `nextActions`에 AST 보강 안내 추가.
    - `buildChanges`에 `strict-5x` pin이 포함된 경우 `warnings`에 버전 충돌 위험 문구 추가.
 
-4. **파일 쓰기**
-   - `files[]`의 각 항목을 `path` 경로에 Write한다.
-   - 이미 존재하는 파일은 덮어쓰기 전 사용자에게 확인을 요청한다.
+4. **파일 기록 주체 확인(오케스트레이터는 쓰지 않는다)**
+   - 테스트 파일은 `test-code-generator`가 자가 검증 게이트(기록→`parse_java_file`→`methodCalls` 대조) 과정에서 **이미 디스크에 기록**했다. 호출자는 `files[].content`로 다시 Write하지 않는다(이중 기록 금지, 소유권은 에이전트) — 하네스 활성 세션에서는 `guard-gate-artifacts.py` Zone B가 `TEST_WRITE_AGENTS`(test-code-generator·coverage-closer·test-fixer·test-editor) 외의 `src/test/java` 기록을 deny한다.
+   - 기존 파일 덮어쓰기 여부는 에이전트 입력(`overwrite` 정책·HarnessConfig)으로 미리 전달한다.
 
 5. **결과 반환**
    - `TestGenResult` JSON(파일 목록 + buildChanges)을 메인 세션으로 반환한다.
@@ -209,7 +208,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 | `UNRESOLVED_SIGNATURE` | astResult에 미해석 시그니처 | 해당 시나리오 생성 보류 + `warnings` 기록 |
 | `SCENARIO_TARGET_MISMATCH` | 생성 테스트가 시나리오 `target` 메서드를 호출하지 않음(자가 수정 1회 후에도) | 해당 파일 제외 + `warnings` 기록, `status: "partial"` |
 | `scenarios` 비어 있음 | 입력 없음 | `status: "failed"`, `generate-scenarios` 실행 안내 |
-| `BUILD_TOOL_UNDETECTED` | buildTool auto-detect 실패 | `warnings` 기록 후 기본 Gradle 가정으로 진행 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+| `BUILD_TOOL_UNDETECTED` | buildTool auto-detect 실패 | `status: "failed"` + `errors`에 `BUILD_TOOL_UNDETECTED`. 호출자가 대화형이면 `AskUserQuestion("gradle/maven?")` 후 재호출, 비대화형이면 중단(fallback-policy #5). 임의 기본값 금지 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 보안: 파일 쓰기(Write/Edit) 외 실행(Bash) 권한 없음. 생성 코드에 실제 네트워크/Thread.sleep/broad catch 포함 금지.

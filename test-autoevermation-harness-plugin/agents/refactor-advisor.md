@@ -46,7 +46,7 @@ repo-ast MCP는 설계상 메서드 바디를 반환하지 않으므로, 신호 
 | `sourceResult` | object | 3단계 산출. `testSeams`·`collaborators.injectionType`을 신호로 재사용(이중 파싱 방지) |
 | `targetSymbols` | string[] | 판정 대상 FQCN. 비어 있으면 `astResult.testTargets[].fqcn` |
 | `projectRoot` | string | 소스 탐색 루트(allowlist 경계) |
-| `lspAvailable` | boolean | JDT LS 연결 여부(필수 — false면 `status:"failed"`로 중단) |
+| `lspAvailable` | boolean | JDT LS 연결 여부(정상 경로에선 E7 보장으로 항상 `true`; `false`면 중단하지 않고 `warnings`에 `JDT_LS_UNAVAILABLE` 기록 후 계속 — #19) |
 | `thresholds` | object | 임계값 오버라이드. 미지정 시 refactor-advisory.md §2 기본값 |
 
 ---

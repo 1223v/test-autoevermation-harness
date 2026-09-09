@@ -38,7 +38,7 @@ description: 필수 단계(생성·실행·커버리지)가 끝난 뒤, 승인�
 | `generatedFiles` | string[] | 예 | — | 생성된 테스트 파일 경로 |
 | `runResult` | object | 예 | — | 최종 실행 결과(TestRunResult). **주의: run-tests는 집계 `passed`(정수) + `failed[]`(실패 목록)만 반환하며 메서드 단위 통과 목록은 없다** — 메서드 단위 합격은 `parse_junit_xml`의 `testcases[]`({class, name, result, flaky})로 **기계 확증**한다(skipped·미실행은 `failed[]` 부재로 구분 불가). 집계 추론은 XML 리포트 부재 시 한정 폴백 + `warnings` 기록 |
 | `coverageResult` | object | 아니오 | `null` | 커버리지 결과(보조) |
-| `projectRoot` | string | 아니오 | cwd | `test_docs/`를 만들 위치 |
+| `projectRoot` | string | 아니오 | 없음 — 미지정이면 질문(대화형)/중단(비대화형), 자동 cwd 금지(#13) | `test_docs/`를 만들 위치 |
 | `testDocsDir` | string | 아니오 | `test_docs` | 산출물 디렉터리 |
 
 입력(승인 시나리오/생성 파일/실행 결과) 중 하나라도 비면 `status: "failed"`를 반환하고 선행 단계를 안내한다.
@@ -52,9 +52,8 @@ description: 필수 단계(생성·실행·커버리지)가 끝난 뒤, 승인�
 2. **subagent 호출**
 
    ```
-   Task(
+   Agent(
      subagent_type="scenario-conformance-verifier",
-     model="inherit",
      prompt="""
    승인된 각 BDD 시나리오가 실제로 충족되었는지 검증하고 test_docs/를 갱신하라.
 
@@ -138,6 +137,6 @@ description: 필수 단계(생성·실행·커버리지)가 끝난 뒤, 승인�
 | 입력 누락 | 승인 시나리오/생성 파일/실행 결과 중 누락 | `status: "failed"`, 선행 단계 실행 안내 |
 | unmet 존재 | unsatisfied/missing 시나리오 존재 | `status: "partial"`, `unmet[]` 전량 보고(임의 제외 금지). 파이프라인 호출 시 9.5단계 자동 보정 루프 입력 |
 | 문서 쓰기 실패 | `test_docs/` 권한/경로 문제 | `warnings` 기록 후 판정 결과는 반환 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 보안: 검증·문서화 전용. 테스트 코드 생성/수정·Bash 금지. `projectRoot` 밖 쓰기 금지. 민감정보 기록 금지.

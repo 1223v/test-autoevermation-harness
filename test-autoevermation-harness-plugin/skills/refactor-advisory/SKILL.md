@@ -17,7 +17,7 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 
 ## MCP 필수 (대체 금지)
 
-이 스킬은 `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 `setup-harness`(E3b)가 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브(`health` 3종 호출)가 재확인한다. 추가로 JDT LS가 **필수**다 — `lspAvailable:false`이면 진행을 금지하고 즉시 중단한다(fallback-policy #3 개정). 단, 이 MCP 가용성 요구는 **판정 자체의 실패(허위 양성 억제, 근거 부족 시 미플래그 등)가 non-blocking(#19)인 것과는 별개**다 — MCP 미가용은 하드 중단, 판정 보수성은 기존 정책대로 유지한다.
+이 스킬은 `repo-ast` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 `setup-harness`(E3b)가 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브(`health` 3종 호출)가 재확인한다. JDT LS는 `setup-harness` E7이 보장하므로 정상 경로에서 `lspAvailable`은 항상 `true`다; 예외적으로 `false`가 오면 **중단하지 않고** `warnings`에 `JDT_LS_UNAVAILABLE`을 기록한 뒤 판정을 계속한다(권고는 보조 게이트 — fallback-policy #19; 판정 신호는 Read/Grep 기반이라 JDT LS 없이 성립). 단, repo-ast MCP 가용성 요구는 **판정 자체의 실패(허위 양성 억제, 근거 부족 시 미플래그 등)가 non-blocking(#19)인 것과는 별개**다 — MCP 미가용은 하드 중단, 판정 보수성은 기존 정책대로 유지한다.
 
 ---
 
@@ -51,8 +51,8 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 | `astResult` | `AstAnalysisResult` | 아니오 | `null` | 2단계 산출(있으면 재파싱 생략) |
 | `sourceResult` | `SourceAnalysisResult` | 아니오 | `null` | 3단계 산출. `testSeams`·`collaborators` 신호 재사용 |
 | `targetSymbols` | `string[]` | 아니오 | `[]` → `astResult.testTargets[].fqcn` 사용 | 판정 대상 FQCN 목록 |
-| `projectRoot` | `string` | 아니오 | cwd | 소스 탐색 루트(allowlist 경계) |
-| `lspAvailable` | `boolean` | 예 (사실상) | `false` | JDT LS 연결 여부 — `false`면 진행 금지, 즉시 중단(fallback-policy #3) |
+| `projectRoot` | `string` | 아니오 | 없음 — 미지정이면 질문(대화형)/중단(비대화형), 자동 cwd 금지(#13) | 소스 탐색 루트(allowlist 경계) |
+| `lspAvailable` | `boolean` | 아니오 | E7 통과값(항상 `true`) | JDT LS 연결 여부 — `false`면 `warnings`에 `JDT_LS_UNAVAILABLE` 기록 후 계속(보조 게이트, fallback-policy #19) |
 | `thresholds` | `object` | 아니오 | refactor-advisory.md §2 기본값 | `HarnessConfig.refactorAdvisory.thresholds` 오버라이드 |
 
 `targetSymbols`가 비어 있고 `astResult`도 없으면 `status: "partial"`을 즉시 반환하고 `analyze-ast` 선행 실행을 안내한다.
@@ -69,9 +69,8 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 2. **subagent 호출**
 
    ```
-   Task(
+   Agent(
      subagent_type="refactor-advisor",
-     model="inherit",
      prompt="""
    다음 입력으로 리팩토링 권고 판정을 수행하라.
 
@@ -100,7 +99,7 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 
 3. **결과 검증**
    - `advisories`가 빈 배열이면 "플래그 0건 — 전 대상 생성 적합"을 요약에 명시한다(다운스트림 게이트 생략 신호).
-   - LSP 미가용이면 즉시 `status:"failed"`로 중단한다(degrade 금지, #3 개정).
+   - `lspAvailable:false`면 중단하지 않고 `warnings`에 `JDT_LS_UNAVAILABLE`을 기록한 뒤 계속한다(보조 게이트, #19). repo-ast MCP 미가용은 #20대로 즉시 중단한다.
    - `advisories[].signals[].evidence`가 파일:라인 형식인지, 소스 원문이 섞이지 않았는지 확인한다.
 
 4. **결과 반환**
@@ -149,10 +148,10 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 
 | 오류 코드 | 발생 조건 | 처리 방식 |
 |---|---|---|
-| LSP 미가용 | `lspAvailable: false` | 즉시 `status:"failed"`로 중단(AST+Read-only degrade 금지, #3 개정) |
+| LSP 미가용 | `lspAvailable: false` | 중단하지 않음 — `warnings`에 `JDT_LS_UNAVAILABLE` 기록 후 판정 계속(보조 게이트, #19; 정상 경로에선 E7이 보장) |
 | 바디 Read 불가 | 파일 접근 불가·비Java | 해당 대상 `warnings` + 시그니처 기반 부분 판정, 나머지 계속 |
 | `targetSymbols` 미제공 + `astResult` 없음 | — | `status: "partial"`, `analyze-ast` 선행 실행 안내 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 보안: read-only. 대상 심볼 그래프(1홉)만 탐색. vendor/build/generated read deny. 보안 취약점 탐지는 미포함(향후 확장).
 성능: `astResult`/`sourceResult` 재사용으로 이중 파싱 방지. 다수 대상 병렬 판정.

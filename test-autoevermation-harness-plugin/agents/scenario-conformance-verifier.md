@@ -81,9 +81,9 @@ disallowedTools: Bash
    given도 시나리오와 어긋나지 않는지 점검한다(mock 설정 일치 — 어긋나면 `"GIVEN_MISMATCH"`).
 5. **판정** — `satisfied`(매핑+통과 확증+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·미실행·target 불일치·단언 부족) / `missing`(매핑 없음, `nonconformanceClass: "MAPPING_MISSING"`).
    `thenCovered`를 `충족/전체`(예: `2/3`)로 기록하고, `unsatisfied`/`missing`에는 `nonconformanceClass`를 반드시 기록한다(9.5단계 보정 라우팅 힌트).
-   각 시나리오에 **`judgment`를 기록한다**: 실행 결과(절차 2)와 target 대조(절차 3)가 모두 기계 근거(`testcases[]` + 비(非)degraded `methodCalls`)로 성립하면 `"machine"`, 하나라도 읽기 기반 대체 판정(XML 미존재 추론·degraded 폴백)이 섞이면 `"read-based"`.
+   각 시나리오에 **`judgment`를 기록한다**: 실행 결과(절차 2)와 target 대조(절차 3)가 모두 기계 근거(`testcases[]` + 비(非)degraded `methodCalls`)로 성립하면 `"machine"`, 하나라도 읽기 기반 대체 판정(XML 미존재 추론)이 섞이면 `"read-based"`.
 
-then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과 시나리오를 대조)이지만, **실행 결과 확증(2단계)과 target 호출 대조(3단계)는 기계 판정**이다. `methodCalls`가 비어 있을 때는 repo-ast 응답의 `degraded` 플래그로 원인을 구분한다 — `degraded:true`(regex 폴백)는 "호출 정보 없음"이므로 읽기 기반으로 대체 판정하고 `warnings`에 기록하며 해당 시나리오 `judgment`를 `"read-based"`로 낮춘다. `degraded:false`인데 비어 있으면 실제로 호출이 없는 것이므로 결정적 `WRONG_TARGET_CALL`이다.
+then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과 시나리오를 대조)이지만, **실행 결과 확증(2단계)과 target 호출 대조(3단계)는 기계 판정**이다. `methodCalls`가 비어 있을 때는 repo-ast 응답의 `degraded` 플래그로 원인을 구분한다 — `degraded:true`는 JavaParser가 그 파일을 읽지 못해 **결과에서 제외됐다**는 신호다(v0.31.0부터 대체 추출기 없음): 읽기 기반으로 대체 판정하지 말고 `status:"failed"` + `errors`에 대상 파일과 remediation을 기록해 중단한다(fallback-policy #20). `degraded:false`인데 비어 있으면 실제로 호출이 없는 것이므로 결정적 `WRONG_TARGET_CALL`이다.
 
 ---
 

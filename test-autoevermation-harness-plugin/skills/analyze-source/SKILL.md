@@ -46,7 +46,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 | `targetSymbols` | `string[]` | 아니오 | `[]` → `analyze-ast.testTargets[].fqcn` 사용 | 분석 대상 FQCN 목록 |
 | `buildMetadata` | `object` | 아니오 | `{}` → auto-detect | 빌드 도구, Java 버전 등 메타 |
 | `astResult` | `AstAnalysisResult` | 아니오 | `null` | 이전 단계 AST 결과(있으면 재파싱 생략) |
-| `lspAvailable` | `boolean` | 예 (사실상) | `false` | JDT LS 연결 여부 — `false`면 진행 금지, 즉시 중단(fallback-policy #3) |
+| `lspAvailable` | `boolean` | 예 (사실상) | E7 통과값(항상 `true`) | JDT LS 연결 여부 — `false`면 진행 금지, 즉시 중단(fallback-policy #3; 정상 경로에선 `setup-harness` E7이 보장) |
 
 `targetSymbols`가 비어 있고 `astResult`도 없으면 `status: "partial"`을 즉시 반환하고 `analyze-ast` 선행 실행을 안내한다.
 
@@ -61,9 +61,8 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 2. **subagent 호출**
 
    ```
-   Task(
+   Agent(
      subagent_type="source-code-analyzer",
-     model="inherit",
      prompt="""
    다음 입력으로 동작 관점 분석을 수행하라.
 
@@ -164,7 +163,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 | `SYMBOL_UNRESOLVED` | 대상 심볼 탐색 불가 | `status: "partial"`, LSP 보강 권고 |
 | LSP 미가용 | `lspAvailable: false` | 즉시 `status:"failed"`로 중단(AST-only degrade 금지, fallback-policy #3 개정) |
 | `targetSymbols` 미제공 + `astResult` 없음 | — | `status: "partial"`, `analyze-ast` 선행 실행 안내 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 보안: read-only. 대상 심볼 그래프만 탐색. vendor/build/generated read deny.
 성능: `astResult` 재사용으로 이중 파싱 방지. JDT LS와 AST 역할 분리로 중복 비용 방지.

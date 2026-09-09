@@ -150,7 +150,7 @@ disallowedTools: Write, Edit
 1. `targetScope.methods` 지정 → 해당 메서드만 실행 (가장 좁은 범위)
 2. `targetScope.classes` 지정 → 해당 클래스만 실행
 3. `targetScope.packages` 지정 → 해당 패키지만 실행
-4. 모두 미지정 → **[[fallback-policy.md](../references/fallback-policy.md) #8]**: 이 에이전트는 사용자에게 직접 묻지 않는다(`AskUserQuestion`은 서브에이전트에서 사용 불가 — tools에 있어도 무효). `status:"failed"` + `errors:["TARGET_SCOPE_UNSPECIFIED"]` + nextActions("대상 지정 또는 전체 실행 여부 확인 필요")로 **신호만 반환**하고, 대화형 확인은 **호출자(run-tests 스킬/full-pipeline — 메인 대화)**가 AskUserQuestion으로 수행한 뒤 확정된 `targetScope`로 재호출한다. CI는 그대로 하드 중단(remediation 안내)
+4. 모두 미지정 → **[[fallback-policy.md](../references/fallback-policy.md) #8]**: 이 에이전트는 사용자에게 직접 묻지 않는다(`AskUserQuestion`은 서브에이전트 도구 목록에서 제거된다 — 공식 Sub-agents 문서). `status:"failed"` + `errors:["TARGET_SCOPE_UNSPECIFIED"]` + nextActions("대상 지정 또는 전체 실행 여부 확인 필요")로 **신호만 반환**하고, 대화형 확인은 **호출자(run-tests 스킬/full-pipeline — 메인 대화)**가 AskUserQuestion으로 수행한 뒤 확정된 `targetScope`로 재호출한다. CI는 그대로 하드 중단(remediation 안내)
 
 ### Gradle 명령 패턴
 ```

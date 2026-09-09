@@ -69,18 +69,18 @@ cd test-autoevermation-harness-plugin/mcp/javaparser-cli && ./mvnw -q -DskipTest
 /reload-plugins
 ```
 
-**설치 상태가 깨졌을 때(스킬 미노출·MCP 서버 에러 지속):** 공식 트러블슈팅 절차대로 플러그인 캐시를
-비우고 재설치한다.
+**설치 상태가 깨졌을 때(스킬 미노출·MCP 서버 에러 지속):** 이 플러그인의 캐시만 비우고 재설치한다
+(`plugins/cache` 전체 삭제는 다른 플러그인 설치본까지 지우므로 피한다).
 
 ```bash
-rm -rf ~/.claude/plugins/cache
+rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 ```
 
 이후 Claude Code를 재시작하고 위 [설치](#설치-claude-code) 절차를 다시 실행한다.
 
 **하네스 실행 상태 재설정:** 파이프라인 중간 산출물은 대상 프로젝트 루트의 `_workspace/`에 저장된다
-(부분 재실행용). 이 디렉터리를 삭제하면 다음 실행이 처음부터(0단계 `configure-harness` 인터뷰 포함)
-시작된다 — 새 입력으로 다시 돌리면 기존 산출물은 자동으로 `_workspace_{timestamp}/`로 보존되므로
+(부분 재실행용). 이 디렉터리를 삭제해도 영속 증거(생성 테스트·승인 시나리오·JUnit/JaCoCo 리포트)가 남아 있으면
+다음 실행은 `detect_pipeline_state` 판정으로 알맞은 단계부터 **재개**된다(durable resume) — 새 입력으로 다시 돌리면 기존 산출물은 자동으로 `_workspace_legacy_{YYYYMMDD_HHMMSS}/`로 보존되므로
 수동 삭제는 선택이다. `test_docs/`는 사람이 읽는 영속 산출물이므로 유지한다. 상태줄은 자동으로
 설치·원복된다(설치 후 1회 확인, uninstall 시 self-heal) — 자세한 동작과 끄는 법(`TAM_STATUSLINE_AUTO=0`)은
 [docs/GUIDE.md](test-autoevermation-harness-plugin/docs/GUIDE.md) §5.5를 참조한다.

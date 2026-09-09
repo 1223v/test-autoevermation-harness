@@ -1,6 +1,6 @@
 ---
 name: configure-harness
-description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행하고 HarnessConfig JSON을 생성한다. "하네스 설정", "커버리지 임계값 설정", "테스트 대상 지정", "하네스 구성"처럼 설정 또는 초기화가 필요한 상황에서 자동 호출된다. 환경 세팅(Phase E)은 수행하지 않는다 — /test-autoevermation-harness-plugin:setup-harness 선행이 필수이며, 시작 시 E-verify 검증 프로브만 돌려 미완료면 하드 중단한다. CI(claude -p)에서는 인터뷰를 건너뛰되 미충족 필수 항목은 HarnessRequest 값으로 채우거나 중단한다.
+description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행하고 HarnessConfig JSON을 생성한다. "하네스 설정", "커버리지 임계값 설정", "테스트 대상 지정", "하네스 구성"처럼 설정 또는 초기화가 필요한 상황에서 자동 호출된다. 환경 세팅(Phase E)은 수행하지 않는다 — /test-autoevermation-harness-plugin:setup-harness 선행이 필수이며, 시작 시 E-verify 검증 프로브만 돌려 미완료면 하드 중단한다. 비대화형(AskUserQuestion 사용 불가) 세션에서는 인터뷰를 건너뛰고 HarnessRequest 값으로 구성하되, 필수 항목이 비면 하드 중단한다.
 ---
 
 ## 목적
@@ -11,7 +11,7 @@ description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행�
 
 **Fallback 정책 준수(필수)**: 런타임 의사결정은 [references/fallback-policy.md](../../references/fallback-policy.md)(SSOT)를 따른다. 미충족 조건(역량 미설치, 버전 미감지, 미지정 입력, 프로파일 충돌)은 **침묵 fallback·임의 기본값 없이** 처리한다 — **대화형은 `AskUserQuestion`으로 질문/함께 세팅**, **비대화형/CI는 결정적 항목 자동 세팅·그 외 하드 중단(remediation 안내)**.
 
-**인터랙티브 CLI 전용 주의**: `AskUserQuestion`은 대화형 Claude Code CLI에서만 의미가 있다. `claude -p`/CI에서는 질문할 수 없으므로, **미충족 필수 조건이 있으면 `status:"failed"` + remediation으로 중단**한다(과거의 "인터뷰 스킵 + 기본값" 동작은 정책 변경으로 제거됨). 사용자는 `HarnessRequest`에 값을 미리 채워 중단을 피한다.
+**인터랙티브 CLI 전용 주의**: `AskUserQuestion`은 대화형 세션에서만 호출할 수 있다(판정 규칙은 아래 「인터랙티브 모드 감지」). 비대화형에서는 인터뷰를 건너뛰되, **필수 항목이 `HarnessRequest`에 없으면 `status:"failed"` + remediation으로 중단**한다 — 필수 항목을 임의 기본값으로 채우는 동작은 없다(문서화된 기본값이 있는 커버리지 임계값·제외 패턴만 기본값 사용). 사용자는 `HarnessRequest`에 값을 미리 채워 중단을 피한다.
 
 ---
 
@@ -40,16 +40,17 @@ description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행�
 
 ## 인터랙티브 모드 감지
 
-다음 조건 중 하나라도 해당하면 **CI 모드**(인터뷰 스킵)로 동작한다:
+**비대화형(CI) 모드** — 인터뷰를 건너뛰고 `HarnessRequest` 값만으로 HarnessConfig를 만들며, 필수 항목이 비면 하드 중단한다(fallback-policy #13). 비대화형은 다음 중 하나로 판정한다(공식 근거: [Sub-agents](https://code.claude.com/docs/en/sub-agents) — 서브에이전트에서 `AskUserQuestion` 제거, [headless](https://code.claude.com/docs/en/headless) — `dontAsk`·`--permission-prompts none`에서 거부/제거, [Hooks](https://code.claude.com/docs/en/hooks) — plain `claude -p`에서는 도구가 있어도 호출이 차단됨. 환경변수나 `-p` 플래그 자체는 모델이 관측할 수 없다):
 
-- `skipInterview: true`가 명시된 경우
-- 환경 변수 `CI=true` 또는 `CLAUDE_NO_PROMPT=true`가 설정된 경우
-- `claude -p` 플래그로 호출된 비대화형 세션인 경우
-- `schemaVersion:2`인 `_workspace/00_config-harness.json`(HarnessConfig)이 있어 재사용하는 경우 — 인터뷰를 재수행하지 않는다. 버전이 없거나 2가 아니면 구 설정으로 보고 재생성한다.
+1. `HarnessRequest.skipInterview: true`가 명시된 경우
+2. 현재 세션의 도구 목록에 `AskUserQuestion`이 **없는** 경우(서브에이전트, `--permission-prompts none`)
+3. 도구는 있으나 **첫 `AskUserQuestion` 호출이 차단·거부**된 경우(plain `claude -p`는 차단, `dontAsk`는 거부) — 이후 다시 묻지 않고 비대화형 규칙을 적용한다
+
+**인터뷰 생략(비대화형과 별개)** — `schemaVersion:2`인 `_workspace/00_config-harness.json`(HarnessConfig)이 있어 재사용하는 경우 인터뷰를 재수행하지 않는다. 버전이 없거나 2가 아니면 구 설정으로 보고 재생성한다.
 
 > **재사용해도 0.5단계는 건너뛰지 않는다.** 인터뷰만 생략할 뿐 Spring 프로파일은 **항상 재감지**한다(아래 0단계). 빌드 파일이 config보다 새로우면(`detect_pipeline_state`의 `staleness.buildFileNewerThanConfig:true`) 캐시된 `springProfile`은 신뢰할 수 없다 — Boot 2→3 업그레이드 하나로 javax↔jakarta·junit4↔jupiter·`@MockBean`↔`@MockitoBean`이 전부 뒤집히므로, 그 값으로 생성하면 컴파일되지 않거나 잘못된 관용구의 테스트가 나온다. 재감지 결과가 캐시와 다르면 `warnings`에 기록하고 새 값을 채택한다.
 
-CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 바로 "HarnessConfig 생성" 단계로 이동한다.
+비대화형 모드에서는 아래 단계별 절차 중 인터뷰 단계(1~3)를 건너뛰고 바로 "HarnessConfig 생성" 단계로 이동한다. 이때 인터뷰가 채웠어야 할 **필수 항목**(`projectRoot`·`buildTool`·`springVersion`·`javaVersion` 등 #13 대상)이 `HarnessRequest`에 없으면 `status:"failed"` + `INTERVIEW_REQUIRED` + remediation으로 중단한다. 문서화된 기본값이 있는 항목(커버리지 임계값·제외 패턴)만 기본값을 쓴다.
 
 ---
 
@@ -63,7 +64,7 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 
 1. **`health` 3종 실제 호출**(repo-ast·spec-doc·build-test) → E3b + 전이적으로 E1·E2·E3. repo-ast 응답의 `javaparser.jarFound`로 E6도 함께 확인.
 2. `java -version` ≥ 21 → E4
-3. `target/*-shaded.jar` 또는 `REPO_AST_JAVAPARSER_JAR` → E5·E6
+3. repo-ast `health().javaparser`의 `jarFound:true` **그리고** `jarPersisted:true`(`${CLAUDE_PLUGIN_DATA}/javaparser/`에 영속된 jar) 또는 `REPO_AST_JAVAPARSER_JAR` 설정 → E5·E6. `jarPersisted:false`면 jar가 버전 키 캐시(`target/`)에만 있어 다음 업데이트에서 소실되므로 `persist_astcli_jar.py` 실행을 안내한다(environment-setup.md E-verify 표)
 4. `setup_jdtls.py --check-only` → E7 (감지만, 설치하지 않음)
 5. 실행 JDK major ↔ Mockito/ByteBuddy 지원 범위 → E10
 6. **`projectRoot` 범위 대조** — `repo-ast.health()`의 `allowRoot`와 확정된 `projectRoot`를 대조한다. `.mcp.json`이 `REPO_AST_ALLOW_ROOT=${CLAUDE_PROJECT_DIR}`로 고정하므로 `projectRoot`가 그 밖이면 repo-ast가 모든 경로를 `denied`로 응답해 AST 분석이 조용히 비게 된다. 벗어나면 `status:"failed"` + remediation(① 대상 프로젝트에서 세션 열기 / ② `REPO_AST_ALLOW_ROOT` 지정 후 `/reload-plugins`)으로 중단한다. `allowRoot`가 `null`이면 서버가 cwd로 폴백하므로 동일하게 대조한다.
@@ -80,7 +81,7 @@ CI 모드에서는 아래 단계별 절차 중 인터뷰 단계를 건너뛰고 
 
 ### 0단계: 모드 판별
 
-CI 모드 여부를 확인한다. CI 모드이면 인터뷰 단계(1~3)는 건너뛰되, **0.5단계(Spring 프로파일 감지)는 항상 수행**한다.
+비대화형 모드 여부를 확인한다(「인터랙티브 모드 감지」). 비대화형이면 인터뷰 단계(1~3)는 건너뛰되, **0.5단계(Spring 프로파일 감지)는 항상 수행**한다.
 
 ---
 
@@ -253,7 +254,7 @@ AskUserQuestion(
 ```json
 {
   "schemaVersion": 2,
-  "projectRoot": "<입력값 또는 현재 작업 디렉터리>",
+  "projectRoot": "<입력값 — 미지정이면 대화형 질문 / 비대화형 중단(#13), 자동 cwd 금지>",
   "specDocPaths": ["<인터뷰 (a) 결과>"],
   "targets": ["<인터뷰 (b) 결과>"],
   "targetModules": ["<인터뷰 (b) 결과>"],
@@ -275,7 +276,7 @@ AskUserQuestion(
   },
   "stylePolicy": "google-java",
   "lspAvailable": true,
-  "maxRepairRetries": 2,
+  "maxRepairRetries": 3,
   "domainKeywords": [],
   "coverage": {
     "line": 0.95,

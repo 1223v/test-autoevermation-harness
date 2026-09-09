@@ -32,7 +32,7 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
   "existingTestPaths": ["src/test/java/com/example/orders/OrderServiceTest.java"]
 }
 ```
-> `coverage` 임계값/제외는 `configure-harness` 인터뷰(§7 항목 d)에서 사용자가 조정 가능.
+> `coverage` 임계값/제외는 `configure-harness` 인터뷰 3단계(항목 c: 커버리지 임계값·제외)에서 사용자가 조정 가능.
 > `targetScope`는 full-pipeline이 `HarnessConfig.targets`(+`targetModules`)를 매핑해 전달한다(HarnessConfig에 `targetScope`라는 필드는 없음). 이 필드는 **커버리지 측정 스코프(패키지 목록)** 로, run-tests의 실행 스코프 `targetScope{classes,packages,methods}`(객체)와 의도적으로 다른 형상이다 — 서로 그대로 전달하지 말 것.
 > `maxIterations`는 full-pipeline이 `HarnessConfig.coverageMaxIterations`를 매핑해 전달한다.
 > `springProfile`·`existingTestPaths`는 coverage-closer의 버전 인식 생성·중복 방지에 필수 — 미전달 시 closer가 기존 테스트 import로 판별/재탐색한다.
@@ -45,7 +45,7 @@ JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메
    - 게이트 통과 → 상태 `ok`, 종료.
    - 미달 → `uncovered[]`를 **coverage-closer** 에이전트에 구조화 입력으로 전달(에이전트 입력 스키마와 1:1):
      ```
-     Task(subagent_type="coverage-closer", model="inherit",
+     Agent(subagent_type="coverage-closer",
           prompt="""
      입력:
      {

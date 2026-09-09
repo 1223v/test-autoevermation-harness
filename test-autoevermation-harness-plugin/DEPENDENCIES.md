@@ -7,10 +7,10 @@
 | 범주 | 사용 기능 | 비고 |
 |---|---|---|
 | Claude Code 플러그인 시스템 | `.claude-plugin/plugin.json`, `skills/`, `agents/`, `hooks/`, `.mcp.json`, `.lsp.json` | 네이티브 |
-| 서브에이전트 오케스트레이션 | `Task(subagent_type="<agent-name>")` 병렬/순차 호출 | 네이티브 (OMC 아님) |
+| 서브에이전트 오케스트레이션 | `Agent(subagent_type="<agent-name>")` 병렬/순차 호출 | 네이티브 (OMC 아님) |
 | 인터랙티브 설정 | `AskUserQuestion` | 네이티브 (`configure-harness`, `full-pipeline`) |
 | MCP | 공식 MCP 프로토콜(stdio) — `repo-ast`/`spec-doc`/`build-test` 서버 | 공식 표준 |
-| 훅 | `PreToolUse`/`PostToolUse` (네트워크 가드, 시크릿 redaction) | 네이티브 |
+| 훅 | `SessionStart`(MCP 런타임 프로비저닝·상태줄) / `PreToolUse`(산출물·위임 게이트, 실행 증거 기록) / `PostToolUse`(파이프라인 상태 기록, 시크릿 warn 보고) | 네이티브 |
 | Python | 3.10+, `mcp[cli]` (MCP 서버 런타임) | 표준 |
 | Java(필수) | JDK 21+ (JavaParser jar 빌드 17+ ⊂ JDT LS 구동 21+ — 단일 기준). `mcp/javaparser-cli`에 Maven Wrapper(`mvnw`)가 동봉되어 시스템 Maven 불요. jar 미빌드 시 대체 경로 없이 하드실패한다(v0.31.0에서 정규식 fallback 삭제 — `REPO_AST_REQUIRE_JAVAPARSER`는 no-op). Phase E·E6이 `./mvnw -q -DskipTests package` 자동 빌드, 실패 시 `JAVAPARSER_REQUIRED`로 하드 중단 | 필수 |
 | JDT LS(필수) | `jdtls` + Java 21+ 런타임 (semantic 분석 보강). `plugin.json` `lspServers`로 `.lsp.json`(node 경유 `mcp/jdtls-launcher.cjs`) 등록. Phase E·E7이 `scripts/setup_jdtls.py`로 자동 설치(PATH → brew(macOS) → eclipse.org milestone tarball), 실패 시 하드 중단 | 필수 |
@@ -25,7 +25,7 @@
 - ❌ OMC 상태 관리 / `.omc/` 디렉터리
 - ❌ 에이전트 팀 도구 (`TeamCreate`, `SendMessage`, `TaskCreate`) — 본 하네스는 **네이티브 서브에이전트**만 사용
 
-> 검증: `grep -rinE 'oh-my-claudecode|mcp__plugin_oh-my-claudecode|TeamCreate|SendMessage' .` (`.omc/` 제외) → 0건. 모든 `subagent_type`은 본 플러그인 `agents/*.md`의 `name:` 필드와 1:1로 매칭된다.
+> 검증: `grep -rinE 'oh-my-claudecode|mcp__plugin_oh-my-claudecode|TeamCreate|SendMessage' agents/ skills/ hooks/ scripts/ mcp/*.py mcp/*.cjs .mcp.json` → 런타임 호출 0건(문서의 "쓰지 않는다" 언급만 존재). 모든 `subagent_type`은 본 플러그인 `agents/*.md`의 `name:` 필드와 1:1로 매칭된다.
 
 ## OMC가 제공하던 기능을 어떻게 자체 구현했나
 
@@ -33,7 +33,7 @@
 
 | OMC 편의 기능 | 본 플러그인의 자체 구현 |
 |---|---|
-| 병렬 실행 엔진(ultrawork) | `full-pipeline`이 네이티브 `Task` 서브에이전트를 **직접** 팬아웃/파이프라인으로 오케스트레이션 (`references/orchestration-detail.md` §1) |
+| 병렬 실행 엔진(ultrawork) | `full-pipeline`이 네이티브 `Agent` 서브에이전트를 **직접** 팬아웃/파이프라인으로 오케스트레이션 (`skills/full-pipeline/references/orchestration-detail.md` §1) |
 | 상태/체크포인트 | `_workspace/{단계}_{에이전트}_{산출물}.json` 파일 기반 전달 + Phase 0 부분 재실행 (자체 규약) |
 | 작업 추적/타이밍 | `scripts/record-timing.py`로 `timing.json`(total_tokens/duration_ms) 자체 누적 — `launch.cjs script` 경유 호출(정본 명령: `full-pipeline` SKILL.md 단계별 계측 절) |
 | 인터뷰/질문 | 네이티브 `AskUserQuestion` (`configure-harness`) |

@@ -181,7 +181,8 @@ class ManifestAndDocsTests(unittest.TestCase):
                 self.assertIn("setup-harness", _read(PLUGIN_ROOT / rel))
 
     def test_changelog_has_current_release_entry(self) -> None:
-        self.assertIn("## [0.26.0]", _read(PLUGIN_ROOT / "CHANGELOG.md"))
+        manifest = json.loads(_read(PLUGIN_ROOT / ".claude-plugin" / "plugin.json"))
+        self.assertIn("## [%s]" % manifest["version"], _read(PLUGIN_ROOT / "CHANGELOG.md"))
 
 
 if __name__ == "__main__":

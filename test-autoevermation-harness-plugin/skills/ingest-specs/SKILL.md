@@ -60,9 +60,8 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
    - 아래 형식으로 `spec-reviewer` subagent를 호출한다.
 
    ```
-   Task(
+   Agent(
      subagent_type="spec-reviewer",
-     model="inherit",
      prompt="""
    다음 스펙 문서를 처리하라.
 
@@ -145,8 +144,9 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
 
 | 오류 코드 | 발생 조건 | 처리 방식 |
 |---|---|---|
-| `SPEC_DOC_UNREADABLE` | 문서 경로 미지정 또는 읽기 불가 | `status: "partial"`, `nextActions`에 경로 지정 안내 |
+| `SPEC_DOC_UNREADABLE` | 일부 문서 읽기 불가(권한·암호화 PDF 등) | 에이전트는 `status:"partial"` + `errors`에 실패 경로만 신호로 반환한다(서브에이전트는 질문 불가). **호출자(이 스킬/full-pipeline, 메인 대화)**가 대화형이면 `AskUserQuestion("읽을 수 있는 나머지로 계속 / 중단")`으로 확정하고, 비대화형이면 `status:"failed"` + remediation으로 중단한다(fallback-policy #10) |
+| 문서 경로 미지정 | `docPaths` 비어 있음 | `status: "failed"`, `nextActions`에 경로 지정 안내 |
 | `ALLOWLIST_VIOLATION` | 경로가 프로젝트 루트 밖 | 해당 경로 건너뜀 + `warnings` 기록 |
-| subagent 오류 | Task 호출 실패 | `status: "failed"`, `errors`에 원인 기록, 수동 처리 안내 |
+| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록, 수동 처리 안내 |
 
-2회 재시도 후에도 `failed`이면 파이프라인을 중단하고 원인을 보고한다.
+재시도는 fallback-policy #12를 따른다 — 진전이 있는 한 계속하되, 동일 실패가 3회 연속(무진전)이면 파이프라인을 중단하고 원인을 보고한다.

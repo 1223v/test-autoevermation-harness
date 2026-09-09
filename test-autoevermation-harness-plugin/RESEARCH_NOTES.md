@@ -32,7 +32,7 @@
 > 않은 채 실제 계약에서 드리프트해 틀린 안내를 하게 됐다(무조건 `--offline` vs 실제
 > `BUILD_TEST_ALLOW_NETWORK` 분기; 무조건 `@MockitoBean` vs Boot ≤3.3 `@MockBean` — §8).
 > **v0.33.0에서 7종 전부 삭제.** 새 기능은 tool로 추가하고, 재사용 프롬프트는 `agents/*.md`에 둔다.
-- `.mcp.json` 연결: `command: "python3"`, `args: ["${CLAUDE_PLUGIN_ROOT}/mcp/<server>.py"]` 또는 콘솔 엔트리포인트.
+- `.mcp.json` 연결: `command: "node"`, `args: ["${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs", "${CLAUDE_PLUGIN_ROOT}/mcp/<server>.py"]` — `launch.cjs`가 `${CLAUDE_PLUGIN_DATA}`의 venv를 프로비저닝한 뒤 서버를 실행한다(v0.28.0).
 
 ## 2. Java AST: JavaParser + Symbol Solver
 - 좌표: `com.github.javaparser:javaparser-symbol-solver-core:**3.28.2**` (AST + symbol resolution 통합). 공식: [javaparser.org](https://javaparser.org/), [mvnrepository](https://mvnrepository.com/artifact/com.github.javaparser/javaparser-symbol-solver-core)
@@ -62,7 +62,7 @@
 > ⚠️ 위 관용구는 **Boot 4.x("latest") 프로파일 전용**이다. Boot 2.x/3.x 대상에서는 §8의 버전별 프로파일을 따라야 컴파일된다. 전체 코드 템플릿은 [version-compatibility.md](./references/version-compatibility.md) 참조.
 
 ## 8. 버전 호환 프로파일 매트릭스 (Boot 2.0 – 4.x) — 하위호환의 단일 진실 소스
-> 하네스는 대상 프로젝트의 **`springProfile`** 을 감지(`build-test-mcp.detect_spring_profile`)하거나 인터뷰로 받아, 아래 4개 축의 관용구를 분기 선택한다. 감지 실패 시 인터뷰(대화형) 또는 latest 가정(CI)+경고. 출처: [Boot 2.x System Requirements](https://docs.spring.io/spring-boot/docs/2.7.x/reference/html/getting-started.html#getting-started-system-requirements), [Boot 3.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide), [@MockitoBean(6.2)](https://docs.spring.io/spring-framework/docs/6.2.x/javadoc-api/org/springframework/test/context/bean/override/mockito/MockitoBean.html), [@MockBean(deprecated 3.4)](https://docs.spring.io/spring-boot/3.5/api/java/org/springframework/boot/test/mock/mockito/MockBean.html).
+> 하네스는 대상 프로젝트의 **`springProfile`** 을 감지(`build-test-mcp.detect_spring_profile`)하거나 인터뷰로 받아, 아래 4개 축의 관용구를 분기 선택한다. 감지 실패 시 인터뷰(대화형) 또는 비대화형은 `HarnessRequest.springVersion` 필수 — 가정 금지, 미지정 시 `status:"failed"`(fallback-policy #4). 출처: [Boot 2.x System Requirements](https://docs.spring.io/spring-boot/docs/2.7.x/reference/html/getting-started.html#getting-started-system-requirements), [Boot 3.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide), [@MockitoBean(6.2)](https://docs.spring.io/spring-framework/docs/6.2.x/javadoc-api/org/springframework/test/context/bean/override/mockito/MockitoBean.html), [@MockBean(deprecated 3.4)](https://docs.spring.io/spring-boot/3.5/api/java/org/springframework/boot/test/mock/mockito/MockBean.html).
 
 | Boot | Framework | Java(min) | 네임스페이스 | JUnit 기본 | Mock 애노테이션 | Mock import |
 |---|---|---|---|---|---|---|
@@ -91,7 +91,7 @@
 1. 스펙 문서 경로 추가 입력 → spec-doc.index_docs
 2. 테스트 생성 대상 폴더/패키지/클래스 선별 → 대상 스코프 한정
 3. 커버리지 임계값 + 제외 규칙(allowlist)
-- 제약: AskUserQuestion은 **interactive CLI에서만** 의미. 비대화형/CI(`claude -p`)에서는 HarnessRequest JSON + 기본값으로 대체(=인터뷰 스킵).
+- 제약: AskUserQuestion은 **대화형 세션에서만** 호출 가능(비대화형 판정은 configure-harness 「인터랙티브 모드 감지」). 비대화형에서는 인터뷰를 건너뛰고 HarnessRequest JSON으로 구성하되, #13 필수 항목이 비면 하드 중단(임의 기본값 금지; 문서화된 기본값이 있는 커버리지 임계값·제외만 기본값 사용).
 - 3.5단계 리팩토링 권고 게이트(#19)의 포함/제외 질문은 인터뷰 3종과 별개의 **파이프라인 중간 게이트**이며 `HarnessConfig.refactorAdvisory`는 인터뷰 항목이 아니다(비침습 기본값).
 
 ## 9. 리팩토링 권고 게이트(3.5단계) 기준 근거 — 공식/1차 문서 (2026-07-02 검증)

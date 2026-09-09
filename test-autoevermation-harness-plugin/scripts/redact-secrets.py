@@ -11,11 +11,21 @@ Usage:
   PostToolUse hook envelope (JSON with tool_name/tool_input — the hook pipes
   the event JSON, NOT the written file), only the written payload
   (tool_input.content / tool_input.new_string) is scanned and findings are
-  reported against tool_input.file_path. Raw text on stdin (CLI usage) is
-  scanned as before (and printed to stdout for strip mode).
+  reported against tool_input.file_path. In that hook mode the script always
+  exits 0 and, when something was found, prints the official PostToolUse JSON
+  output (https://code.claude.com/docs/en/hooks#posttooluse):
+    {"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                            "additionalContext": "<summary for Claude>"},
+     "systemMessage": "<one-line warning shown to the user>"}
+  (a PostToolUse hook cannot block — the tool already ran — and only exit 2
+  would reach Claude via stderr; exit 1 is a user-only non-blocking error, so
+  the warning is delivered as additionalContext instead.)
+  Raw text on stdin (CLI usage) is scanned as before (and printed to stdout
+  for strip mode).
 
 Modes:
-  warn  — report matches with file/line info; exit nonzero if any found.
+  warn  — report matches with file/line info; CLI/file mode exits nonzero if
+           any found; hook-envelope mode exits 0 with additionalContext JSON.
   strip — replace matched text with ***REDACTED*** in-place (files) or stdout
            (stdin); exit 0.
 
@@ -36,6 +46,7 @@ import re
 import sys
 import os
 import argparse
+import json
 
 REDACTED = "***REDACTED***"
 
@@ -106,9 +117,14 @@ def _redact_text(text: str) -> str:
 
 def _process_warn(source_name: str, text: str) -> int:
     """Print warning lines for each match. Returns number of findings."""
+    return _warn_details(source_name, text)[0]
+
+
+def _warn_details(source_name: str, text: str) -> tuple:
+    """Print warning lines for each match. Returns (count, sorted pattern names)."""
     hits = _find_matches(text)
     if not hits:
-        return 0
+        return 0, []
     lines = text.splitlines()
     count = 0
     for name, m in hits:
@@ -118,7 +134,7 @@ def _process_warn(source_name: str, text: str) -> int:
         print(f"WARN [{source_name}:{lineno}] pattern={name}: {line_preview}",
               file=sys.stderr)
         count += 1
-    return count
+    return count, sorted({name for name, _ in hits})
 
 
 def _process_strip_file(path: str) -> int:
@@ -186,7 +202,6 @@ def main():
         text = sys.stdin.read()
         envelope = None
         try:
-            import json
             candidate = json.loads(text)
             if isinstance(candidate, dict) and "tool_input" in candidate:
                 envelope = candidate
@@ -204,7 +219,20 @@ def main():
                       if k in ("content", "new_string") and isinstance(v, str)]
             scanned = "\n".join(pieces)
             if args.mode == "warn":
-                total_findings += _process_warn(source, scanned)
+                found, names = _warn_details(source, scanned)
+                if found:
+                    summary = ("redact-secrets: %d sensitive pattern(s) (%s) written to %s "
+                               "— review and remove or externalize them (env/CI secrets); "
+                               "the hook only reports, it does not modify the file."
+                               % (found, ", ".join(names), source))
+                    print(json.dumps({
+                        "hookSpecificOutput": {
+                            "hookEventName": "PostToolUse",
+                            "additionalContext": summary,
+                        },
+                        "systemMessage": "redact-secrets: %d sensitive pattern(s) in %s" % (found, source),
+                    }, ensure_ascii=False))
+                return  # hook mode: always exit 0 (PostToolUse exit 1 never reaches Claude)
             else:
                 sys.stdout.write(_redact_text(scanned))
         elif args.mode == "warn":

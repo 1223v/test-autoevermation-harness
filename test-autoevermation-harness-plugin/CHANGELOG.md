@@ -9,6 +9,73 @@
 
 ---
 
+## [0.34.0] - 2026-09-10
+
+### Changed — Claude Code 공식 계약 정합 + 문서 간 모순 정정
+
+공식 문서(2026-09-09 기준 `code.claude.com/docs/en/{sub-agents,skills,hooks,plugins-reference,worktrees,headless,tools-reference}`)를
+근거로, 공식 제공되지 않는 기능에 기대던 지시와 파일 간에 서로 모순되던 지시를 정정했다.
+
+**공식 계약 정합**
+
+- **위임 의사코드 `Task(…, model="inherit", …)` → `Agent(…)`** (12 스킬·21곳 + 훅 힌트 문자열). `Task`는 v2.1.63에
+  `Agent`로 개명된 alias이고, Agent 도구의 `model` 파라미터는 `sonnet|opus|haiku|fable`만 받는다 — `inherit`는
+  에이전트 frontmatter 전용 값이라 호출 인자로 넘기면 입력 검증 오류가 난다(11개 에이전트 모두 이미 `model: inherit`
+  선언). `hooks.json` 매처 `Skill|Task|Agent`와 `record-run-context.py`의 `("Task","Agent")`는 alias 호환으로 유지.
+- **비대화형(CI) 감지 규칙 통일**: 비공식 환경변수 `CLAUDE_NO_PROMPT`·`CI`와 모델이 관측할 수 없는 "`claude -p`로
+  호출된 세션" 조건을 삭제하고, 공식적으로 관측 가능한 신호만 남겼다 — ① `skipInterview:true` ② `AskUserQuestion`
+  도구가 목록에 없음(서브에이전트·`dontAsk`·`--permission-prompts none`) ③ 도구는 있으나 첫 호출이 차단됨(plain `-p`).
+  `configure-harness`가 정본이고 `setup-harness`·`fallback-policy`·GUIDE·pipeline-flow가 이를 참조한다.
+  `configure-harness` 안에서 "인터뷰 스킵+기본값"(L43–52)과 "하드 중단"(L14)이 충돌하던 것도 "인터뷰 스킵, #13 필수
+  항목 누락 시 하드 중단, 문서화된 기본값이 있는 커버리지 항목만 기본값"으로 단일화.
+- **`TodoWrite` 지시 삭제**(setup-harness·environment-setup·GUIDE·pipeline-flow): 기본 비활성이고 Opus 4.8/Sonnet 5/
+  Fable 5 이상에서는 task 도구 자체가 제공되지 않는다. 응답 텍스트 체크리스트(`ok/fixed/failed/skipped`)로 대체.
+- **`test-fixer`의 `isolation: worktree` 제거**: 공식 worktree는 원격 기본 브랜치에서 **추적 파일만** 체크아웃한 새
+  트리라(worktrees 문서) 5단계가 방금 쓴 미커밋 테스트가 보이지 않아 수정 대상이 없는 채로 돌았다. test-fixer는
+  메인 트리에서 직접 최소 diff 수정하고 `patches[]`는 증거로만 남긴다. 이에 따라 full-pipeline 7·9.5단계의
+  "worktree patch → 메인 트리 재적용" 절차와 `guard-gate-artifacts.py` Zone B의 "오케스트레이터 Edit + spawn-test-fixer
+  마커" 예외 분기를 삭제했다(제거하지 않으면 스폰 마커만으로 메인 세션의 `src/test/java` Edit가 전부 통과하는 구멍).
+- **`redact-secrets.py` PostToolUse 훅 출력 계약**: 발견 시 `exit 1`이던 것을 공식 출력
+  `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":…},"systemMessage":…}` + `exit 0`으로
+  바꿨다. PostToolUse에서 exit 2만 stderr가 Claude에 전달되고 그 외 nonzero는 사용자에게만 보이는 non-blocking
+  error라, 종전에는 경고가 모델에 닿지 않았다. CLI(비-envelope) 모드의 exit 1은 유지.
+- **오기 정정**: "MCP 도구는 서브에이전트에서 사용 불가"(setup-harness) → 서브에이전트는 MCP 도구를 상속하며 제거되는
+  것은 `AskUserQuestion` 등 8종뿐. 훅 stdin `agent_id`/`agent_type`은 "미문서·실증" 주석을 공식 공통 입력 필드
+  인용으로 교체(`guard-gate-artifacts.py`, `probe-hook-stdin.py`).
+
+**모순 정정 (권위 측 = fallback-policy SSOT / 훅·테스트가 강제하는 쪽)**
+
+- C1 테스트 파일 쓰기 주체: `generate-tests`의 "files[]를 Write / 덮어쓰기 전 사용자 확인" 삭제 — 기록은
+  test-code-generator 소유(훅 Zone B deny). Zone B 허용 목록을 코드(`TEST_WRITE_AGENTS` 4개)에 맞춤.
+- C2 `degraded:true`: test-code-generator·scenario-conformance-verifier·scenario-docs의 "regex 폴백·읽기 기반 대체"
+  잔재 삭제 → v0.31.0부터 #20 중단 신호.
+- C3 `lspAvailable:false`: refactor-advisory 스킬·에이전트를 "보조 게이트 — 경고 기록 후 계속(#19)"으로 통일
+  (analyze-source의 필수 규칙은 유지).
+- C4 빈 `targetScope` "전체 실행 fallback"(run-tests·full-pipeline) → `TARGET_SCOPE_UNSPECIFIED` 신호 후 질문/중단(#8).
+- C5 `BUILD_TOOL_UNDETECTED` "기본 Gradle 가정"·"양쪽 병기" → `failed` 반환 후 호출자가 질문/중단(#5).
+- C6 `SPEC_DOC_UNREADABLE`: ingest-specs에 호출자 측 AskUserQuestion/중단 절차 추가(#10). 재시도 "2회" → #12 규칙.
+- C7 `projectRoot` 자동 cwd(6개 스킬·configure-harness 스키마) → 질문/중단, 자동 cwd 금지(#13).
+- H1 `maxRepairRetries` 기본 2 → 3. H2 `_workspace_{timestamp}` → `_workspace_legacy_{YYYYMMDD_HHMMSS}`.
+  H3 E-verify jar 프로브를 `jarFound && jarPersisted`(`${CLAUDE_PLUGIN_DATA}`) 기준으로. H4 `javaVersion` 8–26.
+  H5 재개 옵션에 5단계 추가. H6 tool-restrictions의 "PreToolUse Write|Edit = v0.29.0 이하" 역전 문구 정정.
+  H7/M9 README·GUIDE·DEPENDENCIES의 "네트워크 도메인 차단·읽기 deny·마스킹·알림 위주" 서술을 실제 메커니즘으로.
+  H8 캐시 삭제 안내를 범위 지정(`cache/test-autoevermation-harness`)으로 통일. M1 RESEARCH_NOTES의 CI "latest 가정"
+  잔재 정정. M2 루트 README durable resume. M3 하드코딩 버전(0.28.0·v0.7.0) → 플레이스홀더. M6 깨진 절 참조
+  (「5단계」→「4단계」, §7(d), references 7종→9종, orchestration-detail 경로). M8 CI 예제 JDK 21 + 설명 정정.
+- 코드 주석 드리프트: `pyproject.toml`·`repo_ast_server.py`의 정규식 폴백 서술, `bootstrap.py`의 호출자,
+  `launch.cjs`의 run-server.sh 패리티 문구, `guard-gate-artifacts.py` Zone A docstring.
+
+**테스트** — `tests/test_official_contract.py` 신설(위임 의사코드·비공식 감지 조건·frontmatter 키 집합·
+redact-secrets 훅 출력·Zone B 오케스트레이터 Edit deny·모순 재발 가드). `test_setup_harness_split.py`의
+CHANGELOG 검사를 manifest 버전 기반으로.
+
+**범위 제외(알려진 항목)** — 상태줄 자동설치(`hooks/statusline-autosetup.py`)의 `installed_plugins.json` 파싱과
+`~/.claude/settings.json` 직접 편집은 공식 계약이 아닌 내부 파일 의존이지만 사용자 결정으로 이번에 손대지
+않았다. `00b_build_provision.json`이 `guard-gate-artifacts.py`의 `ORCHESTRATOR_ARTIFACTS`에 없는 점(Zone A
+게이트 미적용)도 훅 동작 변화를 수반해 보류.
+
+---
+
 ## [0.33.1] - 2026-08-09
 
 ### Changed — 테스트 파일 의도 정리: `test_mutation_removal.py` 드리프트 해소

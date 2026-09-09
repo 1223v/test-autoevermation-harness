@@ -3,8 +3,9 @@
 
 PreToolUse/PostToolUse 등 임의 훅에 임시 배선하면 stdin으로 들어오는 훅 페이로드
 전체를 JSONL로 기록한다. 가드 스크립트가 의존하는 필드(agent_id/agent_type,
-tool_name, session_id, cwd, tool_input 스키마)가 Claude Code 업그레이드 후에도
-유지되는지 실증할 때 사용한다.
+tool_name, session_id, cwd, tool_input 스키마)는 공식 Hooks reference
+(§Common input fields, https://code.claude.com/docs/en/hooks)에 문서화된 계약이다 —
+이 프로브는 업그레이드 뒤 회귀 확인용이다.
 
 기록 위치: $PROBE_HOOK_LOG 가 있으면 그 파일, 없으면 <cwd>/_workspace/.markers/probe.jsonl
 출력: 항상 {} (무의견 allow) — 세션 동작에 영향을 주지 않는다.
