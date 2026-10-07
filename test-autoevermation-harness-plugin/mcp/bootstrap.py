@@ -10,12 +10,12 @@
   python3 bootstrap.py --ensure-only          # SessionStart 훅 경유 — venv만 준비하고 종료
 
 동작 규칙:
-- 현재 인터프리터가 이미 `mcp`를 임포트할 수 있으면 venv 없이 그대로 실행(기존 환경 존중).
+- 현재 인터프리터의 SDK >=2.2,<3 버전과 MCPServer 실제 import가 검증되면 venv 없이 그대로 실행(기존 환경 존중).
 - venv 위치: $CLAUDE_PLUGIN_DATA/venv (업데이트에도 유지). 변수 미주입 환경(로컬 dev 등)은
   <plugin>/mcp/.plugin-data/venv 로 폴백.
 - requirements.txt 사본을 marker로 저장해 두고, 번들 파일과 다르면(첫 실행/의존성 변경 업데이트)
   재설치한다 — 공식 문서의 diff-manifest 패턴과 동일.
-- 서버 3개가 동시에 기동하며 경쟁하므로 flock으로 설치를 직렬화한다.
+- 서버 3개가 동시에 기동하며 경쟁하므로 OS 파일 잠금(flock/msvcrt)으로 설치를 직렬화한다.
 - 설치 중 첫 세션에서 MCP 연결 타임아웃(30s)이 나더라도 설치는 marker 기준으로 이어지고,
   SessionStart 훅/다음 reload에서 정상화된다.
 
@@ -23,6 +23,9 @@ stdlib 전용 — 이 스크립트 자체는 어떤 서드파티 패키지도 �
 """
 
 import os
+import re
+import tempfile
+import time
 import subprocess
 import sys
 
@@ -51,11 +54,26 @@ def venv_python(venv_dir):
 
 
 def current_interpreter_has_mcp():
+    """Both the supported SDK version AND its actual public server API must load."""
     try:
-        import importlib.util
-
-        return importlib.util.find_spec("mcp") is not None
+        from importlib.metadata import version
+        match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:\.post\d+)?", version("mcp"))
+        if not match or not (2, 2, 0) <= tuple(map(int, match.groups())) < (3, 0, 0):
+            return False
+        from mcp.server.mcpserver import MCPServer
+        return callable(MCPServer)
     except Exception:
+        return False
+
+
+def interpreter_has_mcp(python):
+    try:
+        probe = ("import runpy,sys; m=runpy.run_path(sys.argv[1]); "
+                 "sys.exit(0 if m['current_interpreter_has_mcp']() else 1)")
+        result = subprocess.run([python, "-c", probe, os.path.abspath(__file__)],
+                                capture_output=True, text=True, timeout=30)
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
         return False
 
 
@@ -94,35 +112,51 @@ def marker_payload():
     return bundled + "\n# plugin-version: %s\n" % plugin_version()
 
 
-def deps_ready(marker_path):
+def deps_ready(marker_path, python=None):
     expected = marker_payload()
     installed = read_file(marker_path)
-    return expected is not None and expected == installed
+    return (expected is not None and expected == installed
+            and (python is None or interpreter_has_mcp(python)))
 
 
 class InstallLock:
-    """flock 기반 설치 직렬화. flock 불가 환경은 잠금 없이 진행(pip 자체가 재실행 안전)."""
-
+    """Process lock released by the OS after crashes; never silently skip locking."""
     def __init__(self, lock_path):
         self.lock_path = lock_path
         self.fd = None
 
     def __enter__(self):
+        self.fd = open(self.lock_path, "a+b")
         try:
-            import fcntl
-
-            self.fd = open(self.lock_path, "w")
-            fcntl.flock(self.fd, fcntl.LOCK_EX)
-        except Exception:
-            self.fd = None
+            if os.name == "nt":
+                import msvcrt
+                if self.fd.tell() == 0:
+                    self.fd.write(b"0"); self.fd.flush()
+                self.fd.seek(0)
+                deadline = time.monotonic() + 600
+                while True:
+                    try:
+                        msvcrt.locking(self.fd.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("MCP install lock timed out")
+                        time.sleep(.1)
+            else:
+                import fcntl
+                fcntl.flock(self.fd, fcntl.LOCK_EX)
+        except BaseException:
+            self.fd.close()
+            raise
         return self
 
     def __exit__(self, *exc):
         if self.fd is not None:
-            try:
-                self.fd.close()
-            except Exception:
-                pass
+            if os.name == "nt":
+                import msvcrt
+                self.fd.seek(0)
+                msvcrt.locking(self.fd.fileno(), msvcrt.LK_UNLCK, 1)
+            self.fd.close()
         return False
 
 
@@ -140,7 +174,7 @@ def ensure_venv():
     py = venv_python(venv_dir)
     marker = os.path.join(base, "requirements.installed.txt")
 
-    if os.path.exists(py) and deps_ready(marker):
+    if os.path.exists(py) and deps_ready(marker, py):
         return py
 
     try:
@@ -150,21 +184,38 @@ def ensure_venv():
         return None
     with InstallLock(os.path.join(base, ".bootstrap.lock")):
         # 잠금 대기 중 다른 서버 프로세스가 설치를 끝냈을 수 있다
-        if os.path.exists(py) and deps_ready(marker):
+        if os.path.exists(py) and deps_ready(marker, py):
             return py
 
-        if not os.path.exists(py):
-            log("creating venv at %s" % venv_dir)
-            r = subprocess.run(
-                [sys.executable, "-m", "venv", venv_dir],
-                capture_output=True,
-                text=True,
-            )
+        # Invalidate before any repair; failed provisioning cannot leave a ready marker.
+        try:
+            os.unlink(marker)
+        except FileNotFoundError:
+            pass
+        pip_ready = False
+        if os.path.exists(py):
+            try:
+                pip_ready = subprocess.run(
+                    [py, "-m", "pip", "--version"], capture_output=True,
+                    text=True, timeout=30,
+                ).returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        if not pip_ready:
+            # Only rebuild the plugin-owned directory, never a symlink target.
+            if os.path.islink(venv_dir):
+                log("refusing to rebuild a symlinked venv; provide a real plugin data directory")
+                return None
+            log("creating/repairing venv at %s" % venv_dir)
+            command = [sys.executable, "-m", "venv"]
+            if os.path.isdir(venv_dir):
+                command.append("--clear")
+            r = subprocess.run(command + [venv_dir], capture_output=True, text=True)
             if r.returncode != 0:
                 log("venv creation failed: %s" % (r.stderr or r.stdout).strip())
                 return None
 
-        log("installing MCP dependencies (first run only) ...")
+        log("installing/verifying MCP SDK 2.x dependencies ...")
         r = subprocess.run(
             [py, "-m", "pip", "install", "--quiet", "-r", REQUIREMENTS],
             capture_output=True,
@@ -174,9 +225,22 @@ def ensure_venv():
             log("pip install failed: %s" % (r.stderr or r.stdout).strip()[-2000:])
             return None
 
-        payload = marker_payload() or ""
-        with open(marker, "w", encoding="utf-8") as f:
-            f.write(payload)
+        if not interpreter_has_mcp(py):
+            log("installed SDK does not satisfy >=2.2,<3 or MCPServer import failed")
+            return None
+        payload = marker_payload()
+        if payload is None:
+            return None
+        fd, temporary = tempfile.mkstemp(prefix=".requirements-", dir=base)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, marker)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
         log("dependencies ready at %s" % venv_dir)
         return py
 
@@ -187,15 +251,13 @@ def main():
 
     if current_interpreter_has_mcp():
         py = sys.executable
-        # 시스템 인터프리터에 mcp가 이미 있으면 venv를 우회한다(기존 환경 존중).
-        # 이 경로는 requirements/버전 마커의 추적을 받지 않으므로, 시스템 mcp가
-        # 낡아도 감지되지 않는다 — 진단 가능하도록 소리 내어 기록한다.
-        log(
-            "system interpreter already imports 'mcp' — plugin venv BYPASSED "
-            "(%s); dependency drift is not tracked on this path" % py
-        )
+        log("system interpreter verified: MCP SDK >=2.2,<3 and MCPServer import (%s)" % py)
     else:
-        py = ensure_venv()
+        try:
+            py = ensure_venv()
+        except (OSError, subprocess.SubprocessError) as exc:
+            log("provisioning failed: %s" % exc)
+            py = None
 
     if ensure_only:
         # 실패 시 exit 1 — 호출자(launch.cjs --ensure-only; POSIX 수동 폴백 run-server.sh)가 SessionStart exit 2 + stderr로

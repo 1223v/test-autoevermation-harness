@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """repo-ast MCP server.
 
-A FastMCP (official MCP Python SDK) server that performs *structure-only* Java
+A MCPServer (official MCP Python SDK) server that performs *structure-only* Java
 AST/symbol analysis for the Spring test-harness plugin.
 
 Design contract (see RESEARCH_NOTES.md sections 1-2):
 
-* High-level API: ``from mcp.server.fastmcp import FastMCP`` with ``@mcp.tool()``
+* High-level API: ``from mcp.server.mcpserver import MCPServer`` with ``@mcp.tool()``
   decorators ONLY; stdio transport. v0.33.0 deleted the ``ast://index`` /
   ``ast://dependency-graph`` resources and the ``explain_target_shape`` prompt — they were
-  FastMCP boilerplate (RESEARCH_NOTES §1; ``ast_index``/``explain_target_shape`` were the
+  MCPServer boilerplate (RESEARCH_NOTES §1; ``ast_index``/``explain_target_shape`` were the
   SDK example's own names) that no agent could reach, duplicated ``extract_test_targets``,
   and — unlike the tools — took no ``paths`` argument, so each read ran ``_analyze()`` over
   the ENTIRE allow root. The prompt had also drifted: it prescribed ``@MockitoBean``
@@ -49,9 +49,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 try:  # pragma: no cover - import shim so py_compile/tests work without the SDK
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer
 except Exception:  # noqa: BLE001 - any import failure should not crash module load
-    FastMCP = None  # type: ignore[assignment,misc]
+    MCPServer = None  # type: ignore[assignment,misc]
 
 
 # ---------------------------------------------------------------------------
@@ -838,19 +838,19 @@ def _normalize_java_cli_output(
 
 
 def build_server() -> Any:
-    """Construct and return the configured FastMCP server.
+    """Construct and return the configured MCPServer server.
 
     Kept as a function so the module imports cleanly even when the ``mcp``
     package is absent (e.g. under ``py_compile`` or unit tests of the pure
     analysis functions).
     """
-    if FastMCP is None:  # pragma: no cover
+    if MCPServer is None:  # pragma: no cover
         raise RuntimeError(
             "The 'mcp' package is not installed for this interpreter. Install with: "
             "python3 -m pip install -r mcp/requirements.txt"
         )
 
-    mcp = FastMCP(SERVER_NAME)
+    mcp = MCPServer(SERVER_NAME)
 
     @mcp.tool()
     def health() -> dict:

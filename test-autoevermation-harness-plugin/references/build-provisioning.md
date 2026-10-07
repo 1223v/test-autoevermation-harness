@@ -67,13 +67,12 @@ tasks.jacocoTestReport { reports { xml.required.set(true) } }
 보장 못 하므로 **콜드/신규 플러그인** 상황에선 1회 프라이밍을 권한다.
 
 **처리.**
-- **대화형**: `primed:false`이거나 방금 플러그인을 주입했다면 `AskUserQuestion("의존성/플러그인을 1회 온라인으로
-  받아올까요?")` → "예"면 `run_targeted_tests(..., online=True)`를 **1회** 실행(또는 Maven `mvn dependency:go-offline`)
+- **대화형**: `primed:false`이거나 방금 플러그인을 주입했다면 메인 대화가 공식 `questions` 배열로 의존성/플러그인의 1회 온라인 설치 승인을 질문 → "예"면 `run_targeted_tests(..., online=True)`를 **1회** 실행(또는 Maven `mvn dependency:go-offline`)
   → 이후 호출은 다시 오프라인. "아니오"면 오프라인 그대로 진행(실패 위험 고지).
 - **비대화형·CI**: 자동 온라인 전환 금지. `BUILD_TEST_ALLOW_NETWORK=1` 옵트인 또는 사전 캐시 워밍업을
   remediation으로 안내. 미충족이면 첫 오프라인 실행 실패를 `partial`로 보고.
 
-> 보안 자세는 유지된다(기본 네트워크 OFF, fallback-policy.md #14). 프라이밍은 **명시적 승인/옵트인**
+> 보안 자세는 유지된다(기본 의존성 오프라인, fallback-policy.md #14). 프라이밍은 **명시적 승인/옵트인**
 > 1회 예외일 뿐, 상시 온라인이 아니다.
 
 ## 3. 단계 배치

@@ -5,13 +5,13 @@
 ## 1. MCP Python SDK (서버 구현 표준)
 - 패키지: **`mcp`** (CLI 추가기능 포함 시 `mcp[cli]`). 공식: [modelcontextprotocol/python-sdk](https://github.com/modelcontextprotocol/python-sdk)
 - 최소 런타임: **Python 3.10+**
-- 고수준 API: **FastMCP** — `from mcp.server.fastmcp import FastMCP`
+- 고수준 API: **MCPServer** — `from mcp.server.mcpserver import MCPServer`
 - SDK가 노출할 수 있는 컴포넌트: **tools**(부수효과/POST 유사), **resources**(컨텍스트 로드/GET 유사), **prompts**(재사용 템플릿)
 - transport: **stdio**(로컬 기본), SSE(폐지 예정), Streamable HTTP(원격 권장)
 - 구현 패턴:
   ```python
-  from mcp.server.fastmcp import FastMCP
-  mcp = FastMCP("repo-ast")
+  from mcp.server.mcpserver import MCPServer
+  mcp = MCPServer("repo-ast")
 
   @mcp.tool()
   def extract_test_targets(paths: list[str], kinds: list[str] | None = None) -> dict:
@@ -37,7 +37,7 @@
 ## 2. Java AST: JavaParser + Symbol Solver
 - 좌표: `com.github.javaparser:javaparser-symbol-solver-core:**3.28.2**` (AST + symbol resolution 통합). 공식: [javaparser.org](https://javaparser.org/), [mvnrepository](https://mvnrepository.com/artifact/com.github.javaparser/javaparser-symbol-solver-core)
 - Java 1–25 파싱 지원.
-- 전략: 번들 **JavaParser CLI(Java helper jar)** 를 `subprocess`로 호출해 JSON(AST 메타/심볼) 반환 → Python FastMCP 서버가 래핑.
+- 전략: 번들 **JavaParser CLI(Java helper jar)** 를 `subprocess`로 호출해 JSON(AST 메타/심볼) 반환 → Python MCPServer 서버가 래핑.
 - **JavaParser 필수(v0.16.0~)**: 플러그인 배포는 `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1`을 기본 설정하므로 jar/JDK 미가용 시 `status:"failed"`(`JAVAPARSER_REQUIRED`)로 **하드 실패**한다(fallback-policy.md #2/#20). 정규식 기반 휴리스틱 경로는 **v0.31.0에서 삭제**됐다 — 플래그 미설정 standalone 사용에서도 대체 경로가 없다. `degraded:true`는 이제 "JavaParser가 일부 파일을 못 읽어 결과에서 뺐다"는 신호이며 `warnings`에 해당 파일명이 실린다.
 - 보안: 코드 본문·호출 인자 미반환(노드/시그니처/애노테이션/호출 메서드 **이름** 메타만 — v0.17.0 `invokedMethods`/`methodCalls`), 프로젝트 루트 내부 경로 allowlist(`REPO_AST_ALLOW_ROOT`).
 

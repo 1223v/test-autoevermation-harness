@@ -29,6 +29,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -107,7 +108,7 @@ class PublicApiTests(unittest.TestCase):
         capabilities = inspect.signature(build_test.detect_build_capabilities)
 
         self.assertEqual(
-            ["root", "line", "branch", "method", "klass"],
+            ["root", "line", "branch", "method", "klass", "packages", "excludes"],
             list(coverage.parameters),
         )
         self.assertEqual(["root"], list(capabilities.parameters))
@@ -146,7 +147,10 @@ class BuildSurfaceTests(unittest.TestCase):
         for filename, content in fixtures.items():
             with self.subTest(filename=filename), tempfile.TemporaryDirectory() as tmp:
                 Path(tmp, filename).write_text(content, encoding="utf-8")
-                result = build_test.list_test_tasks(tmp)
+                with mock.patch.object(build_test, "_run_subprocess", return_value={
+                    "exitCode": 0, "timedOut": False, "stdoutTail": "HARNESS_TEST_TASK::test\n", "stderrTail": ""
+                }):
+                    result = build_test.list_test_tasks(tmp)
                 rendered = json.dumps(result, ensure_ascii=False).lower()
 
                 self.assertEqual("ok", result["status"])

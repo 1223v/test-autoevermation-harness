@@ -9,7 +9,7 @@ Requirements:
 
 Exposed surface: ``@mcp.tool()`` ONLY. v0.33.0 deleted the ``spec://glossary`` /
 ``spec://requirement-matrix`` resources and the ``review_specs_for_testing`` prompt — they
-were FastMCP boilerplate (RESEARCH_NOTES §1) that no agent could reach (no
+were MCPServer boilerplate (RESEARCH_NOTES §1) that no agent could reach (no
 ``ReadMcpResourceTool`` in any agent's tool list). The glossary is already returned as a
 first-class field by ``extract_acceptance_criteria``; requirement traceability is served by
 ``requirements[].sourceDoc``; and the prompt duplicated ``agents/spec-reviewer.md``, the
@@ -27,11 +27,12 @@ import hashlib
 import json
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer
 except ImportError as exc:  # clearer startup diagnostic than a raw traceback
     import sys
 
@@ -48,7 +49,7 @@ except ImportError as exc:  # clearer startup diagnostic than a raw traceback
 # Server setup
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("spec-doc")
+mcp = MCPServer("spec-doc")
 
 # ---------------------------------------------------------------------------
 # Configuration from environment
@@ -233,11 +234,13 @@ def _chunk_text(text: str, source: str) -> list[dict[str, Any]]:
 _INDEX: list[dict[str, Any]] = []
 # Glossary extracted from indexed docs
 _GLOSSARY: dict[str, str] = {}
+_INDEX_LOCK = threading.Lock()
 
 
 def _clear_index() -> None:
-    _INDEX.clear()
-    _GLOSSARY.clear()
+    global _INDEX, _GLOSSARY
+    with _INDEX_LOCK:
+        _INDEX, _GLOSSARY = [], {}
 
 
 def _build_glossary_from_chunks(chunks: list[dict[str, Any]]) -> dict[str, str]:
@@ -441,8 +444,7 @@ def index_docs(paths: list[str]) -> dict:
     paths outside the workspace root (SPEC_DOC_WORKSPACE).
     Unreadable documents are reported as SPEC_DOC_UNREADABLE in the result.
 
-    NOTE: each call REPLACES the whole in-memory index (_clear_index() runs
-    first) — pass ALL spec paths in a single call. Calling index_docs(A) then
+    NOTE: each call atomically REPLACES the whole in-memory index after reading — pass ALL spec paths in a single call. Calling index_docs(A) then
     index_docs(B) leaves only B indexed; incremental/append indexing is not
     supported.
 
@@ -452,7 +454,7 @@ def index_docs(paths: list[str]) -> dict:
     Returns:
         dict with keys: status, indexed_files, chunk_count, unreadable, warnings, errors
     """
-    _clear_index()
+    global _INDEX, _GLOSSARY
     indexed_files: list[str] = []
     unreadable: list[str] = []
     warnings: list[str] = []
@@ -507,14 +509,12 @@ def index_docs(paths: list[str]) -> dict:
         else:
             warnings.append(f"Not a file or directory: {p}")
 
-    # Build global index
-    _INDEX.extend(all_chunks)
-
-    # Build glossary from all chunks
+    # Publish one complete snapshot; concurrent readers retain the prior snapshot.
     new_glossary = _build_glossary_from_chunks(all_chunks)
-    _GLOSSARY.update(new_glossary)
+    with _INDEX_LOCK:
+        _INDEX, _GLOSSARY = all_chunks, new_glossary
 
-    status = "ok" if indexed_files else ("partial" if unreadable else "failed")
+    status = ("partial" if unreadable or warnings else "ok") if indexed_files else "failed"
     if not indexed_files and not unreadable:
         status = "failed"
         errors.append("No supported documents found in provided paths.")
@@ -541,7 +541,9 @@ def search_requirements(query: str, top_k: int = 10) -> dict:
     Returns:
         dict with keys: status, query, results (list of chunk matches), total_chunks_searched
     """
-    if not _INDEX:
+    with _INDEX_LOCK:
+        index, glossary = _INDEX, _GLOSSARY
+    if not index:
         return {
             "status": "failed",
             "query": query,
@@ -556,12 +558,12 @@ def search_requirements(query: str, top_k: int = 10) -> dict:
             "status": "failed",
             "query": query,
             "results": [],
-            "total_chunks_searched": len(_INDEX),
+            "total_chunks_searched": len(index),
             "errors": ["Query is empty."],
         }
 
     scored: list[tuple[float, dict[str, Any]]] = []
-    for chunk in _INDEX:
+    for chunk in index:
         score = _score_chunk(chunk, query_tokens)
         if score > 0:
             scored.append((score, chunk))
@@ -585,7 +587,7 @@ def search_requirements(query: str, top_k: int = 10) -> dict:
         "status": "ok",
         "query": query,
         "results": results,
-        "total_chunks_searched": len(_INDEX),
+        "total_chunks_searched": len(index),
     }
 
 
@@ -609,7 +611,9 @@ def extract_acceptance_criteria(paths: list[str] | None = None) -> dict:
         SpecReviewResult dict: status, summary, requirements[], acceptanceCriteria[],
                                prohibitions[], glossary, evidence[], warnings[], errors[]
     """
-    if not _INDEX:
+    with _INDEX_LOCK:
+        index, glossary = _INDEX, _GLOSSARY
+    if not index:
         return {
             "status": "failed",
             "summary": "Index is empty. Call index_docs() first.",
@@ -633,7 +637,7 @@ def extract_acceptance_criteria(paths: list[str] | None = None) -> dict:
 
     # Group chunks by source
     source_to_text: dict[str, list[str]] = {}
-    for chunk in _INDEX:
+    for chunk in index:
         src = chunk["source"]
         if target_sources is not None:
             if src not in target_sources and src not in target_sources_raw:  # type: ignore[operator]
@@ -686,7 +690,7 @@ def extract_acceptance_criteria(paths: list[str] | None = None) -> dict:
         "requirements": requirements,
         "acceptanceCriteria": acceptance_criteria,
         "prohibitions": prohibitions,
-        "glossary": dict(_GLOSSARY),
+        "glossary": dict(glossary),
         "evidence": [f"Processed {len(source_to_text)} source document(s)."],
         "warnings": warnings,
         "errors": [],

@@ -17,8 +17,8 @@ fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서
 ## 핵심 원칙
 
 1. **세팅과 실행의 분리.** 환경 세팅(E1~E10)의 수행 주체는 **`setup-harness` 스킬 단 하나**다. `full-pipeline`/`configure-harness`는 시작 시 아래 **「E-verify 검증 프로브」만** 실행하며, **어떤 항목도 스스로 세팅하지 않는다** — 미충족이면 파이프라인을 시작하지 않고 `setup-harness` 실행을 안내하며 하드 중단한다.
-2. **함께 세팅 (대화형, setup-harness 안에서).** 자동으로 고칠 수 있는 항목은 **항목별로** `AskUserQuestion("지금 함께 세팅할까요?")`로 묻고, "예"면 그 자리에서 설치/빌드 → 재검증 → 체크. 침묵 진행·임의 degrade 금지.
-3. **항상 자동 세팅 (비대화형/CI, setup-harness 안에서).** 비대화형(판정 규칙: `setup-harness` 「인터랙티브 모드 감지」 — `AskUserQuestion` 도구 부재 또는 첫 호출 차단)에는 질문할 수 없으므로 **결정적 세팅 항목**(pip 설치·jar 빌드 등 고정 명령으로 고칠 수 있는 것)은 **자동 수행**한다. 자동 수행이 실패하거나 **비결정적 항목**(버전 미감지·프로파일 충돌처럼 사람이 골라야 하는 것)은 `status:"failed"` + remediation으로 **하드 중단**한다.
+2. **함께 세팅 (대화형, setup-harness 안에서).** 자동으로 고칠 수 있는 항목은 **항목별로** `AskUserQuestion으로 “지금 함께 세팅할까요?” 질문`로 묻고, "예"면 그 자리에서 설치/빌드 → 재검증 → 체크. 침묵 진행·임의 degrade 금지.
+3. **항상 자동 세팅 (비대화형/CI, setup-harness 안에서).** 비대화형(판정 규칙: `setup-harness` 「인터랙티브 모드 감지」 — 호스트 입력 처리기 부재 또는 명시적 `dontAsk` 모드)에는 질문할 수 없으므로 **결정적 세팅 항목**(pip 설치·jar 빌드 등 고정 명령으로 고칠 수 있는 것)은 **자동 수행**한다. 자동 수행이 실패하거나 **비결정적 항목**(버전 미감지·프로파일 충돌처럼 사람이 골라야 하는 것)은 `status:"failed"` + remediation으로 **하드 중단**한다.
 4. **체크리스트 가시화.** 각 항목을 응답 텍스트의 체크리스트로 표시하고 `ok`/`fixed`/`failed`/`skipped`로 갱신해 나간다. 사용자/로그에 진척이 보이게 한다(`TodoWrite`·task 도구는 쓰지 않는다 — 기본 비활성이며 최신 모델에서는 제공되지 않는다).
 5. **검증 후 체크.** 세팅 액션 뒤에는 반드시 **재감지**해서 통과를 확인한 뒤에만 completed로 표시한다.
 
@@ -33,18 +33,18 @@ fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서
 | # | 항목 | 감지 | 세팅 종류 | 대화형 동작 | CI 동작 | 연계 |
 |---|---|---|---|---|---|---|
 | E1 | **Python 3.10+** | `python3 -c "import sys;assert sys.version_info>=(3,10)"` (Windows: `py -3 -c ...` 또는 `python -c ...`) 또는 `${CLAUDE_PLUGIN_DATA}/python-path` 핀 존재 | auto(전 OS) | **자동**(v0.15.0+ 전 OS): `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` — PATH에 3.10+ 없으면 uv(무-sudo; POSIX `install.sh` / Windows `install.ps1`)로 관리형 Python 자동 설치. 실패 시에만 설치 경로 안내(brew/apt/winget/python.org). `HARNESS_AUTO_PYTHON=0`이면 assist로 강등. POSIX 전용 구진입점 `run-server.sh`는 수동 폴백으로 유지 | 동일 자동, 실패 시 하드 중단 + remediation | MCP 런타임 |
-| E2 | **MCP Python SDK** (`mcp[cli]>=1.2.0`) | `python3 -c "import mcp"` 성공 **또는** bootstrap venv marker 존재 | auto | **자동**(v0.12.0+): `python3 ${CLAUDE_PLUGIN_ROOT}/mcp/bootstrap.py --ensure-only` — `${CLAUDE_PLUGIN_DATA}/venv`에 설치, 시스템 python 비오염. 실패 시에만 `AskUserQuestion` → pip 수동 폴백 | **자동** bootstrap 동일, 실패 시 중단 + pip 폴백 remediation | policy #1 |
+| E2 | **MCP Python SDK** (`mcp[cli]>=2.2,<3`) | `python3 -c "import mcp"` 성공 **또는** bootstrap venv marker 존재 | auto | **자동**(v0.12.0+): `python3 ${CLAUDE_PLUGIN_ROOT}/mcp/bootstrap.py --ensure-only` — `${CLAUDE_PLUGIN_DATA}/venv`에 설치, 시스템 python 비오염. 실패 시에만 `AskUserQuestion` → pip 수동 폴백 | **자동** bootstrap 동일, 실패 시 중단 + pip 폴백 remediation | policy #1 |
 | E3 | **MCP 서버 3종 등록** (repo-ast·spec-doc·build-test) | `.mcp.json` 존재 + 각 서버 import 가능(`python3 mcp/<server>.py --help` 또는 모듈 로드) | auto | 누락 서버를 `.mcp.json`에 맞춰 점검, import 실패는 E2로 귀결. 재로딩 안내 | 자동 점검, import 실패면 중단 | `.mcp.json` |
 | E3b | **MCP 라이브 연결 검증** | 메인 루프가 `repo-ast-mcp.health`·`spec-doc-mcp.health`·`build-test-mcp.health` 3종 도구를 **실제 호출**해 응답 확인 (E3의 import 검사로는 플러그인 MCP 등록 실패를 못 잡음) | auto | 실패 시 하드 중단 + remediation(① 플러그인 활성화 확인 → ② `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` 수동 실행 → ③ `/reload-plugins` 또는 Claude Code 재시작 → ④ SessionStart 훅 stderr 확인) | 동일 절차로 하드 중단(질문 없이 자동 판정) | policy #20 (repo-ast health는 jar 상태도 함께 반환 — E6 검증 겸용) |
 | E4 | **JDK 21+** (jar 빌드·JDT LS 구동 공통 필수) | `java -version` ≥ 21 | assist | AskUserQuestion으로 설치/`JAVA_HOME` 지정 안내(sdkman/brew). 미충족이면 중단 | 하드 중단 + remediation | jar/E6, JDT LS/E7 |
 | E5 | **Maven 3.6.3+** (jar 빌드용, 선택적) | `mcp/javaparser-cli/mvnw`(Windows `mvnw.cmd`) 존재 또는 `mvn -version` ≥ 3.6.3 | auto | mvnw 동봉으로 시스템 Maven 불필요(있으면 사용 가능). mvnw도 시스템 Maven도 없으면 설치 안내 | mvnw 사용, 둘 다 없으면 중단(빌드 불가) | E6 |
 | E6 | **JavaParser CLI jar** (필수) | `persist_astcli_jar.py --check`의 `upToDate:true`, 또는 `REPO_AST_JAVAPARSER_JAR` 지정, 또는 repo-ast `health()`의 `jarFound:true`·`jarStale:false` | auto | `AskUserQuestion`: "예 — jar 빌드(`./mvnw package`)" / "아니오 — 중단" (정규식 degrade 선택지 없음) → 예: `cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"` → `${CLAUDE_PLUGIN_DATA}/javaparser/astcli-1.0.0-shaded.jar` (업데이트 생존 위치 — 「세팅 명령 레퍼런스」 E6 참조) | **자동** 동일 명령 빌드+persist, 실패 시 하드 중단(`JAVAPARSER_REQUIRED`) | policy #2 (필수; `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1` 기본 설정) |
 | E7 | **JDT LS + Java 21+ 런타임** (필수) | `jdtls`(PATH) + `.lsp.json` + Java 21+ on `JAVA_HOME`/PATH | auto | 세팅: `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs script ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py`. 실패(Java 21 미탐지 포함) 시 중단 | 동일 세팅 자동 수행, 실패 시 하드 중단(AST-only degrade 문구 없음) | policy #3 |
-| E8 | **빌드 도구**(gradle/maven) | `build-test-mcp.detect_build_tool(root)` | data | `BUILD_TOOL_UNDETECTED`면 `AskUserQuestion("gradle? maven?")` | 미감지면 중단(`HarnessRequest.buildTool` 명시 요청) | policy #5 |
-| E9 | **Spring Boot 버전/프로파일** | `build-test-mcp.detect_spring_profile(root)` | data | `interviewRequired`면 Boot major AskUserQuestion(#4); `requiresConfirmation`면 충돌 확정(#6). 가정 금지 | 미감지/충돌이면 중단(`HarnessRequest.springVersion` 명시) | policy #4·#6 |
+| E8 | **빌드 도구**(gradle/maven) | `build-test-mcp.detect_build_tool(root)` | data | `BUILD_TOOL_UNDETECTED`면 `AskUserQuestion으로 “gradle? maven?” 질문` | 미감지면 중단(`HarnessRequest.buildTool` 명시 요청) | policy #5 |
+| E9 | **Spring Boot 버전/프로파일** | `build-test-mcp.detect_spring_profile(root)` | data | `interviewRequired`면 정확한 Boot 버전(major/minor 포함) 메인 대화에서 질문(#4); `requiresConfirmation`면 충돌 확정(#6). 가정 금지 | 미감지/충돌이면 중단(`HarnessRequest.springVersion` 명시) | policy #4·#6 |
 | E10 | **테스트 실행 JDK ↔ Mockito 호환** | 실행 JDK major vs Mockito/ByteBuddy 지원 범위 | assist | JDK 24/25에서 inline mock-maker 미지원 위험이면 `AskUserQuestion`: "① 테스트 실행 JDK를 17/21 LTS로 / ② Mockito 5.16+(ByteBuddy 1.17+)로 / ③ `-Dnet.bytebuddy.experimental=true`" | 위험이면 자동 보정 불가 → 중단(remediation 안내) | RESEARCH_NOTES §5, ByteBuddy |
 | E11 | **대상 빌드 능력**(JaCoCo XML 필수) | `build-test.detect_build_capabilities(root)` → `missing[]` | data(approve→inject) | JaCoCo 누락을 보여주고 승인한 최소 스니펫만 주입한 뒤 재감지 | 자동 주입 금지. JaCoCo 또는 XML 출력 누락 시 remediation 중단 | policy #17, [build-provisioning.md](./build-provisioning.md) §1 |
-| E12 | **의존성 캐시 프라이밍**(콜드 캐시 첫 실행) | `build-test.check_dependency_cache(buildTool, root)` → `primed` | data(approve→prime) | `primed:false`/신규 플러그인이면 `AskUserQuestion("1회 온라인 프라이밍?")` → 예: `run_targeted_tests(online=True)` 1회(또는 Maven `dependency:go-offline`)→이후 오프라인 | 자동 온라인 금지 → `BUILD_TEST_ALLOW_NETWORK=1` 옵트인·사전 워밍업 안내 | policy #18, [build-provisioning.md](./build-provisioning.md) §2 |
+| E12 | **의존성 캐시 프라이밍**(콜드 캐시 첫 실행) | `build-test.check_dependency_cache(buildTool, root)` → `primed` | data(approve→prime) | `primed:false`/신규 플러그인이면 `AskUserQuestion으로 “1회 온라인 프라이밍?” 질문` → 예: `run_targeted_tests(online=True)` 1회(또는 Maven `dependency:go-offline`)→이후 오프라인 | 자동 온라인 금지 → `BUILD_TEST_ALLOW_NETWORK=1` 옵트인·사전 워밍업 안내 | policy #18, [build-provisioning.md](./build-provisioning.md) §2 |
 
 E8·E9·E10·E11·E12는 **데이터 감지**라 "자동 빌드"로는 못 고친다 — 대화형은 질문(E11·E12는 승인 후 함께 세팅), CI는 필수 값·캐시를 사전 준비한다. E11·E12는 **0.5단계(프로파일 확정) 직후 0.6단계에서 6단계 run-tests 이전에** 처리한다 — JaCoCo 에이전트는 `test` 실행 중 attach되므로 빌드 능력이 먼저 갖춰져야 한다.
 
@@ -54,7 +54,7 @@ E8·E9·E10·E11·E12는 **데이터 감지**라 "자동 빌드"로는 못 고�
 
 ```bash
 # E1+E2: Python + MCP Python SDK — v0.15.0+ 자동(권장, 전 OS): Python이 없으면 uv로 설치 후 venv 준비
-node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --ensure-only        # E1(uv 관리형 Python, 무-sudo) + E2(${CLAUDE_PLUGIN_DATA}/venv에 mcp[cli]>=1.2.0)
+node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --ensure-only        # E1(uv 관리형 Python, 무-sudo) + E2(${CLAUDE_PLUGIN_DATA}/venv에 mcp[cli]>=2.2,<3)
 #   (POSIX 전용 구진입점: sh "${CLAUDE_PLUGIN_ROOT}/mcp/run-server.sh" --ensure-only — 수동 폴백으로 유지)
 #   수동 폴백(오프라인/venv 불가 환경): Python 3.10+ 설치 후 .mcp.json이 실행하는 동일 인터프리터에
 python3 -m pip install -r mcp/requirements.txt          # (which python3 로 인터프리터 확인)

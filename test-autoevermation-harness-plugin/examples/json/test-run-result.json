@@ -16,8 +16,8 @@
     }
   ],
   "reportPaths": [
-    "build/test-results/test/TEST-com.example.order.OrderControllerTest.xml",
-    "build/test-results/test/TEST-com.example.order.OrderAmountCalculatorTest.xml"
+    "/example/project/build/test-results/test/TEST-com.example.order.OrderControllerTest.xml",
+    "/example/project/build/test-results/test/TEST-com.example.order.OrderAmountCalculatorTest.xml"
   ],
   "failureClasses": ["TEST_RUNTIME_FAILED"],
   "evidence": [

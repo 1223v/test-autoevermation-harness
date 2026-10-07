@@ -2,7 +2,7 @@
 /* jdtls-launcher.cjs — 크로스플랫폼 JDT LS 진입점 (Windows 네이티브 + macOS/Linux).
  *
  * .lsp.json은 exec form(`command: "node"` + args)으로 이 파일을 실행한다.
- * launch.cjs와 동일하게 셸을 거치지 않고 실제 바이너리를 직접 spawn하므로 모든 플랫폼에서 동작한다.
+ * POSIX는 직접 spawn하고 Windows 배치 런처는 명시적으로 cmd.exe를 사용한다.
  *
  * 사용:
  *   node jdtls-launcher.cjs [jdtls-args...]   # .lsp.json — jdtls를 해석해 argv 그대로 전달
@@ -61,7 +61,21 @@ function resolveJdtls() {
 
 /** 자식 프로세스를 stdio 상속으로 실행하고 종료 코드를 그대로 전달한다(LSP stdio 패스스루). */
 function runInherit(cmd, args) {
-  const child = spawn(cmd, args, { stdio: "inherit", windowsHide: true });
+  let options = { stdio: "inherit", windowsHide: true };
+  if (IS_WIN && /\.(bat|cmd)$/i.test(cmd)) {
+    // Node cannot execute batch files directly. Disable AutoRun and delayed expansion.
+    // Refuse expansion characters instead of interpreting user-provided text as cmd code.
+    const argv = [cmd, ...args];
+    if (argv.some(value => /["%\r\n&|<>^]/.test(value))) {
+      log("unsupported cmd.exe metacharacter in JDT LS path/argument");
+      process.exit(1);
+    }
+    const commandLine = '"' + argv.map(value => '"' + value + '"').join(" ") + '"';
+    cmd = process.env.ComSpec || "cmd.exe";
+    args = ["/d", "/v:off", "/s", "/c", commandLine];
+    options.windowsVerbatimArguments = true;
+  }
+  const child = spawn(cmd, args, options);
   const forward = (sig) => { try { child.kill(sig); } catch (_) { /* 이미 종료 */ } };
   process.on("SIGINT", () => forward("SIGINT"));
   process.on("SIGTERM", () => forward("SIGTERM"));

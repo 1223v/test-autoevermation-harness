@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """build_test_server.py — REAL build-test MCP server (coverage-aware engine).
 
-FastMCP server named "build-test". Coverage-aware test execution engine for
+MCPServer server named "build-test". Coverage-aware test execution engine for
 the Spring test-harness plugin.
 
 Design source of truth:
-  - RESEARCH_NOTES.md  (§1 FastMCP API, §3 JaCoCo 0.8.12, §6 near-100% policy;
+  - RESEARCH_NOTES.md  (§1 MCPServer API, §3 JaCoCo 0.8.12, §6 near-100% policy;
                         build-test-mcp design + TestRunResult schema)
   - Build-tool detection and JUnit/JaCoCo report parsing are implemented inline.
 
 Exposed surface: ``@mcp.tool()`` ONLY. v0.33.0 deleted the ``build://metadata`` /
 ``build://test-reports`` resources and the ``suggest_test_command`` prompt — they were
-FastMCP boilerplate (RESEARCH_NOTES §1) that no agent could reach (no
+MCPServer boilerplate (RESEARCH_NOTES §1) that no agent could reach (no
 ``ReadMcpResourceTool`` in any agent's tool list) and that duplicated
 ``detect_build_tool`` / ``parse_junit_xml`` / ``run_targeted_tests`` in a worse form.
 The prompt had also drifted: it hardcoded ``-o``/``--offline`` while the real path gates
@@ -22,13 +22,18 @@ Standard library only (subprocess, xml.etree, json, os, shlex). Python 3.10+.
 Security posture (RESEARCH_NOTES §build-test-mcp, §권한과 보안):
   - All shell arguments are shlex-quoted.
   - Targeted/narrowest test scope by default.
-  - Network is OFF by default (gradle --offline, maven -o) unless
+  - Dependency resolution is offline by default (not an OS network sandbox) unless
     BUILD_TEST_ALLOW_NETWORK=1 is set in the environment.
 """
 
 from __future__ import annotations
 
 import glob
+import fnmatch
+import hashlib
+import tempfile
+import threading
+from contextlib import contextmanager
 import json
 import os
 import re
@@ -37,7 +42,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer
 except ImportError as exc:  # clearer startup diagnostic than a raw traceback
     import sys
 
@@ -50,7 +55,7 @@ except ImportError as exc:  # clearer startup diagnostic than a raw traceback
     )
     raise
 
-mcp = FastMCP("build-test")
+mcp = MCPServer("build-test")
 
 # ---------------------------------------------------------------------------
 # Constants / policy defaults
@@ -96,7 +101,7 @@ _FLAKY_KEYWORDS = (
 # ---------------------------------------------------------------------------
 
 def _network_allowed() -> bool:
-    """Network is OFF by default; only ON when BUILD_TEST_ALLOW_NETWORK is truthy."""
+    """Whether build dependency resolution may use the network (not process isolation)."""
     val = os.environ.get("BUILD_TEST_ALLOW_NETWORK", "").strip().lower()
     return val in ("1", "true", "yes", "on")
 
@@ -196,8 +201,14 @@ def _find_reports(root: str, candidates: tuple, recursive_name: str | None = Non
 
 
 def _find_junit_xml(root: str) -> list[str]:
-    """Locate JUnit XML reports for Gradle and Maven (incl. one level of submodules)."""
-    return _find_reports(root, _JUNIT_REL)
+    """JUnit testcase reports across configured tasks/modules (never summary XML)."""
+    patterns = (
+        ("**", "build", "test-results", "*", "TEST-*.xml"),
+        ("**", "target", "surefire-reports", "TEST-*.xml"),
+        ("**", "target", "failsafe-reports", "TEST-*.xml"),
+    )
+    return sorted({os.path.abspath(p) for rel in patterns
+                   for p in glob.glob(os.path.join(root, *rel), recursive=True)})
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +316,7 @@ def _safe_parse_xml(path: str) -> tuple:
     """Parse an XML file; return (root_element, None) or (None, 'XML parse error: ...')."""
     try:
         return ET.parse(path).getroot(), None
-    except ET.ParseError as exc:
+    except (ET.ParseError, OSError, ValueError) as exc:
         return None, f"XML parse error: {exc}"
 
 
@@ -431,7 +442,8 @@ def _counter_ratio(missed: int, covered: int) -> float:
     return (covered / total) if total > 0 else 1.0
 
 
-def _parse_jacoco(jacoco_path: str) -> dict:
+def _parse_jacoco(jacoco_path: str, packages: list[str] | None = None,
+                  excludes: list[str] | None = None) -> dict:
     """Parse a JaCoCo XML report -> per-counter coverage + per-class + uncovered[]."""
     root_el, err = _safe_parse_xml(jacoco_path)  # <report>
     if err:
@@ -457,11 +469,20 @@ def _parse_jacoco(jacoco_path: str) -> dict:
     per_class: list[dict] = []
     uncovered: list[dict] = []
 
-    for package in root_el.findall("package"):
+    for package in root_el.iter("package"):
         pkg_name = package.get("name", "")
         for clazz in package.findall("class"):
             cls_name = clazz.get("name", "")
             fqcn = cls_name.replace("/", ".")
+            if packages and not any(
+                fqcn == pkg.rstrip(".*") or fqcn.startswith(pkg.rstrip(".*") + ".")
+                for pkg in packages
+            ):
+                continue
+            if excludes and any(fnmatch.fnmatchcase(cls_name, pat) or
+                                (pat.startswith("**/") and fnmatch.fnmatchcase(cls_name, pat[3:]))
+                                for pat in excludes):
+                continue
             cls_counters = counters_of(clazz)
             line_ratio = cls_counters.get("LINE", {}).get("ratio", 1.0)
             branch_ratio = cls_counters.get("BRANCH", {}).get("ratio", 1.0)
@@ -478,7 +499,7 @@ def _parse_jacoco(jacoco_path: str) -> dict:
                 m_counters = counters_of(method)
                 m_line = m_counters.get("LINE", {})
                 m_missed = m_line.get("missed", 0)
-                if m_missed > 0:
+                if any(c.get("missed", 0) > 0 for c in m_counters.values()):
                     uncovered_methods.append({
                         "method": method.get("name", ""),
                         "desc": method.get("desc", ""),
@@ -487,8 +508,7 @@ def _parse_jacoco(jacoco_path: str) -> dict:
                         "branchRatio": m_counters.get("BRANCH", {}).get("ratio", 1.0),
                     })
 
-            if line_ratio < DEFAULT_LINE or branch_ratio < DEFAULT_BRANCH \
-                    or method_ratio < DEFAULT_METHOD or uncovered_methods:
+            if any(c.get("missed", 0) > 0 for c in cls_counters.values()) or uncovered_methods:
                 uncovered.append({
                     "class": fqcn,
                     "lineRatio": line_ratio,
@@ -497,8 +517,11 @@ def _parse_jacoco(jacoco_path: str) -> dict:
                     "uncoveredMethods": uncovered_methods,
                 })
 
+    if packages or excludes:
+        overall = _sum_counters([c["counters"] for c in per_class])
     return {
         "status": "ok",
+        "coverageScope": {"packages": sorted(set(packages or [])), "excludes": sorted(set(excludes or []))},
         "reportPath": jacoco_path,
         "reportPaths": [jacoco_path],
         "overall": overall,
@@ -507,7 +530,20 @@ def _parse_jacoco(jacoco_path: str) -> dict:
     }
 
 
-def _parse_jacoco_all(jacoco_paths: list[str]) -> dict:
+def _sum_counters(groups: list[dict]) -> dict:
+    totals = {}
+    for group in groups:
+        for kind, counter in group.items():
+            bucket = totals.setdefault(kind, {"missed": 0, "covered": 0})
+            for key in ("missed", "covered"):
+                bucket[key] += counter[key]
+    for bucket in totals.values():
+        bucket["ratio"] = round(_counter_ratio(bucket["missed"], bucket["covered"]), 6)
+    return totals
+
+
+def _parse_jacoco_all(jacoco_paths: list[str], packages: list[str] | None = None,
+                      excludes: list[str] | None = None) -> dict:
     """Parse and MERGE several JaCoCo reports into one coverage view.
 
     Counters are summed across modules (missed/covered are absolute element counts, so
@@ -520,13 +556,13 @@ def _parse_jacoco_all(jacoco_paths: list[str]) -> dict:
         return {"status": "failed", "error": "JACOCO_REPORT_NOT_FOUND",
                 "message": "no JaCoCo XML report found"}
     if len(jacoco_paths) == 1:
-        return _parse_jacoco(jacoco_paths[0])
+        return _parse_jacoco(jacoco_paths[0], packages, excludes)
 
     totals: dict[str, dict] = {}
     per_class: list[dict] = []
     uncovered: list[dict] = []
     for path in jacoco_paths:
-        parsed = _parse_jacoco(path)
+        parsed = _parse_jacoco(path, packages, excludes)
         if parsed.get("status") != "ok":
             return parsed
         for ctype, counter in parsed["overall"].items():
@@ -546,6 +582,7 @@ def _parse_jacoco_all(jacoco_paths: list[str]) -> dict:
     }
     return {
         "status": "ok",
+        "coverageScope": {"packages": sorted(set(packages or [])), "excludes": sorted(set(excludes or []))},
         "reportPath": jacoco_paths[0],
         "reportPaths": list(jacoco_paths),
         "overall": overall,
@@ -681,6 +718,12 @@ def _profile_conflict(field: str, build_value: str, source_value: str, evidence:
                  f"vs {source_label}={source_value}; confirm before use")
 
 
+def _output_tail(value) -> str:
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return (value or "")[-4000:]
+
+
 def _run_subprocess(cmd: "list[str] | str", cwd: str) -> dict:
     """Run a subprocess and return execution metadata.
 
@@ -708,8 +751,8 @@ def _run_subprocess(cmd: "list[str] | str", cwd: str) -> dict:
     except subprocess.TimeoutExpired as exc:
         return {
             "exitCode": -1,
-            "stdoutTail": (exc.stdout or "")[-4000:] if exc.stdout else "",
-            "stderrTail": (exc.stderr or "")[-4000:] if exc.stderr else "",
+            "stdoutTail": _output_tail(exc.stdout),
+            "stderrTail": _output_tail(exc.stderr),
             "timedOut": True,
         }
     except (FileNotFoundError, OSError) as exc:
@@ -810,15 +853,15 @@ def detect_spring_profile(root: str = ".") -> dict:
 
     requires_confirmation = bool(conflicts)
     if requires_confirmation:
-        next_actions.append("PROFILE_CONFLICT: build-file vs source disagree; the agent must "
+        next_actions.append("PROFILE_CONFLICT: build-file vs source disagree; the main conversation must "
                             "confirm the correct value via AskUserQuestion (interactive) or stop (CI). "
                             "See references/fallback-policy.md #6.")
 
     degraded = bv is None
     if degraded:
         notes.append("Spring Boot version not detected from build files.")
-        next_actions.append("INTERVIEW_REQUIRED: Spring Boot version undetected. The agent must ask "
-                            "the user for the Boot major/profile via AskUserQuestion (interactive) or "
+        next_actions.append("INTERVIEW_REQUIRED: Spring Boot version undetected. The main conversation must ask "
+                            "the user for the exact Boot version (major and minor) via AskUserQuestion (interactive) or "
                             "stop (CI). Do NOT assume a profile. See references/fallback-policy.md #4.")
 
     return {
@@ -845,76 +888,160 @@ def detect_spring_profile(root: str = ".") -> dict:
 
 @mcp.tool()
 def list_test_tasks(root: str = ".") -> dict:
-    """List the test task / goal entrypoints available for the detected build tool."""
+    """Discover configured Gradle Test tasks; Maven reports only local lifecycle evidence.
+
+    Inherited/profile Maven configuration is not guessed from a static POM.
+    Gradle discovery runs the build's configuration phase offline, without running tests.
+    """
     root = os.path.abspath(root)
     det = _detect(root)
     if det.get("status") != "ok":
         return det
+    if det["buildTool"] == "gradle":
+        script = """allprojects { p ->
+    afterEvaluate {
+        tasks.withType(org.gradle.api.tasks.testing.Test).each { t ->
+            println('HARNESS_TEST_TASK:' + t.path)
+        }
+    }
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="harness-tasks-") as temp:
+            init = os.path.join(temp, "tasks.gradle")
+            with open(init, "w", encoding="utf-8") as fh:
+                fh.write(script)
+            cmd = _platform_command([_launcher("gradle", root), "help", "--offline",
+                                     "--console=plain", "-q", "--init-script", init])
+            result = _run_subprocess(cmd, root)
+        if result["exitCode"] != 0 or result["timedOut"]:
+            return {"status": "failed", "error": "TASK_DISCOVERY_FAILED", **result, "tasks": []}
+        tasks = [{"task": value, "desc": "Configured Gradle Test task"}
+                 for value in sorted(set(re.findall(r"(?m)^HARNESS_TEST_TASK:(\S+)\s*$",
+                                                     result["stdoutTail"])))]
+        verified = True
+    else:
+        tasks = [{"task": "test", "desc": "Maven test lifecycle (Surefire)"}]
+        el, error = _safe_parse_xml(os.path.join(root, "pom.xml"))
+        if error:
+            return {"status": "failed", "error": "TASK_DISCOVERY_FAILED", "message": error, "tasks": []}
+        # Strip XML namespace; inspect active local build/plugins, never pluginManagement.
+        for node in el.iter():
+            node.tag = node.tag.rsplit("}", 1)[-1]
+        for plugin in el.findall("./build/plugins/plugin"):
+            if plugin.findtext("artifactId") == "maven-failsafe-plugin":
+                goals = {g.text for g in plugin.findall("./executions/execution/goals/goal")}
+                if {"integration-test", "verify"} <= goals:
+                    tasks.append({"task": "verify", "desc": "Locally bound Failsafe integration tests"})
+        verified = False
+    return {"status": "ok", "buildTool": det["buildTool"], "wrapper": det["wrapper"],
+            "tasks": tasks, "configurationVerified": verified,
+            "note": "" if verified else "Local POM only; inherited and active-profile bindings need effective-POM verification."}
 
-    tool = det["buildTool"]
-    if tool == "gradle":
-        tasks = [
-            {"task": "test", "desc": "Run JUnit Platform unit/slice tests"},
-            {"task": "jacocoTestReport", "desc": "Generate JaCoCo XML/HTML coverage report"},
-            {"task": "jacocoTestCoverageVerification", "desc": "Enforce coverage gate"},
-            {"task": "integrationTest", "desc": "Run integration tests (if configured)"},
-        ]
-    else:  # maven
-        tasks = [
-            {"task": "test", "desc": "Run Surefire unit/slice tests"},
-            {"task": "verify", "desc": "Run Failsafe integration tests + checks"},
-            {"task": "jacoco:report", "desc": "Generate JaCoCo XML/HTML coverage report"},
-            {"task": "jacoco:check", "desc": "Enforce coverage gate"},
-        ]
 
-    return {"status": "ok", "buildTool": tool, "wrapper": det["wrapper"], "tasks": tasks}
+def _launcher(build_tool: str, root: str) -> str:
+    if build_tool == "gradle":
+        names = ("gradlew.bat", "gradlew.cmd") if os.name == "nt" else ("gradlew",)
+        fallback = "gradle"
+    else:
+        names = ("mvnw.cmd", "mvnw.bat") if os.name == "nt" else ("mvnw",)
+        fallback = "mvn"
+    return next((os.path.join(root, n) for n in names if os.path.isfile(os.path.join(root, n))), fallback)
+
+
+def _platform_command(argv: list[str]) -> list[str] | str:
+    if os.name == "nt":
+        # /d disables AutoRun and /v:off prevents ! expansion. Refuse cmd expansion
+        # metacharacters even in paths instead of silently executing a different command.
+        if any(re.search(r'["%\r\n&|<>^]', arg) for arg in argv):
+            raise ValueError("Unsupported cmd.exe metacharacter in build argument/path")
+        return 'cmd.exe /d /v:off /s /c "' + ' '.join('"' + arg + '"' for arg in argv) + '"'
+    return argv
 
 
 def _build_test_command(build_tool: str, root: str, test_pattern: str,
-                        with_coverage: bool, offline: bool) -> "list[str] | str":
-    """Construct the narrowest gradle/maven test command (wrapper-aware, cross-platform).
-
-    Windows: 래퍼는 gradlew.bat/mvnw.cmd이고, PATH의 gradle/mvn도 .bat/.cmd 심(shim)이다.
-    배치 파일은 CreateProcess로 직접 spawn할 수 없으므로 cmd.exe 를 경유하되,
-    `/c`의 따옴표 제거 규칙(따옴표가 정확히 2개면 바깥쪽을 벗김 — `cmd /?`)이
-    공백 경로의 래퍼를 깨뜨리므로 **`/s /c` + tail 전체 재인용** 문자열로 반환한다.
-    (Windows에서 subprocess는 문자열을 CreateProcess에 그대로 전달한다.)
-    (test_pattern은 run_targeted_tests에서 화이트리스트 검증됨 — cmd.exe 메타문자 유입 차단)
-    """
-    win = os.name == "nt"
+                        with_coverage: bool, offline: bool, task: str = "test",
+                        test_patterns: list[str] | None = None,
+                        coverage_task: str | None = None) -> list[str] | str:
+    patterns = test_patterns if test_patterns is not None else test_pattern.split(",")
+    launcher = _launcher(build_tool, root)
     if build_tool == "gradle":
-        wrapper_names = ("gradlew.bat", "gradlew.cmd") if win else ("gradlew",)
-        fallback = "gradle"
-    else:  # maven
-        wrapper_names = ("mvnw.cmd", "mvnw.bat") if win else ("mvnw",)
-        fallback = "mvn"
-    launcher = fallback
-    for name in wrapper_names:
-        cand = os.path.join(root, name)
-        if os.path.isfile(cand):
-            launcher = cand
-            break
-
-    if build_tool == "gradle":
-        cmd = [launcher, "test", "--tests", test_pattern]
+        cmd = [launcher, task]
+        for pattern in patterns:
+            cmd.extend(["--tests", pattern.replace("#", ".")])
         if with_coverage:
-            cmd.append("jacocoTestReport")
+            # Custom Test tasks need an explicitly configured JaCoCo report task.
+            leaf = task.rsplit(":", 1)[-1]
+            prefix = task[:-len(leaf)]
+            if coverage_task:
+                cmd.append(coverage_task)
+            elif leaf == "test":
+                cmd.append(prefix + "jacocoTestReport")
+            else:
+                raise ValueError("Custom Gradle Test task requires an explicitly configured coverage_task")
         if offline:
             cmd.append("--offline")
-    else:  # maven
-        cmd = [launcher, "-B", "test", f"-Dtest={test_pattern}"]
+    else:
+        selector = "it.test" if task == "verify" else "test"
+        cmd = [launcher, "-B", task, f"-D{selector}=" + ",".join(patterns)]
         if with_coverage:
             cmd.append("jacoco:report")
         if offline:
             cmd.append("-o")
+    return _platform_command(cmd)
 
-    if win:
-        return f'cmd.exe /s /c "{subprocess.list2cmdline(cmd)}"'
-    return cmd
+
+# Locks are per canonical project: threads serialize before taking the OS lock;
+# separate Claude sessions also share the OS lock. No lock files in the user's repo.
+_BUILD_LOCKS = [threading.Lock() for _ in range(64)]
+
+
+@contextmanager
+def _project_build_lock(root: str):
+    key = hashlib.sha256(os.path.normcase(os.path.realpath(root)).encode()).hexdigest()
+    with _BUILD_LOCKS[int(key[:8], 16) % len(_BUILD_LOCKS)]:
+        with open(os.path.join(tempfile.gettempdir(), "harness-build-" + key + ".lock"), "a+b") as fh:
+            if os.name == "nt":
+                import msvcrt
+                if fh.tell() == 0:
+                    fh.write(b"0"); fh.flush()
+                fh.seek(0)
+                # Retry bounded by the build timeout rather than msvcrt's 10s default.
+                import time
+                deadline = time.monotonic() + _RUN_TIMEOUT
+                while True:
+                    try:
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("Project build lock timed out")
+                        time.sleep(.1)
+            else:
+                import fcntl
+                fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == "nt":
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _task_junit_xml(root: str, build_tool: str, task: str) -> list[str]:
+    if build_tool == "gradle":
+        parts = task.strip(":").split(":")
+        base = os.path.join(root, *parts[:-1]) if len(parts) > 1 else root
+        paths = glob.glob(os.path.join(base, "**", "build", "test-results", parts[-1], "TEST-*.xml"), recursive=True)
+    else:
+        folder = "failsafe-reports" if task == "verify" else "surefire-reports"
+        paths = glob.glob(os.path.join(root, "**", "target", folder, "TEST-*.xml"), recursive=True)
+    return sorted(set(os.path.abspath(p) for p in paths))
 
 
 def _classify_run_status(timed_out: bool, xml_paths: list, exit_code: int,
-                         failures: list) -> str:
+                         failures: list, passed: int | None = None) -> str:
     """Map a test run outcome to ok/partial/failed.
 
     A non-zero build is never "ok" even when the parsed reports show no individual
@@ -922,18 +1049,19 @@ def _classify_run_status(timed_out: bool, xml_paths: list, exit_code: int,
     """
     if timed_out:
         return "failed"
-    if not xml_paths and exit_code != 0:
+    if not xml_paths:
         return "failed"
     if failures:
         return "partial"
-    if exit_code != 0:
+    if exit_code != 0 or passed == 0:
         return "failed"
     return "ok"
 
 
 @mcp.tool()
-def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
-                       with_coverage: bool = True, online: bool = False) -> dict:
+def run_targeted_tests(build_tool: str, test_pattern: str = "", root: str = ".",
+                       with_coverage: bool = True, online: bool = False, task: str = "test",
+                       test_patterns: list[str] | None = None, coverage_task: str | None = None) -> dict:
     """Run the NARROWEST test scope for a given pattern; return a TestRunResult.
 
     Gradle : ./gradlew test --tests <pat> [jacocoTestReport] [--offline]
@@ -958,48 +1086,55 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
         return {"status": "failed", "error": "BUILD_TOOL_UNDETECTED",
                 "message": f"directory not found: {root}"}
 
-    # 클래스/메서드 패턴 화이트리스트 — 셸 메타문자 유입 차단.
-    # Windows에서는 배치 래퍼 실행이 cmd.exe 를 경유하므로 필수 방어선이다.
-    # ! [ ] 는 Surefire 선택자(-Dtest=!SlowIT, Test#method[1])용 — cmd 지연 확장(/v:on)은
-    # 이 서버가 켜지 않으므로 ! 는 안전하다.
-    if not re.fullmatch(r"[A-Za-z0-9_.$#*,!\[\]]+", test_pattern or ""):
+    if (test_pattern and test_patterns is not None) or not (test_pattern or test_patterns):
         return {"status": "failed", "error": "INVALID_TEST_PATTERN",
-                "message": "test_pattern may contain only letters, digits and . $ # * _ , ! [ ] "
-                           f"(class/method patterns); got: {test_pattern!r}"}
-
+                "message": "Provide exactly one nonempty test_pattern or test_patterns input."}
+    patterns = test_patterns if test_patterns is not None else test_pattern.split(",")
+    if not all(isinstance(p, str) and re.fullmatch(r"[\w.$#*,!\[\]]+", p) for p in patterns):
+        return {"status": "failed", "error": "INVALID_TEST_PATTERN",
+                "message": "Only identifier characters and supported test selectors are accepted."}
+    if build_tool == "gradle" and any(re.search(r"[!\[\]]", p) for p in patterns):
+        return {"status": "failed", "error": "INVALID_TEST_PATTERN",
+                "message": "Gradle --tests does not support Maven exclusion/parameter selectors."}
+    if not re.fullmatch(r":?[\w-]+(?::[\w-]+)*", task) or (build_tool == "maven" and task not in ("test", "verify")):
+        return {"status": "failed", "error": "INVALID_TEST_TASK", "message": "Unsupported test task."}
     offline = (not _network_allowed()) and (not online)
-    pattern_q = shlex.quote(test_pattern)
-    cmd = _build_test_command(build_tool, root, test_pattern, with_coverage, offline)
+    pattern_q = shlex.quote(",".join(patterns))
+    try:
+        if coverage_task and (build_tool != "gradle" or not re.fullmatch(r":?[\w-]+(?::[\w-]+)*", coverage_task)):
+            raise ValueError("coverage_task must be a configured Gradle task path")
+        cmd = _build_test_command(build_tool, root, "", with_coverage, offline, task, patterns, coverage_task)
+    except ValueError as exc:
+        return {"status": "failed", "error": "INVALID_BUILD_ARGUMENT", "message": str(exc)}
 
     # Human-readable command string with shlex quoting for transparency/logging.
     # (Windows 배치 경로는 이미 cmd.exe /s /c 문자열로 조립됨 — 그대로 기록)
     display_cmd = cmd if isinstance(cmd, str) else " ".join(shlex.quote(part) for part in cmd)
 
-    # Remove stale JUnit XML before the run so a failed build (e.g. a test/main
-    # compile error that produces no fresh reports) can't be reported green from
-    # a previous run's leftover reports. Surefire/Gradle do not always clear them.
-    for stale in _find_junit_xml(root):
-        try:
-            os.remove(stale)
-        except OSError:
-            pass
-
-    exec_meta = _run_subprocess(cmd, cwd=root)
-
-    # Parse JUnit XML regardless of exit code (compile failures still informative).
-    xml_paths = _find_junit_xml(root)
-    total_passed, all_failures, all_testcases, skipped, flaky = _aggregate_junit(xml_paths)
-
-    report_dirs = sorted({os.path.dirname(p) for p in xml_paths})
-
+    try:
+        with _project_build_lock(root):
+            # Remove only this task's stale XML. Never erase another task's evidence.
+            for stale in _task_junit_xml(root, build_tool, task):
+                os.remove(stale)
+            exec_meta = _run_subprocess(cmd, cwd=root)
+            xml_paths = _task_junit_xml(root, build_tool, task)
+            total_passed, all_failures, all_testcases, skipped, flaky = _aggregate_junit(xml_paths)
+    except OSError as exc:
+        return {"status": "failed", "error": "REPORT_PREPARATION_FAILED", "message": str(exc)}
     status = _classify_run_status(exec_meta["timedOut"], xml_paths,
-                                  exec_meta["exitCode"], all_failures)
+                                  exec_meta["exitCode"], all_failures, total_passed)
+    failure_classes = sorted({f["type"] for f in all_failures})
+    if status == "failed" and not failure_classes:
+        failure_classes = [_classify_failure("", exec_meta["stderrTail"] + exec_meta["stdoutTail"])]
 
     return {
         "status": status,
         "buildTool": build_tool,
         "command": display_cmd,
-        "testPattern": test_pattern,
+        "testPattern": ",".join(patterns),
+        "testPatterns": patterns,
+        "task": task,
+        "failureClasses": failure_classes,
         "patternQuoted": pattern_q,
         "withCoverage": with_coverage,
         "networkOffline": offline,
@@ -1010,14 +1145,14 @@ def run_targeted_tests(build_tool: str, test_pattern: str, root: str = ".",
         "skipped": skipped,
         "testcases": all_testcases,
         "flaky": flaky,
-        "reportPaths": report_dirs,
+        "reportPaths": sorted(set(os.path.abspath(p) for p in xml_paths)),
         "stdoutTail": exec_meta["stdoutTail"],
         "stderrTail": exec_meta["stderrTail"],
     }
 
 
 @mcp.tool()
-def parse_junit_xml(root: str = ".") -> dict:
+def parse_junit_xml(root: str = ".", build_tool: str = "", task: str | None = None) -> dict:
     """Parse Gradle/Maven JUnit XML reports -> per-method results + classified failures[].
 
     Gradle: build/test-results/test/*.xml ; Maven: target/surefire-reports/*.xml.
@@ -1031,16 +1166,23 @@ def parse_junit_xml(root: str = ".") -> dict:
     even when they eventually passed.
     """
     root = os.path.abspath(root)
-    xml_paths = _find_junit_xml(root)
+    if task is not None:
+        if build_tool not in ("gradle", "maven") or not re.fullmatch(r":?[\w-]+(?::[\w-]+)*", task):
+            return {"status": "failed", "error": "INVALID_TEST_TASK"}
+        if build_tool == "maven" and task not in ("test", "verify"):
+            return {"status": "failed", "error": "INVALID_TEST_TASK"}
+        xml_paths = _task_junit_xml(root, build_tool, task)
+    else:
+        xml_paths = _find_junit_xml(root)
 
     total_passed, all_failures, all_testcases, skipped, flaky = _aggregate_junit(xml_paths)
-
-    report_dirs = sorted({os.path.dirname(p) for p in xml_paths})
 
     if not xml_paths:
         status = "failed"
     elif all_failures:
         status = "partial"
+    elif total_passed == 0:
+        status = "failed"
     else:
         status = "ok"
 
@@ -1051,12 +1193,13 @@ def parse_junit_xml(root: str = ".") -> dict:
         "skipped": skipped,
         "testcases": all_testcases,
         "flaky": flaky,
-        "reportPaths": report_dirs,
+        "reportPaths": sorted(set(os.path.abspath(p) for p in xml_paths)),
     }
 
 
 @mcp.tool()
-def parse_jacoco_report(root: str = ".") -> dict:
+def parse_jacoco_report(root: str = ".", packages: list[str] | None = None,
+                        excludes: list[str] | None = None) -> dict:
     """Parse a JaCoCo XML report into per-counter coverage + per-class + uncovered[].
 
     Gradle: build/reports/jacoco/test/jacocoTestReport.xml ;
@@ -1073,12 +1216,13 @@ def parse_jacoco_report(root: str = ".") -> dict:
     if not jacoco_paths:
         return {"status": "failed", "error": "JACOCO_REPORT_NOT_FOUND",
                 "message": f"no jacoco.xml found under: {root}"}
-    return _parse_jacoco_all(jacoco_paths)
+    return _parse_jacoco_all(jacoco_paths, packages, excludes)
 
 
 @mcp.tool()
 def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.0,
-                          method: float = 1.0, klass: float = 1.0) -> dict:
+                          method: float = 1.0, klass: float = 1.0, packages: list[str] | None = None,
+                          excludes: list[str] | None = None) -> dict:
     """Reconstruct full-pipeline progress from DURABLE on-disk evidence (not _workspace/).
 
     `_workspace/` intermediate artifacts are .gitignored and ephemeral, so after a fresh
@@ -1135,7 +1279,7 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
     if os.path.isdir(test_base):
         for dirpath, _dirs, files in os.walk(test_base):
             for fn in files:
-                if fn.endswith(".java") and ("Test" in fn or "Tests" in fn):
+                if fn.endswith(".java") and ("Test" in fn or fn.endswith("IT.java")):
                     test_files.append(os.path.join(dirpath, fn))
     has_tests = bool(test_files)
 
@@ -1161,9 +1305,9 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
 
     # --- reports (stages 6 / 8), reusing existing parsers, fail-safe ---
     junit = _safe(lambda: parse_junit_xml(root), None)
-    jacoco = _safe(lambda: parse_jacoco_report(root), None)
+    jacoco = _safe(lambda: parse_jacoco_report(root, packages, excludes), None)
     jacoco_gate = _safe(
-        lambda: coverage_gate(root, line=line, branch=branch, method=method, klass=klass),
+        lambda: coverage_gate(root, line=line, branch=branch, method=method, klass=klass, packages=packages, excludes=excludes),
         None,
     )
 
@@ -1188,7 +1332,7 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
     )
 
     junit_summary = {"present": False}
-    if junit_ok:
+    if isinstance(junit, dict):
         junit_summary = {"present": True, "passed": junit.get("passed", 0),
                          "failed": len(junit.get("failed", []))}
     jacoco_summary = {"present": False}
@@ -1315,7 +1459,8 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
 
 @mcp.tool()
 def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = DEFAULT_BRANCH,
-                  method: float = DEFAULT_METHOD, klass: float = DEFAULT_CLASS) -> dict:
+                  method: float = DEFAULT_METHOD, klass: float = DEFAULT_CLASS,
+                  packages: list[str] | None = None, excludes: list[str] | None = None) -> dict:
     """Parse JaCoCo and return pass/fail per counter plus actionable gaps.
 
     Returns overall pass flag plus a per-counter breakdown with the actual ratio,
@@ -1324,8 +1469,7 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
 
     Note: `klass` (CLASS counter) defaults to 1.0 per the near-100% policy. On a
     narrowly-targeted run whose JaCoCo report scope still includes uncovered sibling
-    classes, the overall CLASS ratio can be <1.0 and fail the gate; callers scoping
-    to a single class should override `klass` (or scope the report) accordingly.
+    classes, the overall CLASS ratio can be <1.0 and fail the gate; use packages/excludes to scope the report. Never lower thresholds to compensate for scope.
     """
     root = os.path.abspath(root)
 
@@ -1339,7 +1483,7 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
     if not jacoco_paths:
         missing.append("JACOCO_REPORT_NOT_FOUND")
     else:
-        jr = _parse_jacoco_all(jacoco_paths)
+        jr = _parse_jacoco_all(jacoco_paths, packages, excludes)
         if jr.get("status") != "ok":
             missing.append(jr.get("error", "JACOCO_PARSE_FAILED"))
         else:
@@ -1493,7 +1637,7 @@ def detect_build_capabilities(root: str = ".") -> dict:
 
     all_ok = not missing
     remediation = ("" if all_ok else
-                   "대화형: AskUserQuestion 승인 후 proposedChanges[]를 빌드 파일에 주입(buildChanges[]에 기록). "
+                   "메인 대화: AskUserQuestion 승인 후 proposedChanges[]를 빌드 파일에 주입(buildChanges[]에 기록). "
                    "CI: 누락 항목과 위 스니펫을 remediation으로 보고하고 중단(HarnessRequest 사전 제공). "
                    "근거·전체 스니펫: references/build-provisioning.md")
     return {
