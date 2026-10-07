@@ -55,7 +55,7 @@ description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/in
 
    ```
    Agent(
-     subagent_type="scenario-generator",
+     subagent_type="test-autoevermation-harness-plugin:scenario-generator",
      prompt="""
    다음 세 가지 분석 결과를 수렴해 테스트 시나리오를 설계하라.
 

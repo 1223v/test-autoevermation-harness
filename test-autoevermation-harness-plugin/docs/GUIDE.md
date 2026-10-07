@@ -71,7 +71,7 @@ test-autoevermation-harness-plugin/
 ├── .claude-plugin/plugin.json   ← 매니페스트: skills/·.mcp.json·.lsp.json 등록(표준 hooks/hooks.json은 자동 로드)
 ├── skills/        (15종)        ← /test-autoevermation-harness-plugin:<name> 명령. 절차(무엇을 어떤 순서로)의 정의
 ├── agents/        (11종)        ← Agent(subagent_type=...)로 호출되는 서브에이전트. 실제 분석/생성 수행
-├── mcp/           (서버 3종)    ← Python FastMCP stdio 서버. 결정적 작업(파싱·빌드실행·리포트 해석)
+├── mcp/           (서버 3종)    ← Python MCPServer stdio 서버. 결정적 작업(파싱·빌드실행·리포트 해석)
 │   └── javaparser-cli/          ← JavaParser 기반 정밀 AST CLI (mvnw 동봉, 필수 빌드)
 ├── hooks/hooks.json + scripts/  ← 산출물·위임 게이트(PreToolUse deny)·실행 증거 기록·시크릿 warn 보고
 ├── references/    (9종)         ← 정책·절차의 SSOT 문서 (스킬·에이전트가 인용)
@@ -127,9 +127,9 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 ([Plugins reference](https://code.claude.com/docs/en/plugins-reference)), MCP 접근은 공유 `.mcp.json` +
 스킬 라우팅으로 구현한다. 모든 에이전트는 `model: inherit`라 세션 모델 그대로 동작한다(특정 티어 불필요).
 
-### 2.4 MCP 서버 3종 (Python FastMCP, stdio)
+### 2.4 MCP 서버 3종 (Python MCPServer, stdio)
 
-공식 MCP Python SDK의 `FastMCP` 고수준 API(`@mcp.tool()` 데코레이터, `mcp.run(transport="stdio")`)로
+공식 MCP Python SDK의 `MCPServer` 고수준 API(`@mcp.tool()` 데코레이터, `mcp.run(transport="stdio")`)로
 구현되어 있고, `.mcp.json`이 `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs ${CLAUDE_PLUGIN_ROOT}/mcp/<server>.py`로 기동한다(v0.15.0+ — launch.cjs가 Python 런타임·의존성을 자동 프로비저닝, §4.2).
 `${CLAUDE_PLUGIN_ROOT}`(플러그인 설치 경로)·`${CLAUDE_PROJECT_DIR}`(현재 프로젝트 루트)는 Claude Code가
 치환·주입하는 공식 변수다.
@@ -145,7 +145,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 
 세 서버 모두 **MCP tool만 노출한다 — 리소스·프롬프트는 없다.** v0.33.0에서 리소스 4종(`ast://index`,
 `ast://dependency-graph`, `spec://glossary`, `spec://requirement-matrix`)과 프롬프트 3종
-(`explain_target_shape`, `review_specs_for_testing`, `suggest_test_command`)을 삭제했다. FastMCP 보일러플레이트
+(`explain_target_shape`, `review_specs_for_testing`, `suggest_test_command`)을 삭제했다. MCPServer 보일러플레이트
 ([RESEARCH_NOTES.md](../RESEARCH_NOTES.md) §1)에서 그대로 옮겨진 것들로, 에이전트 11개 전원의 도구 목록에
 `ReadMcpResourceTool`이 없어 파이프라인이 호출할 수 없었고 전부 살아 있는 tool·에이전트의 열등한 중복이었다.
 게다가 `ast://` 2종은 tool과 달리 `paths` 인자가 없어 매 읽기마다 allow root 전체를 `_analyze()`했고,
@@ -217,7 +217,7 @@ AST-only degrade는 더 이상 허용되지 않는다.
 - 1·2단계(스펙 인덱싱 ∥ AST 추출)만 **병렬**(`Agent` 팬아웃), 나머지는 산출물 의존이라 **순차 파이프라인**.
 - 각 단계 산출물(JSON)은 메인 컨텍스트로 옮기지 않고 `_workspace/{단계}_{산출물}.json`에 저장하고
   **경로만** 다음 단계에 전달한다(컨텍스트 토큰 절감 + 감사 추적 + 부분 재실행의 기반).
-- 각 서브에이전트의 `total_tokens`/`duration_ms`는 완료 시점에 `_workspace/timing.json`에 즉시 누적한다
+- SubagentStart/Stop의 실제 경과 시간을 기록하고, 호스트가 제공하지 않은 토큰 수는 생략한다
   (병목 단계 식별용). 누적 명령:
   `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/record-timing.py" --workspace <ws> --stage <id> --agent <type> --model <model> --tokens <n> --duration-ms <n>`
 
@@ -332,7 +332,7 @@ uv(무-sudo; POSIX `install.sh` / Windows `install.ps1`)로 관리형 Python을 
 환경(오프라인 등)의 수동 폴백:
 
 ```bash
-python3 -m pip install -r mcp/requirements.txt    # mcp[cli]>=1.2.0, Python 3.10+
+python3 -m pip install -r mcp/requirements.txt    # mcp[cli]>=2.2,<3, Python 3.10+
 ```
 
 `setup-harness`의 자동 세팅 범위는 Python 런타임에 그치지 않는다 — **E6**이 `mcp/javaparser-cli`에서
@@ -390,14 +390,13 @@ PATH → brew(macOS) → eclipse.org milestone tarball(`${CLAUDE_PLUGIN_DATA}/jd
 - 수동 설치(§4.1의 복사/symlink)를 사용한 경우에는 `~/.claude/plugins/test-autoevermation-harness-plugin`을
   삭제한 뒤 Claude Code를 재시작한다.
 - 변경 사항은 `/reload-plugins` 또는 세션 재시작으로 반영된다.
-- **상태줄 자동 원복**: 상태줄을 설치했다면 uninstall 후 재시작 시 첫 상태줄 렌더에서 원래
-  상태줄로 자동 복구된다(§5.5의 self-heal). 즉시 원복하려면 uninstall 전에
+- **상태줄 자동 원복**: 상태줄을 설치했다면 저장된 설치 경로의 manifest가 사라진 뒤 렌더할 때
+  원래 상태줄로 복구된다. uninstall 후 캐시가 남으면 감지할 수 없다(§5.5의 self-heal). 즉시 원복하려면 uninstall 전에
   `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청한다.
 
 **완전 삭제(잔여 파일 정리):** `/plugin uninstall`은 설치 사본(`plugins/cache/`)과 레지스트리
 항목만 지운다. 상태줄 전역 사본(`test-autoevermation-statusline.py`/`-launch.cjs`)과 전역
-`settings.json`의 statusLine 원복은 §5.5 self-heal이 자동 처리하지만(재시작 후 첫 상태줄 렌더
-1회 필요), 아래 항목은 남으므로 완전히 지우려면 수동 정리한다.
+`settings.json`의 statusLine 원복은 §5.5 self-heal이 설치 파일 소실 후 처리하지만(캐시가 남아 있으면 명시적 제거 필요), 아래 항목은 남으므로 완전히 지우려면 수동 정리한다.
 
 ```bash
 CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -547,9 +546,8 @@ settings로는 main statusLine을 설정할 수 없다(공식: `agent`/`subagent
   시작마다 조용히·멱등하게 갱신되고, OMC HUD 등이 슬롯을 되가져가도 **자동 재점유**한다(이중
   래핑 금지). 표시 범위는 모든 세션(파이프라인 없는 프로젝트에선 버전만).
 - **제거(self-heal)**: `/plugin uninstall`은 전역 `settings.json` 수정을 되돌리지 않으므로, 전역
-  런처가 가리키는 wrapper 사본이 렌더마다 플러그인 설치 여부를 확인한다. uninstall을 감지하면
-  1회 한정으로 `settings.json`을 delegate(원래 상태줄)로 원복하고 전역 사본을 정리한다 → uninstall
-  후 재시작 시 첫 상태줄 렌더에서 자동 복구. 즉시 원복은 `setup-statusline`에 "제거" 요청.
+  런처가 가리키는 wrapper 사본이 렌더마다 플러그인 설치 여부를 확인한다. 해당 설치 경로의 manifest가 사라지면
+  1회 한정으로 `settings.json`을 delegate(원래 상태줄)로 원복하고 전역 사본을 정리한다 → 다음 렌더에서 복구. 캐시가 남아 있으면 제거를 감지할 수 없다. 즉시 원복은 `setup-statusline`에 "제거" 요청.
 - **끄기**: 최초 확인에서 "설치 안 함"을 고르거나 환경변수 `TAM_STATUSLINE_AUTO=0`으로 자동
   설치를 비활성화한다(CI 권장).
 
@@ -687,7 +685,7 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 
 | 항목 | 구현 |
 |---|---|
-| 네트워크 기본 차단 | build-test MCP 서버가 `BUILD_TEST_ALLOW_NETWORK=0`(`.mcp.json` 기본값)을 읽어 gradle `--offline`/maven `-o`를 강제. 유일한 예외는 사용자가 승인한 1회 캐시 프라이밍(`online=True`) |
+| 의존성 오프라인 기본 | build-test MCP 서버가 `BUILD_TEST_ALLOW_NETWORK=0`(`.mcp.json` 기본값)을 읽어 gradle `--offline`/maven `-o`를 강제. 유일한 예외는 사용자가 승인한 1회 캐시 프라이밍(`online=True`) |
 | 경로 allowlist | repo-ast `REPO_AST_ALLOW_ROOT`(프로젝트 루트 밖 경로 거부), spec-doc `SPEC_DOC_ALLOWLIST`+`SPEC_DOC_WORKSPACE`(허용 디렉터리 밖 문서 거부) — MCP 서버 입력 경계이며, 도구 수준 Read deny(vendor/build/generated)는 없다 |
 | 소스 노출 최소화 | repo-ast는 메서드 본문 미반환(구조 메타만), 에이전트 결과에 소스 원문 금지 |
 | 민감정보 | `redact-secrets.py` 훅 + spec-doc redaction (토큰·이메일·접속문자열) |
@@ -738,3 +736,5 @@ Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pi
 | [DEPENDENCIES.md](../DEPENDENCIES.md) | OMC 비의존 선언·런타임 의존성 표 |
 | [CHANGELOG.md](../CHANGELOG.md) | 버전별 변경 이력 |
 | [examples/](../examples/) | 프로파일별 테스트/빌드/CI 예제 13종 |
+
+상태줄 설치 경로와 버전은 공식 SessionStart 훅이 실행된 플러그인 루트로 갱신한다. 비공개 설치 레지스트리는 읽지 않는다. 자동 원복은 해당 경로의 manifest가 사라진 뒤 동작한다. 제거 후 캐시가 남아 있으면 감지할 수 없으므로, 즉시 원복하려면 제거 전에 `setup-statusline`에서 제거를 요청한다.

@@ -8,7 +8,7 @@
 [references/fallback-policy.md](../references/fallback-policy.md).
 
 > 표기 규칙: 사각형=처리 단계, 마름모=의사결정/게이트, 둥근모서리=시작/종료. 점선 화살표=루프/되돌아감.
-> 대화형(사람 있음)은 `AskUserQuestion`, 비대화형·CI(`AskUserQuestion` 도구가 없거나 첫 호출이 차단됨 — `claude -p`/`dontAsk`/`--permission-prompts none`)는 자동 세팅 또는 하드 중단으로 분기한다.
+> 대화형(사람 있음)은 `AskUserQuestion`, 비대화형·CI(호스트에 사용자 입력 처리기가 없거나 `dontAsk`로 입력이 금지됨; SDK의 `canUseTool` 입력 지원 여부는 별도 확인)는 자동 세팅 또는 하드 중단으로 분기한다.
 
 ---
 
@@ -19,7 +19,7 @@ flowchart TD
     A(["HarnessRequest 입력"]) --> P0{"Phase 0 — 컨텍스트 확인<br/>_workspace/ 존재? 요청 유형?"}
     P0 -- "있음 + 부분 요청" --> PR["부분 재실행<br/>영향 단계만 재호출 · 나머지 Read 재사용 (§부분 재실행 매트릭스)"]
     P0 -- "없음/불완전 → detect_pipeline_state" --> P0R{"영속 증거(테스트·시나리오·리포트)<br/>resumable?"}
-    P0R -- "예 (상태 복원)" --> PRES["04/05/06/08 stub 재구성 + _resume.json 기록<br/>대화형=AskUserQuestion(4/5/6/8/9) · CI=recommendedEntryStage<br/>JUnit 없음·실패·0 tests=6 · green JUnit=8 · 현재 커버리지 게이트 통과=9"]
+    P0R -- "예 (상태 복원)" --> PRES["04/05/06/08 stub 재구성 + _resume.json 기록<br/>대화형=메인 대화가 재개 단계 질문 · CI=recommendedEntryStage<br/>JUnit 없음·실패·0 tests=6 · green JUnit=8 · 현재 커버리지 게이트 통과=9"]
     PRES -. "재진입(대표: run-tests)" .-> L
     PR -. "재진입(영향 단계)" .-> L
     P0R -- "아니오 (초기 실행)" --> B["전처리: 입력 정규화"]
@@ -123,7 +123,7 @@ flowchart TD
 > 재사용·재개 경로(0단계를 건너뛰어 `configure-harness`가 호출되지 않는 경우)에서는 **오케스트레이터가 직접 프로브를 실행**한다 —
 > MCP 등록은 **세션 단위**라 이전 실행의 통과가 이번 세션을 보장하지 않기 때문이다.
 
-근거: [environment-setup.md](../references/environment-setup.md) (E2 `mcp[cli]>=1.2.0`, E6 `astcli-1.0.0-shaded.jar`,
+근거: [environment-setup.md](../references/environment-setup.md) (E2 `mcp[cli]>=2.2,<3`, E6 `astcli-1.0.0-shaded.jar`,
 E7 Eclipse JDT LS Java 21+ 런타임, E10 Mockito/ByteBuddy JDK 24/25 호환, 「E-verify 검증 프로브」 절).
 
 ---

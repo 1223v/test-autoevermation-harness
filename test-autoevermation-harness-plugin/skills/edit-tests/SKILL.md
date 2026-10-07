@@ -66,7 +66,7 @@ full-pipeline **밖에서**(또는 파이프라인 종료 후) 사용자가 **�
 
 ```
 Agent(
-  subagent_type="test-editor",
+  subagent_type="test-autoevermation-harness-plugin:test-editor",
   prompt="""
 사용자가 지목한 기존 테스트를 최소 diff로 편집하라. 실행하지 말고 편집만 하라.
 

@@ -13,7 +13,7 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 **시나리오 승인 + 산출물(`test_docs/`).** 시나리오 설계(4단계) 직후, 테스트 생성(5단계) **전에 사용자 승인 게이트**를 둔다 — 시나리오를 대상 프로젝트의 `test_docs/scenarios/<id>.md`로 저장하고, 대화형은 `AskUserQuestion`으로 승인/제외·수정/재설계를 묻는다(승인분만 생성으로 진행). 비대화형·CI는 자동 승인 후 기록. 커버리지 측정 뒤 **마지막 단계(9단계)에서 시나리오 적합성을 검증**해 `test_docs/`를 **시나리오 ↔ 테스트코드 ↔ 결과**로 정리하고, 불일치(`unmet`)가 있으면 **9.5단계 적합성 자동 보정 루프**(최대 3라운드)로 자동 교정한다. 정본: [references/scenario-docs.md](../../references/scenario-docs.md).
 
-**가장 먼저 E-verify 세팅 검증 게이트를 통과시킨다 (v0.25.0 — 세팅과 실행의 분리).** **환경 세팅(E1~E10 + 상태줄)의 수행 주체는 [`setup-harness`](../setup-harness/SKILL.md) 스킬이며, 이 파이프라인은 환경을 세팅하지 않는다.** 0단계 이전에 [references/environment-setup.md](../../references/environment-setup.md)(SSOT) 「E-verify 검증 프로브」만 실행해 세팅 완료를 **확인**하고, 미충족이면 파이프라인을 **시작하지 않고** `status:"failed"` + `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"`로 하드 중단한다(자동 세팅·자동 위임 금지). **대상 빌드 능력(JaCoCo XML 필수)과 의존성 캐시 프라이밍**(0.6단계, E11·E12)은 `configure-harness`가 `detect_build_capabilities(root=...)`로 처리한다([references/build-provisioning.md](../../references/build-provisioning.md)).
+**projectRoot 등 필수 입력을 먼저 확정한 뒤 E-verify 세팅 검증 게이트를 통과시킨다 (v0.25.0 — 세팅과 실행의 분리).** **환경 세팅(E1~E10 + 상태줄)의 수행 주체는 [`setup-harness`](../setup-harness/SKILL.md) 스킬이며, 이 파이프라인은 환경을 세팅하지 않는다.** 0단계 이전에 [references/environment-setup.md](../../references/environment-setup.md)(SSOT) 「E-verify 검증 프로브」만 실행해 세팅 완료를 **확인**하고, 미충족이면 파이프라인을 **시작하지 않고** `status:"failed"` + `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"`로 하드 중단한다(자동 세팅·자동 위임 금지). **대상 빌드 능력(JaCoCo XML 필수)과 의존성 캐시 프라이밍**(0.6단계, E11·E12)은 `configure-harness`가 `detect_build_capabilities(root=...)`로 처리한다([references/build-provisioning.md](../../references/build-provisioning.md)).
 
 ---
 
@@ -21,9 +21,9 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 
 **실행 모드: 서브에이전트 팬아웃/파이프라인.** 1·2단계는 상호 통신이 불필요한 독립 작업이므로 `Agent(subagent_type=...)` 병렬 호출을 쓴다(에이전트 팀의 `TeamCreate`/`SendMessage` 조율 비용·지연을 피함). 이후는 순차 의존이라 파이프라인으로 잇는다.
 
-**`_workspace/` 파일 기반 전달.** 각 단계 산출물(JSON)을 메인 컨텍스트로 통째로 옮기지 말고 `_workspace/{단계}_{에이전트}_{산출물}.json`에 저장하고, 다음 단계에는 **경로만** 전달한다. 메인 컨텍스트에는 `{status, 핵심수치, 경로}` 요약만 환원한다 → 컨텍스트 토큰 절감.
+**`_workspace/` 파일 기반 전달.** 읽기 전용 에이전트는 완결된 결과 JSON을 반환하고 메인 대화가 스키마를 검증해 단계 산출물에 저장한다. 이후 단계에는 저장된 경로와 필요한 필드만 전달한다. 파일 쓰기 권한 없는 자식에게 저장을 지시하거나 존재하지 않는 경로만 반환하게 하지 않는다.
 
-**단계 계약(위임 필수 — 훅 물리 강제).** 각 단계는 아래 표의 주체로만 수행한다. **위임 없이 오케스트레이터가 직접 수행한 단계는 무효다** — "직접 하는 편이 더 빠르다/결과가 같다"는 위임 생략 사유가 될 수 없다. `record-run-context.py`(Skill/Agent 훅 — 구 Task alias 포함)가 스폰 증거를 `_workspace/.markers/`에 기록하고, `guard-gate-artifacts.py`(Write/Edit 훅)가 ① spawn 마커 없는 단계 산출물 기록, ② 오케스트레이터의 `src/test/java` 직접 기록(예외 없음 — 보정도 test-fixer가 직접 수정), ③ 선행 산출물 없는 후속 산출물 기록(순서 게이트)을 deny한다. 산출물 JSON은 단계 완료 **즉시** Write한다 — 산출물 없는 단계는 미수행으로 간주되어 후속 단계 기록이 차단된다. 훅 deny를 받으면 인라인 수행을 중단하고 해당 단계를 표의 주체로 재실행하라.
+**단계 계약(위임 필수 — 훅 물리 강제).** 각 단계는 아래 표의 주체로만 수행한다. **위임 없이 오케스트레이터가 직접 수행한 단계는 무효다** — "직접 하는 편이 더 빠르다/결과가 같다"는 위임 생략 사유가 될 수 없다. `record-run-context.py`가 UserPromptExpansion/Skill로 실행을 추적하고 SubagentStart에서 실제 스폰 증거를 `_workspace/.markers/`에 기록하고, `guard-gate-artifacts.py`(Write/Edit 훅)가 ① spawn 마커 없는 단계 산출물 기록, ② 오케스트레이터의 `src/test/java` 직접 기록(예외 없음 — 보정도 test-fixer가 직접 수정), ③ 선행 산출물 없는 후속 산출물 기록(순서 게이트)을 deny한다. 산출물 JSON은 단계 완료 **즉시** Write한다 — 산출물 없는 단계는 미수행으로 간주되어 후속 단계 기록이 차단된다. 훅 deny를 받으면 인라인 수행을 중단하고 해당 단계를 표의 주체로 재실행하라.
 
 > **강제 범위(v0.32.0)**: 이 훅은 `_workspace/.markers/run.json`이 현재 세션과 일치할 때 — 즉 **full-pipeline이 실제로 도는 동안에만** 판정한다. 하네스와 무관한 세션의 편집은 경로와 무관하게 전부 통과한다.
 
@@ -32,23 +32,23 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
 | 단계 | 필수 수행 주체 | 산출물(`_workspace/`) |
 |---|---|---|
 | 0 | `configure-harness` **스킬 호출** (E1~E10 **세팅** 수행 금지 — `setup-harness` 소관. E-verify **프로브만** 허용) | `00_config-harness.json` |
-| 1 | `Agent(subagent_type="spec-reviewer")` | `01_spec-reviewer_criteria.json` |
-| 2 | `Agent(subagent_type="ast-structure-analyzer")` | `02_ast_targets.json` |
-| 3 | `Agent(subagent_type="source-code-analyzer")` | `03_source_seams.json` |
-| 3.5 | `Agent(subagent_type="refactor-advisor")` + 오케스트레이터 게이트 | `03b_refactor_advisory.json` · `03c_advisory_gate.json` |
-| 4 | `Agent(subagent_type="scenario-generator")` | `04_scenario_set.json` |
+| 1 | `Agent(subagent_type="test-autoevermation-harness-plugin:spec-reviewer")` | `01_spec-reviewer_criteria.json` |
+| 2 | `Agent(subagent_type="test-autoevermation-harness-plugin:ast-structure-analyzer")` | `02_ast_targets.json` |
+| 3 | `Agent(subagent_type="test-autoevermation-harness-plugin:source-code-analyzer")` | `03_source_seams.json` |
+| 3.5 | `Agent(subagent_type="test-autoevermation-harness-plugin:refactor-advisor")` + 오케스트레이터 게이트 | `03b_refactor_advisory.json` · `03c_advisory_gate.json` |
+| 4 | `Agent(subagent_type="test-autoevermation-harness-plugin:scenario-generator")` | `04_scenario_set.json` |
 | 4.5 | 오케스트레이터: `test_docs/scenarios/*.md` **저장 후** 승인 질문 | `04b_approval.json` |
-| 5 | `Agent(subagent_type="test-code-generator")` (테스트 파일 소유권=에이전트) | `05_test-gen_files.json` |
-| 6 | `Agent(subagent_type="test-runner")` | `06_run_result.json` |
-| 7 | `Agent(subagent_type="test-fixer")` (테스트 수정 소유권=에이전트, 메인 트리 직접 수정) | `07_repair_result.json` |
-| 8 | `measure-coverage` 게이트 루프 (`Agent(subagent_type="coverage-closer")`) | `08_coverage_result.json` |
-| 9 | `Agent(subagent_type="scenario-conformance-verifier")` | `09_conformance.json` (+9.5: `09b_conformance_repair.json`) |
+| 5 | `Agent(subagent_type="test-autoevermation-harness-plugin:test-code-generator")` (테스트 파일 소유권=에이전트) | `05_test-gen_files.json` |
+| 6 | `Agent(subagent_type="test-autoevermation-harness-plugin:test-runner")` | `06_run_result.json` |
+| 7 | `Agent(subagent_type="test-autoevermation-harness-plugin:test-fixer")` (테스트 수정 소유권=에이전트, 메인 트리 직접 수정) | `07_repair_result.json` |
+| 8 | `measure-coverage` 게이트 루프 (`Agent(subagent_type="test-autoevermation-harness-plugin:coverage-closer")`) | `08_coverage_result.json` |
+| 9 | `Agent(subagent_type="test-autoevermation-harness-plugin:scenario-conformance-verifier")` | `09_conformance.json` (+9.5: `09b_conformance_repair.json`) |
 
 **Phase 0 컨텍스트 확인(부분 재실행 · schema v2 상태 복원).** `_workspace/`는 휘발성이므로 생성 테스트, 승인 시나리오, JUnit XML, JaCoCo XML을 영속 증거로 사용한다.
 
 - `_workspace/00_config-harness.json`, `_resume.json`, `pipeline_result.json`은 `schemaVersion:2`일 때만 신뢰한다. 버전이 없거나 다르면 `_workspace_legacy_{YYYYMMDD_HHMMSS}/`를 만들고 현재 `_workspace/`의 **`.markers/`를 제외한 항목만** 그곳으로 보존 이동한다. 훅이 방금 기록한 `_workspace/.markers/run.json`은 현재 세션의 물리 가드이므로 원래 위치에 유지한다. 구 산출물은 복사하지 않는다.
 - 부분 요청은 schema v2 산출물만 Read해 영향 단계부터 재실행한다. 새 입력이면 동일하게 `.markers/`를 남기고 나머지만 타임스탬프 경로로 보존 이동한 뒤 0단계부터 시작한다.
-- workspace가 없거나 불완전하면 **`mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pipeline_state(root=projectRoot, line=..., branch=..., method=..., klass=...)`**로 영속 증거를 판정한다. 유효한 schema v2 config가 있으면 그 커버리지 임계값을 전달하고, 없으면 도구의 보수적 기본값(각 1.0)을 사용한다. 도구가 없거나 실패하면 Grep/Read 눈대중으로 대체하지 않고 #20에 따라 중단한다.
+- workspace가 없거나 불완전하면 **`mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pipeline_state(root=projectRoot, line=..., branch=..., method=..., klass=..., packages=HarnessConfig.targets, excludes=HarnessConfig.coverage.excludes)`**로 영속 증거를 판정한다. 유효한 schema v2 config가 있으면 그 커버리지 임계값을 전달하고, 없으면 도구의 보수적 기본값(각 1.0)을 사용한다. 도구가 없거나 실패하면 Grep/Read 눈대중으로 대체하지 않고 #20에 따라 중단한다.
 - `harnessProvenance:false`이면 기존 테스트가 있더라도 초기 실행하며 기존 파일을 덮어쓰지 않는다. `harnessProvenance:true`이면 다음 우선순위로 `recommendedEntryStage`를 정한다.
   - 승인 시나리오만 있음 → 5(generate-tests)
   - 하네스 테스트가 있고 JUnit 결과가 없거나 실패/partial임 → 6(run-tests)
@@ -60,14 +60,10 @@ description: Spring 프로젝트에 대해 인터랙티브 설정·스펙 인제
   - `recommendedEntryStage`는 이미 이 판정으로 **하향 클램프되어** 돌아온다(JaCoCo stale→8, JUnit stale→6, 시나리오 stale→4, `buildFileNewerThanConfig`→0). `highestCompletedStage`는 "실제로 있었던 일"의 기록이라 클램프하지 않으므로, 둘이 어긋나면 그 차이가 곧 무효화된 증거다.
   - **`buildFileNewerThanConfig:true`이면 0단계(configure-harness)를 건너뛸 수 없다.** 빌드 파일 변경은 Spring 프로파일 전체(javax↔jakarta, junit4↔jupiter, `@MockBean`↔`@MockitoBean`)를 바꿀 수 있어, 캐시된 `springProfile`로 생성하면 잘못된 관용구의 테스트가 나온다. configure-harness 0.5단계는 호출되기만 하면 프로파일을 항상 재감지하므로 0단계를 실제로 수행하는 것으로 충분하다.
   - 훅이 함께 강제한다: stale로 판정된 증거는 `record-run-context.py`가 `allowedArtifacts`에서 제외하므로, 오케스트레이터가 "재사용 가능"이라고 판단해도 `06`/`08`(시나리오 stale이면 `04`) stub 기록은 `guard-gate-artifacts.py`에 deny된다.
-- 대화형은 위 추천값과 `[4 시나리오 재설계] [5 생성] [6 실행] [8 커버리지] [9 적합성 검증]`을 제시하고 사용자가 선택하게 한다. **`staleness.stale:true`이면 먼저 무엇이 낡았는지(`reasons[]`와 `newestSourcePaths[]`의 대표 경로)를 제시하고 `AskUserQuestion`으로 `[영향 단계부터 재실행(권장)] / [그대로 재사용] / [0단계부터 전체 재실행]`을 묻는다** — "그대로 재사용"을 선택해도 훅이 stale stub 기록을 막으므로 해당 단계는 실제로 다시 수행된다. CI는 클램프된 `recommendedEntryStage`를 그대로 사용한다(질문 불가 → 보수적 재실행).
+- 대화형은 위 추천값과 `[4 시나리오 재설계] [5 생성] [6 실행] [8 커버리지] [9 적합성 검증]`을 제시하고 사용자가 선택하게 한다. **`staleness.stale:true`이면 먼저 무엇이 낡았는지(`reasons[]`와 `newestSourcePaths[]`의 대표 경로)를 제시하고 `AskUserQuestion`으로 `[영향 단계부터 재실행(권장)] / [0단계부터 전체 재실행]`을 묻는다**. 낡은 증거를 그대로 재사용하는 선택지는 제공하지 않는다. CI는 클램프된 `recommendedEntryStage`를 그대로 사용한다(질문 불가 → 보수적 재실행).
 - 복원 시 `_workspace/_resume.json`을 `{"schemaVersion":2,"entryStage":<n>,"entryLabel":"<label>","ts":"<ISO-8601>"}`로 기록한다. stub은 `source:"durable-scan"`과 **실제 detect 요청 root·임계값 및 응답에서 계산된 `allowedArtifacts` 마커**가 대상 `projectRoot`에 있어야 하며 `04_scenario_set.json`, `05_test-gen_files.json`, `06_run_result.json`, `08_coverage_result.json`에만 허용한다. 08 권한은 호출 임계값이 schema v2 config와 일치할 때만 부여하고(config가 없으면 1.0 네 종), stub은 `status:"reused"`, `gatePassed:true`로 기록한다. 9단계 적합성 결과는 복원하지 않고 항상 다시 검증한다. 최종 집계 전에는 `pipeline_result.json`을 쓰지 않는다.
 
-**단계별 계측(timing.json).** 각 서브에이전트 완료 알림의 `total_tokens`/`duration_ms`는 **그 시점에만** 접근 가능하므로 즉시 `_workspace/timing.json`에 누적 저장한다(느린·비싼 단계 식별용). 단계 완료 직후 아래를 Bash로 실행한다:
-
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/record-timing.py" --workspace <ws> --stage <id> --agent <subagent_type> --model <model> --tokens <n> --duration-ms <n>
-```
+**단계별 계측(timing.json).** 공식 SubagentStart/SubagentStop 훅의 관측 시간 차이를 기록한다. 토큰 수는 호스트가 실제 제공한 경우에만 추가하며, 미측정 값은 생략한다. 계측값 부재는 파이프라인 실패나 승인 근거가 아니다. 동일 완료 건을 모델이 다시 기록하지 않는다.
 
 
 > 전체 규약(부분 재실행 매트릭스·데이터 전달 표·에러 핸들링·timing 스키마)은 필요할 때만 로드: [references/orchestration-detail.md](references/orchestration-detail.md).
@@ -120,7 +116,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/script
 | `javaVersion` | `string` | 아니오 | `"미지정"` → 0단계 #13 확정 | `8`–`26` (Boot 2.x baseline 8, 3.x+ 17 — version-compatibility.md) |
 | `springVersion` | `string` | 아니오 | `"미지정"` → 0단계 #4·#13 확정 | Spring Boot 버전 (예: `3.4.5`) |
 | `stylePolicy` | `string` | 아니오 | `"google-java"` | 코드 스타일 정책 |
-| `lspAvailable` | `boolean` | 아니오 | `true` | JDT LS 연결 여부. E7(JDT LS)은 `setup-harness`의 필수 항목이므로 통과 시 항상 `true` — 미가용이면 **E-verify 게이트에서 하드 중단**(세팅은 `setup-harness` 소관) |
+| `lspAvailable` | `boolean` | 아니오 | `true` | JDT LS 연결 여부. 공식 LSP 조회 성공을 현재 세션에서 확인한 경우에만 `true` — 미가용이면 **E-verify 게이트에서 하드 중단**(세팅은 `setup-harness` 소관) |
 | `maxRepairRetries` | `integer` | 아니오 | `3` | repair-tests **진전 추적 단위**(고정 상한 아님 — #12 무진전 판정 기준 "동일 실패 3회 연속"과 정렬) |
 | `domainKeywords` | `string[]` | 아니오 | `[]` | 스펙 검색 힌트 |
 | `refactorAdvisory` | `object` | 아니오 | `{ "enabled": true }` | 3.5단계 제어. `enabled`·`thresholds{cyclomatic,constructorArgs}` — 정본: [refactor-advisory.md](../../references/refactor-advisory.md) §5 |
@@ -134,7 +130,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/script
 - `targets: []` → "직접 지정 / 자동 탐지" 질문 후 확정(자동 탐지는 사용자가 명시 선택한 경우만)
 - `buildTool: "미지정"` → `detect_build_tool` 후보 제시 + 질문(#5). 미감지·미확정이면 중단(CI)
 - `javaVersion: "미지정"` → `springProfile.javaBaseline` 후보 제시 + 질문 / 중단(CI)
-- `springVersion: "미지정"` → `detect_spring_profile`. `interviewRequired`면 대화형=Boot major 질문 / CI=중단(#4). `requiresConfirmation`이면 충돌 확정 질문(#6). 가정 금지. 이 프로파일이 모든 관용구(javax/jakarta, junit4/jupiter, @MockBean/@MockitoBean)를 결정(RESEARCH_NOTES §8)
+- `springVersion: "미지정"` → `detect_spring_profile`. `interviewRequired`면 대화형=정확한 Boot 버전(major/minor 포함) 질문 / CI=중단(#4). `requiresConfirmation`이면 충돌 확정 질문(#6). 가정 금지. 이 프로파일이 모든 관용구(javax/jakarta, junit4/jupiter, @MockBean/@MockitoBean)를 결정(RESEARCH_NOTES §8)
 - `junitPolicy: "strict-5x"` → 빌드 파일에 version pin + CHANGELOG 경고 추가
 
 ---
@@ -156,7 +152,7 @@ testScope         = 입력값 또는 "mixed"
 javaVersion       = 입력값 또는 "미지정"
 springVersion     = 입력값 또는 "미지정"
 stylePolicy       = 입력값 또는 "google-java"
-lspAvailable      = 입력값 또는 E7 통과값(항상 true — E7은 setup-harness의 필수 항목이고, 미가용이면 E-verify 게이트에서 하드 중단하므로 false로 이 단계에 도달하지 않는다)
+lspAvailable      = 현재 세션 공식 LSP 조회의 실제 검증값(미검증/실패는 E-verify 중단)
 maxRepairRetries  = 입력값 또는 3   # 진전 추적 단위(#12 무진전 3회 연속과 정렬)
 domainKeywords    = 입력값 또는 []
 refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 시 refactor-advisory.md §2 기본값;
@@ -187,13 +183,13 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 
 ### 0단계: configure-harness (인터랙티브 설정)
 
-대화형 CLI에서는 `configure-harness` 스킬로 사용자에게 3항목(스펙 경로 추가 / 대상 폴더·패키지 선별 / 커버리지 임계값·제외)을 AskUserQuestion으로 질문하고 `HarnessConfig`를 만든다. 비대화형(`AskUserQuestion` 도구 부재 또는 첫 호출 차단 — 판정 정본은 `configure-harness` 「인터랙티브 모드 감지」)에서는 인터뷰를 건너뛰고 `HarnessRequest` + 문서화된 커버리지 기본값으로 `HarnessConfig`를 구성하되, #13 필수 항목이 비면 `configure-harness`가 하드 중단한다.
+대화형 CLI에서는 `configure-harness` 스킬로 사용자에게 3항목(스펙 경로 추가 / 대상 폴더·패키지 선별 / 커버리지 임계값·제외)을 AskUserQuestion으로 질문하고 `HarnessConfig`를 만든다. 비대화형(호스트 입력 처리기 부재 또는 명시적 `dontAsk` 모드 — 판정 정본은 `configure-harness` 「인터랙티브 모드 감지」)에서는 인터뷰를 건너뛰고 `HarnessRequest` + 문서화된 커버리지 기본값으로 `HarnessConfig`를 구성하되, #13 필수 항목이 비면 `configure-harness`가 하드 중단한다.
 
 ```
 /test-autoevermation-harness-plugin:configure-harness
 ```
 
-산출 `HarnessConfig`는 `schemaVersion:2`, `specDocPaths`, `targets`/`targetModules`, `coverage{line,branch,method,class,excludes}`, `coverageMaxIterations`, `refactorAdvisory{enabled,thresholds}`를 포함하며 이후 단계의 입력에 병합된다. 사용자가 재사용 가능한 도메인 특화 단계를 원하면 configure-harness가 `skills/<custom>/SKILL.md`를 스캐폴드하고 `/test-autoevermation-harness-plugin:<custom>`로 호출 가능하게 한다.
+산출 `HarnessConfig`는 `schemaVersion:2`, `specDocPaths`, `targets`/`targetModules`, `coverage{line,branch,method,class,excludes}`, `coverageMaxIterations`, `refactorAdvisory{enabled,thresholds}`를 포함하며 이후 단계의 입력에 병합된다. 사용자가 재사용 가능한 도메인 특화 단계를 원하면 configure-harness가 `<projectRoot>/.claude/skills/<custom>/SKILL.md`를 스캐폴드하고 `/<custom>`로 호출 가능하게 한다.
 
 ---
 
@@ -205,7 +201,7 @@ refactorAdvisory  = 입력값 또는 { "enabled": true }  (thresholds 미지정 
 
 ```
 Agent(
-  subagent_type="spec-reviewer",
+  subagent_type="test-autoevermation-harness-plugin:spec-reviewer",
   prompt="""
 입력:
 {
@@ -228,7 +224,7 @@ Agent(
 
 ```
 Agent(
-  subagent_type="ast-structure-analyzer",
+  subagent_type="test-autoevermation-harness-plugin:ast-structure-analyzer",
   prompt="""
 입력:
 {
@@ -242,7 +238,7 @@ Agent(
 - targets가 비어 있으면 list_spring_components로 자동 탐색하라.
 - 심볼을 추론하지 마라. unresolved 심볼은 별도 배열로 분리하라.
 - 코드 본문을 반환하지 마라. AST 노드 메타만 반환하라.
-- vendor/build/generated read deny.
+- vendor/build/generated는 분석 대상에서 제외(프롬프트 정책).
 - AstAnalysisResult JSON으로 반환하라.
 """
 )
@@ -256,7 +252,7 @@ Agent(
 
 ```
 Agent(
-  subagent_type="source-code-analyzer",
+  subagent_type="test-autoevermation-harness-plugin:source-code-analyzer",
   prompt="""
 입력:
 {
@@ -271,7 +267,7 @@ Agent(
 - lspAvailable이 true이면 JDT LS를 추가 활용하라.
 - 외부 I/O(DB/HTTP/clock/random) testSeam을 식별하라.
 - DI 패턴, 트랜잭션 경계, 예외 흐름을 기록하라.
-- 대상 심볼 그래프만 탐색하라. vendor/build/generated read deny.
+- 대상 심볼 그래프만 탐색하라. vendor/build/generated는 분석 대상에서 제외(프롬프트 정책).
 - SourceAnalysisResult JSON으로 반환하라.
 """
 )
@@ -289,7 +285,7 @@ Agent(
 
 ```
 Agent(
-  subagent_type="refactor-advisor",
+  subagent_type="test-autoevermation-harness-plugin:refactor-advisor",
   prompt="""
 입력:
 {
@@ -332,7 +328,7 @@ Agent(
 
 ```
 Agent(
-  subagent_type="scenario-generator",
+  subagent_type="test-autoevermation-harness-plugin:scenario-generator",
   prompt="""
 입력:
 {
@@ -378,7 +374,7 @@ Agent(
 
 ```
 Agent(
-  subagent_type="test-code-generator",
+  subagent_type="test-autoevermation-harness-plugin:test-code-generator",
   prompt="""
 입력:
 {
@@ -415,14 +411,14 @@ Agent(
 - 시나리오 target 호출 자가 검증(필수 게이트): 각 파일 기록 후 parse_java_file의 methodCalls로 각 scNNN_ 메서드가
   시나리오 target(FQCN#method) 메서드를 실제 호출하는지 대조하라(unit 직접호출은 기계 대조 → "matched",
   slice는 when HTTP verb/경로 ↔ perform(...) 및 given stub 메서드명 대조 → "manual-verified").
-  불일치는 1회 자가 수정 후에도 불일치면 파일 제외(기록했다면 삭제) + warnings에 SCENARIO_TARGET_MISMATCH 기록.
+  불일치는 1회 자가 수정 후에도 불일치면 신규 실패 파일은 rejectedFiles[]로 반환하고 기존 파일은 작성자가 원본으로 복원 + warnings에 SCENARIO_TARGET_MISMATCH 기록.
   모든 files[] 항목에 targetCallCheck를 기록하라 — 필드 누락은 게이트 미수행이다.
 - TestGenResult JSON으로 반환하라(files[].testClass 필수 — 6단계 실행 스코프 입력).
 """
 )
 ```
 
-결과를 `genResult`로 저장. **파일 기록은 test-code-generator가 자가 검증 게이트(기록→parse→대조) 수행 과정에서 이미 완료했다 — 오케스트레이터가 `files[].content`로 다시 Write하지 않는다(이중 기록 금지, 소유권은 에이전트).** 오케스트레이터는 `files[]`의 `targetCallCheck`만 검사한다: 없거나 `"mismatch"`인 항목은 디스크에서 삭제·결과에서 제외하고 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다 — 필드 누락은 게이트 미수행으로 간주한다(별도 5.5단계 없이 이 필드 검사로 게이트를 강제한다). **역방향도 금지다: 오케스트레이터가 테스트 본문을 인라인 작성하는 것은 계약 위반** — 하네스 활성 세션의 `src/test/java` Write는 test-code-generator·coverage-closer·test-fixer·test-editor(`TEST_WRITE_AGENTS`)만 훅이 허용하고, 시나리오 승인(`04b_approval.json`) 이전 기록은 누구든 차단된다.
+결과를 `genResult`로 저장. **파일 기록은 test-code-generator가 자가 검증 게이트(기록→parse→대조) 수행 과정에서 이미 완료했다 — 오케스트레이터가 `files[].content`로 다시 Write하지 않는다(이중 기록 금지, 소유권은 에이전트).** 오케스트레이터는 `files[]`의 `targetCallCheck`만 검사한다: 없거나 `"mismatch"`인 항목은 결과에서 제외하고, 이번 실행에서 새로 생성한 파일임이 검증된 경우에만 메인 대화가 Bash로 해당 절대 경로 하나를 삭제한다. 기존 파일은 작성 에이전트가 원본으로 복원한다. 경로 범위·생성 전 존재 여부를 검증할 수 없으면 삭제하지 않고 중단하며 `warnings`(`SCENARIO_TARGET_MISMATCH`)로 보고한다 — 필드 누락은 게이트 미수행으로 간주한다(별도 5.5단계 없이 이 필드 검사로 게이트를 강제한다). **역방향도 금지다: 오케스트레이터가 테스트 본문을 인라인 작성하는 것은 계약 위반** — 하네스 활성 세션의 `src/test/java` Write는 test-code-generator·coverage-closer·test-fixer·test-editor(`TEST_WRITE_AGENTS`)만 훅이 허용하고, 시나리오 승인(`04b_approval.json`) 이전 기록은 누구든 차단된다.
 
 ---
 
@@ -430,12 +426,12 @@ Agent(
 
 ```
 Agent(
-  subagent_type="test-runner",
+  subagent_type="test-autoevermation-harness-plugin:test-runner",
   prompt="""
 입력:
 {
   "buildTool": <buildTool>,
-  "task": "미지정",
+  "task": <단위 test / 통합은 실제 구성된 Gradle task 또는 Maven verify>,
   "targetScope": { "classes": <genResult.files[].testClass>, "packages": [], "methods": [] },
   "projectRoot": <projectRoot>
 }
@@ -443,7 +439,7 @@ Agent(
 지시:
 - build-test-mcp의 detect_build_tool, list_test_tasks, run_targeted_tests, parse_junit_xml을 사용하라.
 - targetScope 클래스만 실행하라(Gradle: --tests, Maven: -Dtest=).
-- targetScope가 비면 test-runner가 `TARGET_SCOPE_UNSPECIFIED`를 반환한다 — 대화형은 AskUserQuestion("대상 지정 / 전체 실행")으로 확정 후 재호출, 비대화형은 중단(#8). 전체 task는 사용자가 전체 실행을 택했을 때만.
+- targetScope가 비면 TARGET_SCOPE_UNSPECIFIED와 nextActions만 반환하라. 자식은 질문하지 않는다. 메인 대화가 범위를 확정해 재호출하며, 명시적 전체 실행 승인은 test_patterns:["*"]로 전달한다.
 - JUnit XML 리포트를 우선 파싱하라.
 - 쉘 인자 escaping 필수. 실제 네트워크 호출 금지.
 - Write/Edit 도구 사용 금지.
@@ -460,13 +456,13 @@ Agent(
 
 ### 7단계: 조건부 — repair-tests (실패 시에만)
 
-`runResult.failed`가 비어 있으면 7단계를 건너뛴다.
+`runResult.status=="ok"`, `exitCode==0`, `timedOut==false`, `passed>0`, `failed=[]`가 모두 충족될 때만 7단계를 건너뛴다. 컴파일·기동·보고서 실패는 failed[]가 비어도 실패 처리한다.
 
 `retryCount = 0`부터 시작해 **그린이 될 때까지** 반복한다 — `maxRepairRetries`는 진전 추적 단위일 뿐 고정 상한이 아니다(fallback-policy.md #12).
 
 ```
 Agent(
-  subagent_type="test-fixer",
+  subagent_type="test-autoevermation-harness-plugin:test-fixer",
   prompt="""
 입력:
 {
@@ -511,7 +507,7 @@ Agent(
   "root": <projectRoot>,
   "coverage": <HarnessConfig.coverage (임계값 4종 + excludes)>,
   "maxIterations": <HarnessConfig.coverageMaxIterations>,
-  "targetScope": <HarnessConfig.targets + targetModules 매핑>,
+  "targetScope": <HarnessConfig.targets; 모듈명은 섞지 않고 모듈별 root로 별도 적용>,
   "springProfile": <springProfile>,
   "junitPolicy": <junitPolicy>,
   "stylePolicy": <stylePolicy>,
@@ -539,7 +535,7 @@ Agent(
 
 ```
 Agent(
-  subagent_type="scenario-conformance-verifier",
+  subagent_type="test-autoevermation-harness-plugin:scenario-conformance-verifier",
   prompt="""
 입력:
 {
@@ -668,7 +664,7 @@ round = 1..3 (하드 캡):
     "test_docs/refactoring/RA-001.md"
   ],
   "reportPaths": [
-    "build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"
+    "/example/project/build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"
   ],
   "buildChanges": [],
   "warnings": [],
@@ -738,7 +734,7 @@ Markdown 보고서는 아래 구조로 출력한다.
 | 4.5단계 전체 제외 | 승인된 시나리오가 0건이면 `status: "partial"` + "승인된 시나리오 없음" 보고 후 중단 |
 | 5단계 `files` 비어 있음 | `status: "failed"` 반환 |
 | 5단계 target 호출 게이트 | `targetCallCheck` 누락 또는 `"mismatch"` 파일은 Write 금지 + `warnings`(`SCENARIO_TARGET_MISMATCH`) 보고. 전 파일 mismatch면 `status: "failed"` |
-| 6단계 `BUILD_TOOL_UNDETECTED` (#5) | 대화형=`AskUserQuestion("gradle/maven?")` 후 진행 / CI=`status:"failed"` |
+| 6단계 `BUILD_TOOL_UNDETECTED` (#5) | 대화형=`AskUserQuestion으로 “gradle/maven?” 질문` 후 진행 / CI=`status:"failed"` |
 | 0.6단계 빌드 능력 미비 (#17) | JaCoCo XML을 검사하고, 누락 시 대화형은 변경안 승인 후 최소 주입·재감지한다. CI는 remediation과 함께 중단한다 |
 | 0.6단계 콜드 캐시 (#18) | `primed:false` → 대화형=승인 후 6단계 1회 `online=True` 프라이밍 / CI=`BUILD_TEST_ALLOW_NETWORK=1` 옵트인·워밍업 안내 |
 | 7단계 보정 루프 (#12) | **그린 될 때까지 재시도**(진전 있는 한 계속). 동일 실패 시그니처 **3회 연속(무진전)**이면 `partial`로 잔여 전량 보고 후 종료 |
@@ -749,5 +745,5 @@ Markdown 보고서는 아래 구조로 출력한다.
 
 MCP 필수 경로: 모든 단계에서 MCP 도구(repo-ast·spec-doc·build-test)는 **필수 경로**다 — 미가용·호출 실패·`degraded:true`/`JAVAPARSER_REQUIRED` 응답 시 대체하지 말고 중단한다(fallback-policy.md #20/#2, Grep/Read/직접 파싱 대체 금지).
 
-보안: 각 단계 subagent의 권한 모델은 **해당 에이전트 자신의 frontmatter `tools:` 목록**(`agents/*.md`)으로 정의된다(필요 시 `disallowedTools`로 추가 제한). 쉘 인자 escaping, 네트워크 기본 차단, redaction 필수.
+보안: 각 단계 subagent의 권한 모델은 **해당 에이전트 자신의 frontmatter `tools:` 목록**(`agents/*.md`)으로 정의된다(필요 시 `disallowedTools`로 추가 제한). 쉘 인자 escaping, 기본 의존성 오프라인 실행, 외부 I/O 없는 테스트 작성 정책, redaction 필수. 오프라인 옵션은 OS 네트워크 격리를 제공하지 않는다.
 성능: 1·2단계 병렬. 이후 단계는 순차. 대형 저장소는 targets로 스코프를 좁혀 AST 파싱 비용 절감. context 절약을 위해 각 단계 결과는 JSON summary만 메인에 환원.

@@ -30,9 +30,8 @@ TAM이 top-level `statusLine`을 **소유**하고 기존 커맨드(예: OMC HUD)
 
 ## 플러그인 루트 확인 (모든 절차 공통)
 
-- `~/.claude/plugins/installed_plugins.json`에서 `test-autoevermation-harness-plugin@`으로 시작하는 키의
-  `installPath`를 `${CLAUDE_PLUGIN_ROOT}`로 취한다. 미등록(로컬 dev)이면 이 SKILL.md가 로드된 경로의 2단계 상위.
-- **주의**: Bash에서 `${CLAUDE_PLUGIN_ROOT}`에 의존하지 않는다 — 훅/MCP 프로세스에만 주입되는 변수다.
+- 공식 스킬 본문의 `${CLAUDE_PLUGIN_ROOT}` 치환값을 사용한다. 내부 installed_plugins.json 파일을 경로 API로 사용하지 않는다. 치환되지 않은 수동 개발 문맥에서는 이 SKILL.md의 실제 위치에서 플러그인 루트를 계산한다.
+- 치환은 스킬 로딩 시 수행된다. Bash 환경변수에 값이 들어 있다고 가정하지 않으며, 해석된 절대 경로를 따옴표로 감싼다.
 - 아래 명령의 정본 진입점은 `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/statusline-autosetup.py"`
   이다(크로스플랫폼 — launch.cjs가 파이썬을 해석). 이를 `<AUTOSETUP>`으로 줄여 표기한다.
 
@@ -85,8 +84,8 @@ echo '{"workspace":{"current_dir":"'$PWD'"}}' | node "${CLAUDE_CONFIG_DIR:-$HOME
 
 > **참고 — 플러그인 uninstall 시 자동 원복.** Claude Code에는 uninstall 훅이 없어 `/plugin uninstall`이
 > 전역 `settings.json` 수정을 되돌리지 못한다. 이를 위해 전역 wrapper 사본이 렌더마다 플러그인 설치
-> 여부를 확인해, 사라졌으면 스스로 위와 동일한 원복(self-heal)을 1회 수행한다 → uninstall 후 재시작 시
-> 첫 상태줄 렌더에서 자동 복구된다. 위 `--uninstall`은 플러그인을 지우기 전에 **즉시** 원복하고 싶을 때 쓴다.
+> 여부를 확인해, 저장된 설치 경로의 manifest가 사라졌으면 원복(self-heal)을 1회 수행한다.
+> uninstall 후 캐시가 남아 있으면 감지할 수 없다. 위 `--uninstall`은 플러그인을 지우기 전에 **즉시** 원복하고 싶을 때 쓴다.
 
 ---
 
@@ -114,3 +113,5 @@ echo '{"workspace":{"current_dir":"'$PWD'"}}' | node "${CLAUDE_CONFIG_DIR:-$HOME
   `_workspace/_resume.json`(`{schemaVersion: 2, entryStage, entryLabel, ts}`, 규약 SSOT: orchestration-detail.md §2-1)을 남긴다.
   상태줄은 이를 읽어 표시 단계를 재진입 지점으로 clamp하고 `↩ resumed @ <단계>`로 표기한다 — 재개 지점보다
   뒤의 stale 산출물이 있어도 과대표시하지 않는다. `pipeline_result.json`이 있더라도 `schemaVersion:2`, `summary`, `verifyScenarios`와 09 적합성 totals를 검증한 정상 결과(또는 9단계 전 명시적 `skipped|blocked` 조기 종료)만 `100% | done`으로 표시한다.
+
+상태줄 설치 경로와 버전은 공식 SessionStart 훅이 실행된 플러그인 루트로 갱신한다. 비공개 설치 레지스트리는 읽지 않는다. 자동 원복은 해당 경로의 manifest가 사라진 뒤 동작한다. 제거 후 캐시가 남아 있으면 감지할 수 없으므로, 즉시 원복하려면 제거 전에 `setup-statusline`에서 제거를 요청한다.

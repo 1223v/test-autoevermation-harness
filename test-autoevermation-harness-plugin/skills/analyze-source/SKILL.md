@@ -46,7 +46,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 | `targetSymbols` | `string[]` | 아니오 | `[]` → `analyze-ast.testTargets[].fqcn` 사용 | 분석 대상 FQCN 목록 |
 | `buildMetadata` | `object` | 아니오 | `{}` → auto-detect | 빌드 도구, Java 버전 등 메타 |
 | `astResult` | `AstAnalysisResult` | 아니오 | `null` | 이전 단계 AST 결과(있으면 재파싱 생략) |
-| `lspAvailable` | `boolean` | 예 (사실상) | E7 통과값(항상 `true`) | JDT LS 연결 여부 — `false`면 진행 금지, 즉시 중단(fallback-policy #3; 정상 경로에선 `setup-harness` E7이 보장) |
+| `lspAvailable` | `boolean` | 예 (사실상) | 현재 세션의 실제 LSP 조회 검증값 | JDT LS 연결 여부 — `false`면 진행 금지, 즉시 중단(fallback-policy #3; 정상 경로에선 `setup-harness` E7이 보장) |
 
 `targetSymbols`가 비어 있고 `astResult`도 없으면 `status: "partial"`을 즉시 반환하고 `analyze-ast` 선행 실행을 안내한다.
 
@@ -62,7 +62,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 
    ```
    Agent(
-     subagent_type="source-code-analyzer",
+     subagent_type="test-autoevermation-harness-plugin:source-code-analyzer",
      prompt="""
    다음 입력으로 동작 관점 분석을 수행하라.
 
@@ -80,7 +80,7 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
    - 각 대상의 외부 의존(DB/HTTP/clock/random)을 식별해 testSeams에 기록하라.
    - 동작 흐름과 예외 경로(checked/unchecked exception, 롤백 조건)를 분리해 기술하라.
    - DI 패턴(@Autowired, 생성자 주입, @Value)과 트랜잭션 경계(@Transactional)를 명시하라.
-   - 대상 심볼 그래프만 탐색하라. vendor/build/generated read deny.
+   - 대상 심볼 그래프만 탐색하라. vendor/build/generated는 분석 대상에서 제외(프롬프트 정책).
    - 결과를 아래 JSON 스키마에 맞게 반환하라.
 
    출력 스키마:
@@ -165,5 +165,5 @@ description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, 
 | `targetSymbols` 미제공 + `astResult` 없음 | — | `status: "partial"`, `analyze-ast` 선행 실행 안내 |
 | subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
-보안: read-only. 대상 심볼 그래프만 탐색. vendor/build/generated read deny.
+보안: read-only. 대상 심볼 그래프만 탐색. vendor/build/generated는 분석 대상에서 제외(프롬프트 정책).
 성능: `astResult` 재사용으로 이중 파싱 방지. JDT LS와 AST 역할 분리로 중복 비용 방지.

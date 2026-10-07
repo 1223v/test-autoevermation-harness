@@ -79,7 +79,7 @@ description: 테스트 실패 원인을 유형별로 분류하고 최소 diff �
 
    ```
    Agent(
-     subagent_type="test-fixer",
+     subagent_type="test-autoevermation-harness-plugin:test-fixer",
      prompt="""
    다음 실패 결과를 분석하고 최소 diff로 수정하라.
 
@@ -149,7 +149,7 @@ description: 테스트 실패 원인을 유형별로 분류하고 최소 diff �
   "patches": [
     {
       "path": "src/test/java/com/example/order/OrderServiceTest.java",
-      "diff": "@@ -45,6 +45,7 @@\n+        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));\n"
+      "diff": "@@ -45,6 +45,7 @@\n+        given(orderRepository.findById(1L)).willReturn(Optional.of(order));\n"
     }
   ],
   "rerunTargets": ["com.example.order.OrderServiceTest"],

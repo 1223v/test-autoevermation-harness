@@ -61,7 +61,7 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
 
    ```
    Agent(
-     subagent_type="spec-reviewer",
+     subagent_type="test-autoevermation-harness-plugin:spec-reviewer",
      prompt="""
    다음 스펙 문서를 처리하라.
 
@@ -144,8 +144,8 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
 
 | 오류 코드 | 발생 조건 | 처리 방식 |
 |---|---|---|
-| `SPEC_DOC_UNREADABLE` | 일부 문서 읽기 불가(권한·암호화 PDF 등) | 에이전트는 `status:"partial"` + `errors`에 실패 경로만 신호로 반환한다(서브에이전트는 질문 불가). **호출자(이 스킬/full-pipeline, 메인 대화)**가 대화형이면 `AskUserQuestion("읽을 수 있는 나머지로 계속 / 중단")`으로 확정하고, 비대화형이면 `status:"failed"` + remediation으로 중단한다(fallback-policy #10) |
-| 문서 경로 미지정 | `docPaths` 비어 있음 | `status: "failed"`, `nextActions`에 경로 지정 안내 |
+| `SPEC_DOC_UNREADABLE` | 일부 문서 읽기 불가(권한·미지원 형식 등) | 에이전트는 `status:"partial"` + `errors`에 실패 경로만 신호로 반환한다(서브에이전트는 질문 불가). **호출자(이 스킬/full-pipeline, 메인 대화)**가 대화형이면 `AskUserQuestion으로 “읽을 수 있는 나머지로 계속 / 중단” 질문`으로 확정하고, 비대화형이면 `status:"failed"` + remediation으로 중단한다(fallback-policy #10) |
+| 문서 경로 미지정 | `specDocPaths` 비어 있음 | 메인 대화에서 스펙 없이 진행을 명시적으로 선택했으면 partial과 빈 criteria; 미확정/입력 불가이면 failed + 경로 지정 안내 |
 | `ALLOWLIST_VIOLATION` | 경로가 프로젝트 루트 밖 | 해당 경로 건너뜀 + `warnings` 기록 |
 | subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록, 수동 처리 안내 |
 

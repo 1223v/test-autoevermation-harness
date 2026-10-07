@@ -113,8 +113,8 @@ ln -s "$(pwd)/test-autoevermation-harness-plugin" ~/.claude/plugins/test-autoeve
   이후 세션부터 자동으로 유지된다(모든 세션에 표시; 파이프라인 없는 프로젝트에선 버전만).
   기존 상태줄(예: OMC HUD)은 delegate로 보존되어 계속 실행되고, 다른 도구가 상태줄을
   되가져가도 다음 세션 시작에 자동으로 재점유한다.
-- **자동 제거**: 플러그인을 uninstall하면, 재시작 후 첫 상태줄 렌더에서 원래 상태줄로 자동
-  원복된다(Claude Code에 uninstall 훅이 없어 전역 사본이 스스로 정리하는 방식).
+- **자동 제거**: 저장된 플러그인 경로의 manifest가 사라지면 다음 상태줄 렌더에서 원래 상태줄로
+  원복된다. uninstall 후 캐시가 남으면 감지할 수 없다(Claude Code에 uninstall 훅이 없어 전역 사본이 스스로 정리하는 방식).
 - **끄기**: 자동 설치를 원치 않으면 최초 확인에서 "설치 안 함"을 고르거나, 환경변수
   `TAM_STATUSLINE_AUTO=0`으로 비활성화한다. 이미 설치했다면
   `/test-autoevermation-harness-plugin:setup-statusline`에 "제거"를 요청해 즉시 원복할 수 있다.
@@ -261,9 +261,9 @@ plugin-shipped subagent는 `hooks`/`mcpServers`/`permissionMode` frontmatter를 
 
 ---
 
-## MCP 서버 (3종, Python FastMCP)
+## MCP 서버 (3종, Python MCPServer)
 
-공식 MCP Python SDK(FastMCP) 기반 stdio 서버. 구현체는 `mcp/`에 있다.
+공식 MCP Python SDK(MCPServer) 기반 stdio 서버. 구현체는 `mcp/`에 있다.
 
 | MCP 서버 | 구현 | 주요 도구 |
 |---|---|---|
@@ -284,7 +284,7 @@ v0.16.0부터 **필수**다 — 미설치 시 `scripts/setup_jdtls.py`가 자동
 
 ```bash
 # 1) Python 의존성 — 자동 (Python 3.10+만 있으면 됨). 수동 폴백이 필요할 때만:
-python3 -m pip install -r mcp/requirements.txt        # mcp[cli]>=1.2.0
+python3 -m pip install -r mcp/requirements.txt        # mcp[cli]>=2.2,<3
 
 # 2) JavaParser AST 백엔드 빌드 (필수, v0.16.0+)  ── setup-harness·E6이 자동 수행
 #    jar가 없으면 대체 경로 없이 하드실패한다(v0.31.0에서 정규식 fallback 삭제).
@@ -403,7 +403,7 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"   # 다�
 | JDT LS (필수, v0.16.0+) | 최신 | Java 21+ runtime | `plugin.json` `lspServers`→`.lsp.json`(node 경유 `mcp/jdtls-launcher.cjs`) 등록, 미설치 시 `scripts/setup_jdtls.py` 자동 설치·실패 시 하드 중단 |
 | JaCoCo | 0.8.12 | — | line/branch/method/class 게이트 |
 | JavaParser | symbol-solver 3.28.2 | — | `mcp/javaparser-cli` |
-| MCP Python SDK | `mcp[cli]` | Python 3.10+ | FastMCP, stdio |
+| MCP Python SDK | `mcp[cli]` | Python 3.10+ | MCPServer, stdio |
 
 JUnit 버전 정책 상세(`jupiter-style` vs `strict-5x`)는 [CHANGELOG.md](./CHANGELOG.md)의 "JUnit 버전 정책 — BOM 기본값과의 편차 명시" 절 참조.
 
@@ -447,3 +447,5 @@ URL path/HTTP method가 `@AliasFor`에 숨으므로 `riskPoints`로 표시되어
 
 동작 원리·아키텍처·사용법 종합 가이드는 [docs/GUIDE.md](./docs/GUIDE.md),
 핀 고정된 버전·API는 [RESEARCH_NOTES.md](./RESEARCH_NOTES.md)를 참조한다.
+
+상태줄 설치 경로와 버전은 공식 SessionStart 훅이 실행된 플러그인 루트로 갱신한다. 비공개 설치 레지스트리는 읽지 않는다. 자동 원복은 해당 경로의 manifest가 사라진 뒤 동작한다. 제거 후 캐시가 남아 있으면 감지할 수 없으므로, 즉시 원복하려면 제거 전에 `setup-statusline`에서 제거를 요청한다.

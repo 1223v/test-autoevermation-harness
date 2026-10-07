@@ -204,4 +204,4 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 
 - **읽기 전용**: `Write`, `Edit`, `Bash` 도구 사용 불가(frontmatter `disallowedTools` 선언).
 - **경로 allowlist**: `projectRoot` 내부 경로만 허용. 외부 참조·symlink 거부.
 - **코드 본문 유출 금지**: MCP tool 응답에서 소스 코드 본문을 그대로 출력 결과에 포함하지 않음.
-- **read deny**: `generated/`, `vendor/`, `build/`, `target/`, `.env`, `*.secret` 경로는 파싱 제외.
+- **분석 대상 제외(프롬프트 정책)**: `generated/`, `vendor/`, `build/`, `target/`, `.env`, `*.secret` 경로는 파싱 제외.

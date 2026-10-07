@@ -9,7 +9,7 @@ description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행�
 
 **선행 조건 — 환경 세팅은 이 스킬의 일이 아니다(v0.25.0)**: 환경 세팅(Phase E E1~E10 + 상태줄)의 수행 주체는 [`setup-harness`](../setup-harness/SKILL.md) 스킬이다. 이 스킬은 **어떤 항목도 세팅하지 않고**, 시작 시 **E-verify 검증 프로브**([references/environment-setup.md](../../references/environment-setup.md) 「E-verify 검증 프로브」, SSOT)만 실행해 세팅 완료 여부를 확인한다 — 미충족이면 `status:"failed"`로 **하드 중단**하고 `setup-harness` 실행을 안내한다(자동 세팅·자동 위임 없음).
 
-**Fallback 정책 준수(필수)**: 런타임 의사결정은 [references/fallback-policy.md](../../references/fallback-policy.md)(SSOT)를 따른다. 미충족 조건(역량 미설치, 버전 미감지, 미지정 입력, 프로파일 충돌)은 **침묵 fallback·임의 기본값 없이** 처리한다 — **대화형은 `AskUserQuestion`으로 질문/함께 세팅**, **비대화형/CI는 결정적 항목 자동 세팅·그 외 하드 중단(remediation 안내)**.
+**Fallback 정책 준수(필수)**: 런타임 의사결정은 [references/fallback-policy.md](../../references/fallback-policy.md)(SSOT)를 따른다. 미충족 조건(역량 미설치, 버전 미감지, 미지정 입력, 프로파일 충돌)은 **침묵 fallback·임의 기본값 없이** 처리한다 — **데이터 결정은 메인 대화에서 질문하고, E-verify 환경 미충족은 대화형·CI 모두 하드 중단한다**. 결정적 환경 설치는 setup-harness 소관이다.
 
 **인터랙티브 CLI 전용 주의**: `AskUserQuestion`은 대화형 세션에서만 호출할 수 있다(판정 규칙은 아래 「인터랙티브 모드 감지」). 비대화형에서는 인터뷰를 건너뛰되, **필수 항목이 `HarnessRequest`에 없으면 `status:"failed"` + remediation으로 중단**한다 — 필수 항목을 임의 기본값으로 채우는 동작은 없다(문서화된 기본값이 있는 커버리지 임계값·제외 패턴만 기본값 사용). 사용자는 `HarnessRequest`에 값을 미리 채워 중단을 피한다.
 
@@ -40,21 +40,23 @@ description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행�
 
 ## 인터랙티브 모드 감지
 
-**비대화형(CI) 모드** — 인터뷰를 건너뛰고 `HarnessRequest` 값만으로 HarnessConfig를 만들며, 필수 항목이 비면 하드 중단한다(fallback-policy #13). 비대화형은 다음 중 하나로 판정한다(공식 근거: [Sub-agents](https://code.claude.com/docs/en/sub-agents) — 서브에이전트에서 `AskUserQuestion` 제거, [headless](https://code.claude.com/docs/en/headless) — `dontAsk`·`--permission-prompts none`에서 거부/제거, [Hooks](https://code.claude.com/docs/en/hooks) — plain `claude -p`에서는 도구가 있어도 호출이 차단됨. 환경변수나 `-p` 플래그 자체는 모델이 관측할 수 없다):
+**질문 경로**: 메인 대화가 현재 도구 목록과 호스트가 제공한 실행 모드를 확인한다. 명시적 `skipInterview:true` 또는 사용자 입력 호스트 없는 비대화형 실행에서는 요청값만 사용한다. 도구 목록에 `AskUserQuestion`이 **없는** 경우 호출하지 않는다. 가용성을 시험하려는 질문을 보내지 않는다. 실제 질문 거부·무응답은 승인 부재이며, CI 자동 승인으로 바꾸지 않고 중단한다. SDK `canUseTool` 입력 호스트는 공식 사용자 입력 경로로 처리한다([공식 문서](https://code.claude.com/docs/en/agent-sdk/user-input)).
 
-1. `HarnessRequest.skipInterview: true`가 명시된 경우
-2. 현재 세션의 도구 목록에 `AskUserQuestion`이 **없는** 경우(서브에이전트, `--permission-prompts none`)
-3. 도구는 있으나 **첫 `AskUserQuestion` 호출이 차단·거부**된 경우(plain `claude -p`는 차단, `dontAsk`는 거부) — 이후 다시 묻지 않고 비대화형 규칙을 적용한다
+아래 질문 예시는 **AskUserQuestion에 전달할 JSON 인자**다. 선택지의 직접 입력은 도구가 제공하는 자유 입력으로 받으며, Enter/취소를 동의로 해석하지 않는다.
 
 **인터뷰 생략(비대화형과 별개)** — `schemaVersion:2`인 `_workspace/00_config-harness.json`(HarnessConfig)이 있어 재사용하는 경우 인터뷰를 재수행하지 않는다. 버전이 없거나 2가 아니면 구 설정으로 보고 재생성한다.
 
 > **재사용해도 0.5단계는 건너뛰지 않는다.** 인터뷰만 생략할 뿐 Spring 프로파일은 **항상 재감지**한다(아래 0단계). 빌드 파일이 config보다 새로우면(`detect_pipeline_state`의 `staleness.buildFileNewerThanConfig:true`) 캐시된 `springProfile`은 신뢰할 수 없다 — Boot 2→3 업그레이드 하나로 javax↔jakarta·junit4↔jupiter·`@MockBean`↔`@MockitoBean`이 전부 뒤집히므로, 그 값으로 생성하면 컴파일되지 않거나 잘못된 관용구의 테스트가 나온다. 재감지 결과가 캐시와 다르면 `warnings`에 기록하고 새 값을 채택한다.
 
-비대화형 모드에서는 아래 단계별 절차 중 인터뷰 단계(1~3)를 건너뛰고 바로 "HarnessConfig 생성" 단계로 이동한다. 이때 인터뷰가 채웠어야 할 **필수 항목**(`projectRoot`·`buildTool`·`springVersion`·`javaVersion` 등 #13 대상)이 `HarnessRequest`에 없으면 `status:"failed"` + `INTERVIEW_REQUIRED` + remediation으로 중단한다. 문서화된 기본값이 있는 항목(커버리지 임계값·제외 패턴)만 기본값을 쓴다.
+비대화형에서도 입력 확정·Preflight·0.5·0.6단계를 모두 수행한 뒤 인터뷰(1~3)만 생략한다. 이때 인터뷰가 채웠어야 할 **필수 항목**(`projectRoot`·`buildTool`·`springVersion`·`javaVersion` 등 #13 대상)이 `HarnessRequest`에 없으면 `status:"failed"` + `INTERVIEW_REQUIRED` + remediation으로 중단한다. 문서화된 기본값이 있는 항목(커버리지 임계값·제외 패턴)만 기본값을 쓴다.
 
 ---
 
 ## 단계별 절차
+
+### 입력 확정 (프로브보다 먼저)
+
+먼저 projectRoot를 요청/유효한 기존 설정에서 확정한다. 미지정이면 메인 대화가 질문하고, 입력 불가 모드면 INTERVIEW_REQUIRED로 중단한다. 확정된 절대 경로만 프로브에 전달한다. buildTool/javaVersion 미지정도 같은 정책으로 후보를 확인해 확정한다. Spring 버전은 0.5단계에서 실제 감지하되 충돌·미감지는 질문/중단한다. 기본값을 허용한 coverage 등만 기본값을 사용한다.
 
 ### Preflight 단계: 세팅 검증 게이트 (E-verify) — *검증만 한다, 세팅하지 않는다*
 
@@ -75,9 +77,9 @@ description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행�
 먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요
 ```
 
-**금지 사항**: 프로브 실패를 스스로 고치지 않는다 — `--ensure-only`·`./mvnw package`·`setup_jdtls.py`(설치 모드) 실행 금지, `setup-harness` 자동 위임 금지, 정규식·AST-only degrade 금지. **세팅은 사용자가 명시적으로 `setup-harness`를 실행할 때만 일어난다.**
+**금지 사항**: 프로브 실패를 스스로 고치지 않는다 — `--ensure-only`·`./mvnw package`·`setup_jdtls.py`(설치 모드) 실행 금지, `setup-harness` 자동 위임 금지, 정규식·AST-only degrade 금지. **프로젝트 환경 세팅은 setup-harness에서 수행한다. SessionStart의 Python/MCP 자동 부트스트랩은 별도의 플러그인 기동 절차다.**
 
-> **`lspAvailable`은 항상 `true`다** — E7(JDT LS)은 `setup-harness`의 필수 항목이고 E-verify 프로브가 이를 재확인하므로, `lspAvailable:false` 상태로 0단계에 진입하는 경로가 없다(근거: [setup-harness](../setup-harness/SKILL.md) E3b/E7 절). 아래 `HarnessConfig` 출력 예시의 `lspAvailable:true`는 이 전제의 결과다.
+> **LSP 검증**: 바이너리·설정 존재는 연결 증거가 아니다. 현재 세션의 공식 LSP 도구로 대상 Java 파일의 documentSymbol 조회를 성공시킨 뒤에만 lspAvailable:true와 조회 파일·operation을 evidence에 기록한다. 도구/연결 미가용이면 JDT_LS_UNAVAILABLE로 중단한다.
 
 ### 0단계: 모드 판별
 
@@ -100,19 +102,53 @@ build-test-mcp.detect_spring_profile(root=projectRoot)
   - 대화형: 아래로 질문하고, 사용자가 선택하지 않으면 **중단**.
 
 ```
-AskUserQuestion(
-  question="대상 프로젝트의 Spring Boot 메이저 버전을 선택하세요. (빌드 파일에서 자동 감지하지 못했습니다)",
-  options=["2.x (javax, Java 8)", "3.x (jakarta, Java 17)", "4.x (jakarta, 최신)"]
-)
+{
+  "questions": [
+    {
+      "question": "대상 프로젝트의 정확한 Spring Boot 버전(예: 3.3.13 또는 3.4.5)을 자유 입력하세요. (빌드 파일에서 자동 감지하지 못했습니다)",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "정확한 버전 직접 입력",
+          "description": "정확한 버전 직접 입력"
+        },
+        {
+          "label": "빌드 파일 확인 후 재시도",
+          "description": "빌드 파일 확인 후 재시도"
+        },
+        {
+          "label": "중단",
+          "description": "중단"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
-  2.x 선택 시 JUnit 엔진을 후속 질문으로 확정(2.0–2.1 기본 JUnit4):
+  정확한 버전으로 매트릭스를 적용하고 필요한 경우 JUnit 엔진을 후속 질문으로 확정(2.0–2.1 기본 JUnit4):
 
 ```
-AskUserQuestion(
-  question="이 프로젝트의 테스트는 어떤 JUnit을 사용하나요?",
-  options=["JUnit 5 (Jupiter, @Test/@DisplayName)", "JUnit 4 (@RunWith(SpringRunner.class)/org.junit.Test)"]
-)
+{
+  "questions": [
+    {
+      "question": "이 프로젝트의 테스트는 어떤 JUnit을 사용하나요?",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "JUnit 5 (Jupiter, @Test/@DisplayName)",
+          "description": "JUnit 5 (Jupiter, @Test/@DisplayName)"
+        },
+        {
+          "label": "JUnit 4 (@RunWith(SpringRunner.class)/org.junit.Test)",
+          "description": "JUnit 4 (@RunWith(SpringRunner.class)/org.junit.Test)"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
   선택 결과로 `springProfile` 구성(2.x→`javax/MockBean/Java8`; 3.0–3.3→`MockBean`; 3.4+/4.x→`MockitoBean/jakarta/Java17`; import·게이트는 version-compatibility.md).
@@ -122,10 +158,25 @@ AskUserQuestion(
   - 대화형: 각 충돌(namespace/junitEngine)에 대해 어느 쪽을 따를지 질문 후 확정.
 
 ```
-AskUserQuestion(
-  question="감지 충돌: namespace가 빌드파일=<buildFileValue> vs 소스=<sourceValue> 입니다. 어느 것을 사용할까요?",
-  options=["빌드파일 값(<buildFileValue>)", "소스 값(<sourceValue>)"]
-)
+{
+  "questions": [
+    {
+      "question": "감지 충돌: namespace가 빌드파일=<buildFileValue> vs 소스=<sourceValue> 입니다. 어느 것을 사용할까요?",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "빌드파일 값(<buildFileValue>)",
+          "description": "빌드파일 값(<buildFileValue>)"
+        },
+        {
+          "label": "소스 값(<sourceValue>)",
+          "description": "소스 값(<sourceValue>)"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
   - CI: `status:"failed"`, `errors`에 `PROFILE_CONFLICT` + 충돌 내용. 중단.
@@ -154,10 +205,25 @@ build-test-mcp.check_dependency_cache(build_tool=buildTool, root=projectRoot) �
 ```
 - **대화형**: `primed:false`이거나 방금 (a)에서 플러그인을 주입했다면 →
 ```
-AskUserQuestion(
-  question="의존성/플러그인을 1회 온라인으로 받아올까요? (이후 실행은 오프라인 유지)",
-  options=["예 — 1회 온라인 프라이밍", "아니오 — 오프라인 진행(실패 위험)"]
-)
+{
+  "questions": [
+    {
+      "question": "의존성/플러그인을 1회 온라인으로 받아올까요? (이후 실행은 오프라인 유지)",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "예 — 1회 온라인 프라이밍",
+          "description": "예 — 1회 온라인 프라이밍"
+        },
+        {
+          "label": "아니오 — 오프라인 진행(실패 위험)",
+          "description": "아니오 — 오프라인 진행(실패 위험)"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
   "예"면 6단계 첫 실행을 `run_targeted_tests(online=True)`로 1회 수행(또는 Maven `mvn dependency:go-offline`), 이후는 오프라인. "아니오"면 오프라인 그대로 진행하고 실패 시 #18대로 보고한다.
 - **CI**: 자동 온라인 전환 금지 — `BUILD_TEST_ALLOW_NETWORK=1` 옵트인 또는 사전 캐시 워밍업을 안내. 미충족이면 첫 실행 실패를 `partial`로 보고.
@@ -169,10 +235,25 @@ AskUserQuestion(
 ### 1단계: 인터뷰 항목 (a) — 스펙 문서 경로
 
 ```
-AskUserQuestion(
-  question="테스트 생성에 참고할 스펙 문서 경로가 있으면 입력하세요 (없으면 Enter로 건너뜁니다).\n예: docs/api-spec.md, requirements/order-spec.pdf",
-  options=["경로 직접 입력", "건너뜀 (스펙 없이 진행)"]
-)
+{
+  "questions": [
+    {
+      "question": "테스트 생성에 참고할 스펙 문서 경로가 있으면 입력하세요 (없으면 Enter로 건너뜁니다).\n예: docs/api-spec.md, requirements/order-spec.md",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "경로 직접 입력",
+          "description": "경로 직접 입력"
+        },
+        {
+          "label": "건너뜀 (스펙 없이 진행)",
+          "description": "건너뜀 (스펙 없이 진행)"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
 - 입력값을 `specDocPaths[]`에 추가한다.
@@ -184,10 +265,25 @@ AskUserQuestion(
 ### 2단계: 인터뷰 항목 (b) — 테스트 생성 대상
 
 ```
-AskUserQuestion(
-  question="테스트를 생성할 대상을 지정하세요. 패키지, 클래스 FQCN, 또는 모듈명을 입력할 수 있습니다 (없으면 자동 탐지).\n예: com.example.order, com.example.payment.PaymentService",
-  options=["직접 입력", "자동 탐지 (전체 Spring 컴포넌트 스캔)"]
-)
+{
+  "questions": [
+    {
+      "question": "테스트를 생성할 대상을 지정하세요. 패키지, 클래스 FQCN, 또는 모듈명을 입력할 수 있습니다 (없으면 자동 탐지).\n예: com.example.order, com.example.payment.PaymentService",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "직접 입력",
+          "description": "직접 입력"
+        },
+        {
+          "label": "자동 탐지 (전체 Spring 컴포넌트 스캔)",
+          "description": "자동 탐지 (전체 Spring 컴포넌트 스캔)"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
 - 입력값을 `targets[]`에 추가한다.
@@ -195,10 +291,25 @@ AskUserQuestion(
 - 멀티 모듈 프로젝트의 경우 모듈명을 입력받아 `targetModules[]`에 추가.
 
 ```
-AskUserQuestion(
-  question="멀티 모듈 프로젝트라면 대상 모듈명을 입력하세요 (단일 모듈이면 건너뜁니다).\n예: order-service, payment-service",
-  options=["모듈명 입력", "단일 모듈 / 건너뜀"]
-)
+{
+  "questions": [
+    {
+      "question": "멀티 모듈 프로젝트라면 대상 모듈명을 입력하세요 (단일 모듈이면 건너뜁니다).\n예: order-service, payment-service",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "모듈명 입력",
+          "description": "모듈명 입력"
+        },
+        {
+          "label": "단일 모듈 / 건너뜀",
+          "description": "단일 모듈 / 건너뜀"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
 ---
@@ -206,43 +317,108 @@ AskUserQuestion(
 ### 3단계: 인터뷰 항목 (c) — 커버리지 임계값 + 제외 규칙
 
 ```
-AskUserQuestion(
-  question="커버리지 게이트 임계값을 설정하세요.",
-  options=[
-    "기본값 사용 (LINE=0.95, BRANCH=0.90, METHOD=0.95, CLASS=1.00)",
-    "직접 지정"
+{
+  "questions": [
+    {
+      "question": "커버리지 게이트 임계값을 설정하세요.",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "기본값 사용 (LINE=0.95, BRANCH=0.90, METHOD=0.95, CLASS=1.00)",
+          "description": "기본값 사용 (LINE=0.95, BRANCH=0.90, METHOD=0.95, CLASS=1.00)"
+        },
+        {
+          "label": "직접 지정",
+          "description": "직접 지정"
+        }
+      ],
+      "multiSelect": false
+    }
   ]
-)
+}
 ```
 
 "직접 지정" 선택 시 각 카운터별 추가 질문:
 
 ```
-AskUserQuestion(
-  question="LINE 커버리지 목표를 입력하세요 (기본: 0.95)",
-  options=["0.95", "0.90", "0.85", "직접 입력"]
-)
+{
+  "questions": [
+    {
+      "question": "LINE 커버리지 목표를 입력하세요 (기본: 0.95)",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "0.95",
+          "description": "0.95"
+        },
+        {
+          "label": "0.90",
+          "description": "0.90"
+        },
+        {
+          "label": "0.85",
+          "description": "0.85"
+        },
+        {
+          "label": "직접 입력",
+          "description": "직접 입력"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
 (BRANCH, METHOD, CLASS도 동일 패턴으로 질문)
 
 ```
-AskUserQuestion(
-  question="커버리지 게이트에서 제외할 패턴을 선택하거나 추가하세요.",
-  options=[
-    "기본 제외 패턴 사용 (**/*Application*, **/config/**, **/dto/**, **/generated/**)",
-    "기본 패턴 + 추가 입력",
-    "직접 전체 지정"
+{
+  "questions": [
+    {
+      "question": "커버리지 게이트에서 제외할 패턴을 선택하거나 추가하세요.",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "기본 제외 패턴 사용 (**/*Application*, **/config/**, **/dto/**, **/generated/**)",
+          "description": "기본 제외 패턴 사용 (**/*Application*, **/config/**, **/dto/**, **/generated/**)"
+        },
+        {
+          "label": "기본 패턴 + 추가 입력",
+          "description": "기본 패턴 + 추가 입력"
+        },
+        {
+          "label": "직접 전체 지정",
+          "description": "직접 전체 지정"
+        }
+      ],
+      "multiSelect": false
+    }
   ]
-)
+}
 ```
 
 추가 패턴 입력:
 ```
-AskUserQuestion(
-  question="추가로 제외할 glob 패턴을 입력하세요 (쉼표 구분, 없으면 Enter).\n예: **/mapper/**, **/*Mapper*",
-  options=["직접 입력", "없음"]
-)
+{
+  "questions": [
+    {
+      "question": "추가로 제외할 glob 패턴을 입력하세요 (쉼표 구분, 없으면 Enter).\n예: **/mapper/**, **/*Mapper*",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "직접 입력",
+          "description": "직접 입력"
+        },
+        {
+          "label": "없음",
+          "description": "없음"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
 ---
@@ -313,31 +489,61 @@ AskUserQuestion(
 ### 5단계: 도메인 특화 스킬 스캐폴딩 (선택)
 
 ```
-AskUserQuestion(
-  question="이 프로젝트의 도메인 특화 테스트 단계를 재사용 가능한 스킬로 저장하시겠습니까?\n저장하면 /test-autoevermation-harness-plugin:<name> 형식으로 언제든 호출할 수 있습니다.",
-  options=["예, 스킬 이름 지정", "아니오, 건너뜀"]
-)
+{
+  "questions": [
+    {
+      "question": "이 프로젝트의 도메인 특화 테스트 단계를 재사용 가능한 스킬로 저장하시겠습니까?\n저장하면 /<name> 형식으로 언제든 호출할 수 있습니다.",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "예, 스킬 이름 지정",
+          "description": "예, 스킬 이름 지정"
+        },
+        {
+          "label": "아니오, 건너뜀",
+          "description": "아니오, 건너뜀"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
 "예" 선택 시:
 
 ```
-AskUserQuestion(
-  question="스킬 이름을 입력하세요 (소문자, 하이픈 허용, 영문).\n예: validate-order-domain, check-payment-flow",
-  options=["직접 입력"]
-)
+{
+  "questions": [
+    {
+      "question": "스킬 이름을 입력하세요 (소문자, 하이픈 허용, 영문).\n예: validate-order-domain, check-payment-flow",
+      "header": "하네스 설정",
+      "options": [
+        {
+          "label": "직접 입력",
+          "description": "직접 입력"
+        },
+        {
+          "label": "취소",
+          "description": "취소"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
 ```
 
-입력받은 이름(`<skill-name>`)으로 `skills/<skill-name>/SKILL.md`를 생성한다.
+입력받은 이름(`<skill-name>`)으로 `<projectRoot>/.claude/skills/<skill-name>/SKILL.md`를 생성한다.
 
 #### 도메인 스킬 네이밍 규칙
 
-- 네임스페이스: `/test-autoevermation-harness-plugin:<skill-name>`
-- 파일 위치: `skills/<skill-name>/SKILL.md`
+- 네임스페이스: `/<skill-name>`
+- 파일 위치: `<projectRoot>/.claude/skills/<skill-name>/SKILL.md`
 - frontmatter: `name`, `description` 필드만 포함 (plugin 제약 준수)
 - 본문: 현재 `HarnessConfig`를 기본 입력으로 포함하는 호출 절차
 
-생성 예시 (`skills/validate-order-domain/SKILL.md`):
+생성 예시 (`<projectRoot>/.claude/skills/validate-order-domain/SKILL.md`):
 
 ```markdown
 ---
@@ -387,12 +593,12 @@ description: 주문 도메인 특화 테스트 생성 및 커버리지 검증을
 |---|---|
 | **E-verify 프로브 실패 (Preflight, #20)** | 대화형·CI 동일 `status:"failed"` + remediation `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"`. **여기서 세팅하지 않는다**(자동 세팅·자동 위임·degrade 금지). 0단계 미진입 |
 | **필수 입력(projectRoot/buildTool/springVersion 등) 미지정 (#13)** | **자동 기본값 금지.** 대화형=`AskUserQuestion`으로 전부 질문 / CI=`status:"failed"`+remediation 중단 |
-| **빌드도구 미감지 (#5)** | `detect_build_tool`이 `BUILD_TOOL_UNDETECTED`면, 대화형=`AskUserQuestion("gradle/maven?")` / CI=중단 |
+| **빌드도구 미감지 (#5)** | `detect_build_tool`이 `BUILD_TOOL_UNDETECTED`면, 대화형=`AskUserQuestion으로 “gradle/maven?” 질문` / CI=중단 |
 | **빌드 능력 미비 (#17, 0.6단계)** | JaCoCo XML을 필수 검사한다. 대화형=변경안 승인 후 최소 주입·재감지 / CI=`status:"failed"`+remediation 중단 |
 | **콜드 의존성 캐시 (#18, 0.6단계)** | `check_dependency_cache.primed:false`. 대화형=`AskUserQuestion` 승인 후 `run_targeted_tests(online=True)` 1회 프라이밍 / CI=`BUILD_TEST_ALLOW_NETWORK=1` 옵트인·워밍업 안내 |
 | 스펙 문서 경로가 존재하지 않음 | 대화형=계속할지 질문(#10) / CI=중단. (읽기불가 spec은 `ingest-specs`가 정책대로 처리) |
 | 도메인 스킬 이름 중복 | `warnings`에 "이미 존재하는 스킬: {name}" 기록, 덮어쓰기 여부 재질문 |
 | **CI 모드에서 필수 항목 누락** | **하드 중단** — `status:"failed"` + `errors`에 누락 항목과 remediation. 침묵 기본값 금지(fallback-policy.md 공통규칙 2) |
 
-보안: 스킬 생성 시 `skills/` 디렉터리 내부에만 Write 수행. projectRoot 외부 경로 금지.
-성능: 인터뷰 항목은 순차 진행. CI 모드에서는 즉시 반환.
+보안: 스킬 이름은 `[a-z][a-z0-9-]*`로 검증하고 예약 이름 synced를 거부한다. 스킬 생성 시 projectRoot의 `.claude/skills/` 내부에만 Write하며 realpath로 symlink 이탈도 검사한다. projectRoot 외부 경로 금지.
+성능: 인터뷰 항목은 순차 진행. CI에서도 필수 검증 프로브 후 반환한다.

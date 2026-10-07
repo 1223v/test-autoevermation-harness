@@ -53,7 +53,7 @@ description: 필수 단계(생성·실행·커버리지)가 끝난 뒤, 승인�
 
    ```
    Agent(
-     subagent_type="scenario-conformance-verifier",
+     subagent_type="test-autoevermation-harness-plugin:scenario-conformance-verifier",
      prompt="""
    승인된 각 BDD 시나리오가 실제로 충족되었는지 검증하고 test_docs/를 갱신하라.
 

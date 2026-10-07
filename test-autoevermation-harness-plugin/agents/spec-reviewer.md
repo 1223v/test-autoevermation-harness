@@ -124,7 +124,7 @@ disallowedTools: Write, Edit, Bash
 ## 연결 MCP와 이유
 
 ### spec-doc-mcp (필수)
-- **연결 이유**: 대형 스펙 문서(PDF, Markdown, Confluence 출력 등)를 청크 단위로 인덱싱하고 도메인 키워드 기반 검색으로 관련 섹션을 우선 추출하는 기능은 단순 파일 읽기로 구현할 수 없다. `index_docs`로 문서를 분할 인덱싱하고, `search_requirements`로 테스트 관련 조항만 선택적으로 수집하며, `extract_acceptance_criteria`로 Given/When/Then 정규화를 수행한다.
+- **연결 이유**: 텍스트 스펙 문서(.md/.txt/.adoc/.rst/.text)를 청크 단위로 인덱싱하고 도메인 키워드 기반 검색으로 관련 섹션을 우선 추출하는 기능은 단순 파일 읽기로 구현할 수 없다. `index_docs`로 문서를 분할 인덱싱하고, `search_requirements`로 테스트 관련 조항만 선택적으로 수집하며, `extract_acceptance_criteria`로 Given/When/Then 정규화를 수행한다.
 - **transport**: `stdio` 또는 local HTTP
 - **사용 도구**: `index_docs`, `search_requirements`, `extract_acceptance_criteria`
 - **민감정보 처리**: MCP 레벨에서 토큰·이메일·접속문자열·비밀번호를 자동 redaction. 원문 노출 없이 정규화된 criteria만 반환.
@@ -149,7 +149,7 @@ disallowedTools: Write, Edit, Bash
 
 | 실패 클래스 | 조건 | 대응 |
 |---|---|---|
-| `SPEC_DOC_UNREADABLE` | 파일 존재하지 않거나, 포맷 파싱 불가(암호화 PDF 등) | 이 에이전트는 사용자에게 직접 묻지 않는다(`AskUserQuestion`은 서브에이전트에서 사용 불가). 읽을 수 있는 문서는 처리하고 `status:"partial"` + `errors`에 `SPEC_DOC_UNREADABLE`(실패 경로 목록)로 **신호만 반환** — "나머지로 계속 / 중단" 확인은 **호출자(ingest-specs 스킬/full-pipeline, 메인 대화)**가 `AskUserQuestion`으로 수행한다. CI: `status:"failed"` + remediation으로 하드 중단. ([fallback-policy.md](../references/fallback-policy.md) #10) |
+| `SPEC_DOC_UNREADABLE` | 파일 존재하지 않거나, 포맷 파싱 불가(미지원 형식 등) | 이 에이전트는 사용자에게 직접 묻지 않는다(`AskUserQuestion`은 서브에이전트에서 사용 불가). 읽을 수 있는 문서는 처리하고 `status:"partial"` + `errors`에 `SPEC_DOC_UNREADABLE`(실패 경로 목록)로 **신호만 반환** — "나머지로 계속 / 중단" 확인은 **호출자(ingest-specs 스킬/full-pipeline, 메인 대화)**가 `AskUserQuestion`으로 수행한다. CI: `status:"failed"` + remediation으로 하드 중단. ([fallback-policy.md](../references/fallback-policy.md) #10) |
 | 전체 문서 읽기 실패 | `specDocPaths` 전체 실패 | `failed` 반환. `nextActions`에 경로 확인 요청 |
 | 모호한 요구사항 | 테스트 가능한 기준으로 변환 불가한 서술형 조항 | 해당 조항을 `warnings`에 원문과 함께 기록. 나머지는 정상 처리 |
 

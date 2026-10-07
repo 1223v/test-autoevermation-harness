@@ -60,7 +60,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
 
    ```
    Agent(
-     subagent_type="ast-structure-analyzer",
+     subagent_type="test-autoevermation-harness-plugin:ast-structure-analyzer",
      prompt="""
    다음 입력으로 AST 구조를 추출하라.
 
@@ -76,7 +76,7 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
    - targets가 비어 있으면 `list_spring_components`로 자동 탐색한 후 대상 후보를 testTargets에 채워라.
    - 심볼을 추론하지 마라. 확인 불가 심볼은 unresolvedSymbols 배열에 분리하라.
    - 코드 본문(메서드 바디)을 반환하지 마라. AST 노드 메타(이름, 시그니처, 애노테이션)만 반환하라.
-   - vendor/, build/, generated/ 디렉터리는 read deny한다.
+   - vendor/, build/, generated/ 디렉터리는 분석 대상에서 제외한다(프롬프트 정책).
    - 결과 캐시 키는 파일 해시로 관리하라.
    - 결과를 아래 JSON 스키마에 맞게 반환하라.
 
@@ -155,4 +155,4 @@ JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public
 | subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 성능: 대상 스코프로만 파싱. 전체 트리 파싱 금지. 결과 캐시 키는 파일 해시.
-보안: read-only. vendor/build/generated 디렉터리 read deny. 코드 본문 미반환.
+보안: read-only. vendor/build/generated 디렉터리는 분석 대상에서 제외한다(프롬프트 정책). 코드 본문 미반환.

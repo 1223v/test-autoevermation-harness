@@ -94,7 +94,7 @@ _workspace/
 
 ## 5. `timing.json`
 
-서브에이전트 완료 알림 시점에 `total_tokens`와 `duration_ms`를 즉시 기록한다.
+공식 SubagentStart/Stop에서 실제 경과 시간을 기록한다. 토큰 수는 호스트가 제공한 경우만 기록하며 미측정 값을 0으로 만들지 않는다. 아래 수치는 관측값이 있는 경우의 예시다.
 
 ```json
 {

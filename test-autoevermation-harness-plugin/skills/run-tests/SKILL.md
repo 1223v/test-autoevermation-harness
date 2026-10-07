@@ -61,13 +61,13 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
 
 2. **테스트 task 탐지**
    - `task`가 `"미지정"`이면 `build-test-mcp.list_test_tasks`로 사용 가능한 task 목록을 조회한다.
-   - Gradle: `test` task 기본, 통합은 `integrationTest`. Maven: `test`(Surefire) 기본, 통합은 `verify`(Failsafe). (build-test `list_test_tasks` 반환과 일치; `run_targeted_tests`는 `mvn -B test -Dtest=` 실행.)
+   - Gradle: `test` task 기본, 통합은 `integrationTest`. Maven: `test`(Surefire) 기본, 통합은 `verify`(Failsafe). (build-test `list_test_tasks` 반환과 일치; `run_targeted_tests`는 task에 따라 test/-Dtest 또는 verify/-Dit.test 실행.)
 
 3. **subagent 호출**
 
    ```
    Agent(
-     subagent_type="test-runner",
+     subagent_type="test-autoevermation-harness-plugin:test-runner",
      prompt="""
    다음 입력으로 테스트를 실행하라.
 
@@ -121,7 +121,7 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
    ```
 
 4. **결과 평가**
-   - `failed`가 비어 있으면 `status: "ok"`.
+   - `exitCode==0`, `timedOut==false`, 실제 `passed>0`, `failed=[]`가 모두 충족될 때만 `status: "ok"`. 보고서 없음·전부 skipped·기동 실패는 실패다.
    - `failed`가 있으면 `status: "partial"` 또는 `"failed"` 설정 후 `nextActions`에 `repair-tests` 호출 안내 추가.
    - `FLAKY_SUSPECTED` 유형이 있으면 `warnings`에 "flaky 의심 — sleep/nondeterminism 제거 필요" 추가.
 
@@ -139,7 +139,7 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
   "passed": 5,
   "failed": [],
   "reportPaths": [
-    "build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"
+    "/example/project/build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"
   ],
   "failureClasses": [],
   "evidence": ["JUnit XML 파싱 완료"],
@@ -164,8 +164,8 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
       "stackTrace": "..."
     }
   ],
-  "reportPaths": ["build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"],
-  "failureClasses": ["com.example.order.OrderServiceTest"],
+  "reportPaths": ["/example/project/build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"],
+  "failureClasses": ["TEST_RUNTIME_FAILED"],
   "evidence": [],
   "warnings": [],
   "errors": [],
@@ -187,3 +187,12 @@ description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 
 
 보안: 쉘 인자 escaping 필수. 실제 네트워크 호출 금지. Write/Edit 권한 없음.
 성능: targetScope 한정 실행 기본. 전체 task는 사용자가 명시적으로 전체 실행을 택했을 때만.
+
+## 실제 MCP 입력·출력 계약
+
+- run_targeted_tests의 root에는 projectRoot 절대 경로, task에는 실제 구성된 테스트 task를 전달한다. test_pattern 문자열 또는 test_patterns 배열 중 하나만 사용한다. targetScope.methods > classes > packages 순으로 패턴을 만들며 모듈은 별도 root/task 경로로 지정한다. 전체 실행이 명시 승인된 경우만 ["*"]를 사용한다.
+- Gradle은 Class#method를 Class.method로 변환하고 패턴마다 --tests를 반복한다. Maven test는 -Dtest, verify는 -Dit.test를 사용한다. Maven verify는 수명주기상 앞선 단위 테스트·검사도 실행할 수 있다.
+- Gradle 사용자 정의 Test task의 with_coverage:true에는 실제 구성된 coverage_task를 전달한다. 임의 task 이름을 추정하지 않는다. Maven은 기존 prepare-agent에 대응하는 jacoco:report를 사용한다.
+- list_test_tasks는 Gradle Test task를 실제 조회한다. Maven은 로컬 POM의 Failsafe 실행 바인딩만 확인하며 inherited/profile 구성은 미확인으로 표시한다.
+- 선택된 실행의 근거는 run_targeted_tests 응답이다. 추가 파싱은 parse_junit_xml(root, build_tool, task)로 같은 범위를 지정한다. unscoped parse 결과로 현재 결과를 덮어쓰지 않는다.
+- reportPaths는 XML 파일 절대 경로, failureClasses는 실패 유형 enum이다. ok는 exitCode=0, timeout 없음, 실제 passed>0, 실패 없음일 때만 가능하다. 빈 보고서·전부 skipped·컴파일 실패를 성공으로 바꾸지 않는다. 의존성 오프라인 옵션은 테스트 프로세스의 OS 네트워크 차단이 아니다.

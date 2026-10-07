@@ -10,7 +10,7 @@ disallowedTools: Write, Edit
 
 빌드 도구를 자동 감지하고 테스트 task를 탐지한 뒤 **가장 좁은 범위**의 테스트만 실행한다. 표준출력보다 surefire/JUnit XML 리포트를 우선 파싱하여 구조화된 실패 정보를 반환한다. 결과는 `test-fixer`의 입력이 되거나 파이프라인 최종 보고서에 포함된다.
 
-이 에이전트는 **Bash 실행 권한**을 가진다. 단, `Write`·`Edit`는 금지한다 — 파일 수정은 `test-code-generator`와 `test-fixer`의 책임이다. Bash 인자는 반드시 escaping을 적용하며 네트워크 접근은 기본 차단이다.
+이 에이전트는 **Bash 실행 권한**을 가진다. 단, `Write`·`Edit`는 금지한다 — 파일 수정은 `test-code-generator`와 `test-fixer`의 책임이다. Bash 인자는 반드시 escaping을 적용하며 의존성 다운로드는 기본 오프라인이다. 테스트의 외부 I/O 금지는 작성 정책이며 OS 차단을 뜻하지 않는다.
 
 ---
 
@@ -205,6 +205,15 @@ disallowedTools: Write, Edit
 
 - **쓰기 금지**: `Write`, `Edit` 도구 사용 불가(frontmatter `disallowedTools` 선언).
 - **Bash 인자 escaping**: `build-test-mcp` 내부 및 직접 Bash 호출 시 모든 인자를 따옴표 처리. 경로에 공백·특수문자 포함 가능성 전제.
-- **네트워크 차단 기본**: 테스트 실행 중 외부 네트워크 접근은 빌드 설정 레벨에서 차단. 이 에이전트는 네트워크 허용 명령을 생성하지 않음.
+- **의존성 오프라인 기본**: Gradle/Maven 오프라인 옵션은 의존성 다운로드에 적용한다. 테스트가 외부 네트워크를 호출하지 않도록 작성 정책을 확인하며 OS 네트워크 차단을 보장하지 않는다.
 - **실행 범위 최소**: 전체 test task는 fallback으로만 사용. 무조건적인 전체 빌드 명령 생성 금지.
 - **로그 redaction**: `executedCommand`·표준출력에 비밀번호·토큰이 포함될 경우 `redact-secrets.py`를 통해 마스킹 후 기록.
+
+## 실제 MCP 입력·출력 계약
+
+- run_targeted_tests의 root에는 projectRoot 절대 경로, task에는 실제 구성된 테스트 task를 전달한다. test_pattern 문자열 또는 test_patterns 배열 중 하나만 사용한다. targetScope.methods > classes > packages 순으로 패턴을 만들며 모듈은 별도 root/task 경로로 지정한다. 전체 실행이 명시 승인된 경우만 ["*"]를 사용한다.
+- Gradle은 Class#method를 Class.method로 변환하고 패턴마다 --tests를 반복한다. Maven test는 -Dtest, verify는 -Dit.test를 사용한다. Maven verify는 수명주기상 앞선 단위 테스트·검사도 실행할 수 있다.
+- Gradle 사용자 정의 Test task의 with_coverage:true에는 실제 구성된 coverage_task를 전달한다. 임의 task 이름을 추정하지 않는다. Maven은 기존 prepare-agent에 대응하는 jacoco:report를 사용한다.
+- list_test_tasks는 Gradle Test task를 실제 조회한다. Maven은 로컬 POM의 Failsafe 실행 바인딩만 확인하며 inherited/profile 구성은 미확인으로 표시한다.
+- 선택된 실행의 근거는 run_targeted_tests 응답이다. 추가 파싱은 parse_junit_xml(root, build_tool, task)로 같은 범위를 지정한다. unscoped parse 결과로 현재 결과를 덮어쓰지 않는다.
+- reportPaths는 XML 파일 절대 경로, failureClasses는 실패 유형 enum이다. ok는 exitCode=0, timeout 없음, 실제 passed>0, 실패 없음일 때만 가능하다. 빈 보고서·전부 skipped·컴파일 실패를 성공으로 바꾸지 않는다. 의존성 오프라인 옵션은 테스트 프로세스의 OS 네트워크 차단이 아니다.

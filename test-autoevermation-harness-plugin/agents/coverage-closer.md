@@ -29,9 +29,8 @@ disallowedTools: Bash
   "uncovered": [
     {
       "class": "com.example.order.OrderService",
-      "methods": ["refundOrder", "calculateDiscount"],
-      "lines": [42, 43, 55, 56, 57],
-      "branches": ["line 42 branch 1", "line 55 branch 0"]
+      "lineRatio": 0.7, "branchRatio": 0.5, "methodRatio": 0.8,
+      "uncoveredMethods": [{"method": "refundOrder", "desc": "()V", "line": 42, "missedLines": 2, "branchRatio": 0.5}]
     }
   ],
   "coverage": {
@@ -80,13 +79,12 @@ disallowedTools: Bash
 
 `uncovered[]`에서 `coverage.excludes` 패턴에 일치하는 클래스를 먼저 제거한다. 제외된 클래스는 `warnings`에 "제외 allowlist에 의해 스킵: {fqcn}" 형식으로 기록한다.
 
-기본 제외 패턴 (입력 미지정 시 적용):
+configure-harness가 확정해 전달하는 기본 제외 패턴(자식이 미지정 값을 임의 생성하지 않음):
 - `**/*Application*`
 - `**/config/**`
 - `**/dto/**`
 - `**/generated/**`
-- lombok/MapStruct 생성물 클래스
-- `equals`, `hashCode`, `toString` 자동생성 메서드
+승인된 coverage.excludes 이외의 클래스·메서드를 자동 제외하지 않는다. 생성 메서드도 임의 면제하지 않는다.
 
 ### 2. AST 분석 — 미커버 대상 정밀 파악
 
@@ -108,7 +106,7 @@ disallowedTools: Bash
 
 - **브랜치 커버리지 우선**: 단순한 라인 실행이 아니라 각 조건 분기(true/false 양방향)를 모두 실행하는 테스트를 작성한다.
 - **slice 우선**: 컨트롤러는 `@WebMvcTest`, JPA는 `@DataJpaTest`, 서비스는 컨텍스트 없는 단위 테스트.
-- **협력 빈**: `springProfile.mockAnnotation`(`@MockBean`/`@MockitoBean`)을 정확한 import와 함께 사용(Boot 2.0–4.x, RESEARCH_NOTES §8). Mockito `when/thenReturn/thenThrow`로 각 분기 조건을 재현한다.
+- **협력 빈**: `springProfile.mockAnnotation`(`@MockBean`/`@MockitoBean`)을 정확한 import와 함께 사용(Boot 2.0–4.x, RESEARCH_NOTES §8). BDDMockito `given/willReturn/willThrow`로 각 분기 조건을 재현한다.
 - **@ParameterizedTest**: 동일 메서드의 여러 분기를 매개변수로 처리할 수 있는 경우 사용.
 - **클래스 위치**: 기존 테스트 클래스가 있으면 해당 파일에 메서드를 추가(Edit), 없으면 새 파일을 생성(Write).
 - **공통 불변식(SSOT)**: 금지 패턴(trivial assertion·실네트워크·고정 지연·broad catch·over-mock)·scenarioRef 보존·스타일/픽스처 규칙은 [references/test-code-invariants.md](../references/test-code-invariants.md)를 그대로 따른다. 이 에이전트가 추가하는 gap-filling 테스트는 비(非)시나리오 테스트이므로 scenarioRef가 필요 없다.

@@ -133,7 +133,7 @@ class TestEditorContractTests(unittest.TestCase):
     def test_skill_spawns_test_editor(self) -> None:
         text = self.SKILL.read_text(encoding="utf-8")
         self.assertIn("name: edit-tests", text)
-        self.assertIn('subagent_type="test-editor"', text)
+        self.assertIn('subagent_type="test-autoevermation-harness-plugin:test-editor"', text)
 
     def test_skill_triggers_do_not_collide_with_repair_or_pipeline(self) -> None:
         # edit-tests 트리거는 repair-tests / full-pipeline 소유 문구를 재사용하지 않는다.
@@ -172,7 +172,7 @@ class TestEditorContractTests(unittest.TestCase):
                 },
                 "session_id": "session",
                 "cwd": tmp,
-                "agent_type": agent_type,
+                "agent_type": "test-autoevermation-harness-plugin:" + agent_type,
             }
             output = io.StringIO()
             with mock.patch.object(gate_guard.sys, "stdin", io.StringIO(json.dumps(payload))):
@@ -612,7 +612,7 @@ class ArtifactSequenceTests(unittest.TestCase):
             "tool_input": {"file_path": str(file_path), "content": content},
             "session_id": "session",
             "cwd": tmp,
-            "agent_type": agent_type,
+            "agent_type": "test-autoevermation-harness-plugin:" + agent_type,
         }
         output = io.StringIO()
         with mock.patch.object(gate_guard.sys, "stdin", io.StringIO(json.dumps(payload))):
@@ -965,9 +965,9 @@ class RunMarkerTests(unittest.TestCase):
                     },
                     "session",
                 )
-                record_context._handle_spawn(
-                    {"cwd": str(cwd)},
-                    {"subagent_type": "scenario-conformance-verifier"},
+                record_context._handle_subagent(
+                    {"cwd": str(cwd), "hook_event_name": "SubagentStart",
+                     "agent_id": "actual-child", "agent_type": "test-autoevermation-harness-plugin:scenario-conformance-verifier"},
                     "session",
                 )
 

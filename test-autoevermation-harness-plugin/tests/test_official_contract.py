@@ -38,8 +38,8 @@ PROSE = AGENTS + SKILLS + sorted((PLUGIN_ROOT / "references").glob("*.md")) + so
 
 # https://code.claude.com/docs/en/sub-agents — Supported frontmatter fields
 OFFICIAL_AGENT_KEYS = {
-    "name", "description", "tools", "disallowedTools", "model", "permissionMode",
-    "maxTurns", "skills", "mcpServers", "hooks", "memory", "background", "effort",
+    "name", "description", "tools", "disallowedTools", "model",
+    "maxTurns", "skills", "memory", "background", "effort",
     "isolation", "color", "initialPrompt", "experimental",
 }
 # https://code.claude.com/docs/en/skills — Frontmatter reference
@@ -118,7 +118,8 @@ class NonInteractiveDetectionTests(unittest.TestCase):
     def test_detection_rule_is_tool_availability_based(self) -> None:
         text = _read(PLUGIN_ROOT / "skills" / "configure-harness" / "SKILL.md")
         self.assertIn("도구 목록에 `AskUserQuestion`이 **없는** 경우", text)
-        self.assertIn("첫 `AskUserQuestion` 호출이 차단·거부", text)
+        self.assertIn("가용성을 시험하려는 질문을 보내지 않는다", text)
+        self.assertIn("질문 거부·무응답은 승인 부재", text)
         self.assertNotIn("환경 변수 `CI=true`", text)
 
 
@@ -208,7 +209,7 @@ class ZoneBOrchestratorEditTests(unittest.TestCase):
         self.assertIn("test-fixer", decision["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_test_fixer_edit_is_allowed(self) -> None:
-        self.assertEqual({}, self._decide(agent_type="test-fixer", tool_name="Edit", with_fixer_marker=True))
+        self.assertEqual({}, self._decide(agent_type="test-autoevermation-harness-plugin:test-fixer", tool_name="Edit", with_fixer_marker=True))
 
     def test_zone_b_docs_list_matches_code(self) -> None:
         self.assertEqual({"test-code-generator", "coverage-closer", "test-fixer", "test-editor"},

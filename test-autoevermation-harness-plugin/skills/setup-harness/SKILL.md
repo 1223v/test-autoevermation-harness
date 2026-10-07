@@ -5,7 +5,7 @@ description: Spring 테스트 하네스를 돌리기 위한 환경 세팅(Phase 
 
 ## 목적
 
-하네스 **실행 전에 환경을 전부 갖춰 놓는 전용 명령**이다. `full-pipeline`/`configure-harness`는 이제 **환경 세팅을 수행하지 않는다** — 시작 시 검증 프로브(E-verify)만 돌리고 미충족이면 이 스킬을 실행하라고 안내하며 중단한다. 즉 **세팅과 파이프라인 실행이 분리**되어 있고, 세팅의 수행 주체는 이 스킬 하나다.
+하네스 **실행 전에 환경을 전부 갖춰 놓는 전용 명령**이다. `full-pipeline`/`configure-harness`는 이제 **환경 세팅을 수행하지 않는다** — 시작 시 검증 프로브(E-verify)만 돌리고 미충족이면 이 스킬을 실행하라고 안내하며 중단한다. 즉 **세팅과 파이프라인 실행이 분리**되어 있고, 프로젝트 환경 세팅의 수행 주체는 이 스킬이다. Python/MCP 런타임은 SessionStart에서도 공식 부트스트랩으로 준비된다.
 
 담당 범위:
 
@@ -39,11 +39,7 @@ description: Spring 테스트 하네스를 돌리기 위한 환경 세팅(Phase 
 
 ## 인터랙티브 모드 감지
 
-**비대화형(CI) 모드**(질문 없이 결정적 항목 자동 세팅, 비결정적 항목 하드 중단)는 다음 중 하나로 판정한다(공식 근거: [Sub-agents](https://code.claude.com/docs/en/sub-agents) — 서브에이전트에서 `AskUserQuestion` 제거, [headless](https://code.claude.com/docs/en/headless) — `dontAsk`·`--permission-prompts none`에서 거부/제거, [Hooks](https://code.claude.com/docs/en/hooks) — plain `claude -p`에서는 도구가 있어도 호출이 차단됨. 환경변수나 `-p` 플래그 자체는 모델이 관측할 수 없다):
-
-1. 호출 인자에 `skipInterview: true`가 명시된 경우
-2. 현재 세션의 도구 목록에 `AskUserQuestion`이 **없는** 경우(서브에이전트, `--permission-prompts none`)
-3. 도구는 있으나 **첫 `AskUserQuestion` 호출이 차단·거부**된 경우(plain `claude -p`는 차단, `dontAsk`는 거부) — 이후 다시 묻지 않고 비대화형 규칙을 적용한다
+비대화형 판정·질문 경계는 [fallback-policy.md](../../references/fallback-policy.md) 「비대화형 감지」를 따른다. 명시적 skipInterview 또는 호스트가 제공한 입력 불가 모드를 사용한다. 질문 가능 여부를 시험 호출하지 않으며, 실제 질문의 거부·무응답은 중단 사유다. SDK 사용자 입력 호스트는 공식 canUseTool 경로를 사용한다.
 
 ---
 
@@ -68,7 +64,7 @@ S1 상태줄 설치(선택)
 ### 세팅 방식 (정책: environment-setup.md 핵심 원칙 2·3)
 
 - **대화형 — 항목별로 함께 세팅**: 자동으로 고칠 수 있는 항목(E1·E2·E6·E7)은 항목마다
-  `AskUserQuestion("〈항목〉이 없습니다. 지금 함께 세팅할까요?")` → "예"면 그 자리에서 설치/빌드 실행
+  `AskUserQuestion으로 “〈항목〉이 없습니다. 지금 함께 세팅할까요?” 질문` → "예"면 그 자리에서 설치/빌드 실행
   (E1+E2=`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only`,
   E6=`cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"`
   — 반드시 `${CLAUDE_PLUGIN_ROOT}` 앵커(이 스킬의 cwd는 대상 프로젝트다) + persist까지 한 단계(jar를 업데이트 생존 위치 `${CLAUDE_PLUGIN_DATA}/javaparser/`로 복사; `--check`로 `upToDate:true`면 빌드 스킵),
@@ -102,7 +98,7 @@ build-test-mcp.health() → { server, pluginVersion, networkAllowed, ... }
   4. SessionStart 훅 stderr 확인.
 - **repo-ast health의 `javaparser.jarFound:false`**: jar 미빌드 상태다 — E6 세팅(자동 빌드)으로 연결한다. `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1`이므로 jar 없이는 이후 파싱이 `JAVAPARSER_REQUIRED`로 실패한다.
 
-> **`lspAvailable`은 E7 통과 시 항상 `true`다** — E7(JDT LS)은 필수 항목이므로 `jdtls`(PATH/프로비저닝) + `.lsp.json`(plugin.json `lspServers`로 등록) + Java 21+ 런타임이 모두 통과해야 세팅이 완료된다. E7이 미가용이면 이 스킬이 하드 중단하므로, **`lspAvailable:false` 상태로 파이프라인에 진입하는 경로는 없다.** `configure-harness`가 산출하는 `HarnessConfig.lspAvailable`이 항상 `true`인 근거이며, `analyze-source`/`full-pipeline`의 LSP 보강(정의이동·참조탐색)은 이 전제 위에서 항상 활성화된다.
+> **E7 설치와 연결을 구분한다**: setup_jdtls.py --check-only는 바이너리·Java·설정만 확인한다. LSP 연결 성공은 현재 세션에서 공식 LSP의 대상 Java 파일 documentSymbol 조회가 성공했을 때만 기록한다. 설치 후 도구가 아직 없으면 reload/setup remediation으로 중단하고 lspAvailable:true를 만들지 않는다.
 
 ---
 
@@ -120,7 +116,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/
 1. `<AUTOSETUP> --status`로 현재 상태를 확인한다.
 2. **이미 설치됨(`consent=granted`)** → 아무것도 하지 않고 `completed`(멱등).
 3. **`consent=declined`** → **그대로 존중하고 건너뛴다.** 사용자가 이전에 거절한 결정을 임의로 뒤집지 않는다(사용자가 이번에 명시적으로 상태줄 설치를 요청한 경우에만 재설치).
-4. **미결정 + 대화형** → `AskUserQuestion("full-pipeline 진행률을 보여주는 TAM 상태줄을 설치할까요?", options=["예 — 설치", "아니오 — 설치 안 함"])`
+4. **미결정 + 대화형** → 메인 대화가 공식 질문 JSON으로 “TAM 상태줄 설치 / 설치 안 함”을 묻는다
    → 예: `<AUTOSETUP> --install --consent granted` / 아니오: `<AUTOSETUP> --install --consent declined`
 5. **미결정 + CI/비대화형** → **건너뛴다**(질문 불가). SessionStart 훅이 이후 대화형 세션에서 처리한다.
 
@@ -145,7 +141,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/
   "status": "ok",
   "summary": {
     "E1": "ok (python 3.12.4)",
-    "E2": "ok (mcp[cli] 1.4.1 @ plugin venv)",
+    "E2": "ok (mcp[cli] 2.2.0 @ plugin venv)",
     "E3": "ok (repo-ast, spec-doc, build-test)",
     "E3b": "ok (health x3, pluginVersion <plugin.json version>)",
     "E4": "ok (java 21.0.3)",

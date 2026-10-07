@@ -2,7 +2,7 @@
 name: source-code-analyzer
 description: "Use this agent when you need behavioral analysis of Spring source code — call chains, exception flows, DI patterns, transaction boundaries, and external I/O seam identification (DB, HTTP, clock, randomness). Triggers on: immediately after ast-structure-analyzer completes, when mocking seam mapping is needed before scenario generation."
 model: inherit
-tools: Read, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__list_spring_components, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets
+tools: Read, Grep, Glob, LSP, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__list_spring_components, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets
 disallowedTools: Write, Edit, Bash
 ---
 
@@ -141,9 +141,11 @@ AST 구조 분석 이후 **동작(behavior) 관점**에서 Spring 소스를 분�
 - **사용 도구**: `parse_java_file`, `resolve_symbol`, `list_spring_components`
 - **코드 본문 처리**: 외부 I/O 호출 패턴 식별에 한해 메서드 본문을 분석하되, 결과 출력에 소스 코드 원문을 그대로 포함하지 않음
 
-### JDT LS (파이프라인 전제 — 에이전트 도구 아님)
-- **역할**: "정의로 이동(go-to-definition)", "참조 찾기(find-references)"로 다형성 호출·인터페이스 바인딩의 semantic 보강. **이 에이전트의 tools에 LSP 도구는 없다** — JDT LS는 `setup-harness`의 E7이 세션 레벨에서 보장하는 전제이며(`lspAvailable=true`), 에이전트 자신의 추적 수단은 repo-ast(`resolve_symbol`/`parse_java_file`)다.
-- **미가용 시**: 전제 위반 — 중단한다(fallback-policy.md #3). `status: "failed"` + `errors`에 `JDT_LS_UNAVAILABLE` 기록 + remediation(`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs script ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py` 실행, Java 21+ 필요)
+### JDT LS (공식 LSP 도구)
+
+- 공식 `LSP` 도구로 대상 Java 파일의 documentSymbol을 조회하고, 필요한 심볼의 goToDefinition/findReferences로 정의·참조를 보강한다. 실제 도구가 노출한 입력 스키마에 따라 파일·위치를 전달한다.
+- 설치 파일이나 입력 lspAvailable:true만으로 성공을 가정하지 않는다. 현재 세션의 실제 호출 성공과 파일·심볼·operation을 evidence에 기록한다.
+- 미노출/연결 실패는 status:failed + JDT_LS_UNAVAILABLE + setup/reload remediation을 부모에게 반환한다. 자식이 사용자에게 질문하거나 설치하지 않는다.
 
 ---
 
@@ -156,7 +158,7 @@ AST 구조 분석 이후 **동작(behavior) 관점**에서 Spring 소스를 분�
 
 ## 핵심 지시문
 
-각 대상의 외부 의존(DB/HTTP/clock/random)을 식별해 mocking seam을 제안하라. 동작 흐름과 예외 경로를 분리해 기술하라. 협력 객체는 Spring 빈 Mock 애노테이션(프로파일에 따라 `@MockBean`/`@MockitoBean`)으로 대체 가능한지 `mockable` 여부를 표시하라. **커스텀 스테레오타입**(예: `@UseCase`처럼 `@Component`로 메타 애노테이트된 빈)도 표준 빈과 동일하게 `mockable: true` 협력 객체로 취급하라(상세: [custom-components.md](../references/custom-components.md)). 인터페이스 바인딩·다형성 호출은 repo-ast의 `resolve_symbol`로 추적하라 — JDT LS 보강은 파이프라인 전제(`setup-harness`·E7, `lspAvailable=true` 보장)이지 이 에이전트가 직접 호출하는 도구가 아니다. `lspAvailable:false` 입력이 오면 전제 위반이므로 `status:"failed"`(`JDT_LS_UNAVAILABLE`)로 중단한다.
+각 대상의 외부 의존(DB/HTTP/clock/random)을 식별해 mocking seam을 제안하라. 동작 흐름과 예외 경로를 분리해 기술하라. 협력 객체는 Spring 빈 Mock 애노테이션(프로파일에 따라 `@MockBean`/`@MockitoBean`)으로 대체 가능한지 `mockable` 여부를 표시하라. **커스텀 스테레오타입**(예: `@UseCase`처럼 `@Component`로 메타 애노테이트된 빈)도 표준 빈과 동일하게 `mockable: true` 협력 객체로 취급하라(상세: [custom-components.md](../references/custom-components.md)). 인터페이스 바인딩·다형성 호출은 repo-ast 메타와 실제 LSP 정의·참조 조회를 대조하라. `lspAvailable:false` 입력이 오면 전제 위반이므로 `status:"failed"`(`JDT_LS_UNAVAILABLE`)로 중단한다.
 
 ---
 

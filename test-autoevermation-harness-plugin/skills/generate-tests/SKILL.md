@@ -70,7 +70,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 
    ```
    Agent(
-     subagent_type="test-code-generator",
+     subagent_type="test-autoevermation-harness-plugin:test-code-generator",
      prompt="""
    다음 시나리오 집합으로 테스트 코드를 작성하라.
 
@@ -208,7 +208,7 @@ description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기
 | `UNRESOLVED_SIGNATURE` | astResult에 미해석 시그니처 | 해당 시나리오 생성 보류 + `warnings` 기록 |
 | `SCENARIO_TARGET_MISMATCH` | 생성 테스트가 시나리오 `target` 메서드를 호출하지 않음(자가 수정 1회 후에도) | 해당 파일 제외 + `warnings` 기록, `status: "partial"` |
 | `scenarios` 비어 있음 | 입력 없음 | `status: "failed"`, `generate-scenarios` 실행 안내 |
-| `BUILD_TOOL_UNDETECTED` | buildTool auto-detect 실패 | `status: "failed"` + `errors`에 `BUILD_TOOL_UNDETECTED`. 호출자가 대화형이면 `AskUserQuestion("gradle/maven?")` 후 재호출, 비대화형이면 중단(fallback-policy #5). 임의 기본값 금지 |
+| `BUILD_TOOL_UNDETECTED` | buildTool auto-detect 실패 | `status: "failed"` + `errors`에 `BUILD_TOOL_UNDETECTED`. 호출자가 대화형이면 `AskUserQuestion으로 “gradle/maven?” 질문` 후 재호출, 비대화형이면 중단(fallback-policy #5). 임의 기본값 금지 |
 | subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
 
 보안: 파일 쓰기(Write/Edit) 외 실행(Bash) 권한 없음. 생성 코드에 실제 네트워크/Thread.sleep/broad catch 포함 금지.
