@@ -68,6 +68,7 @@ def load_config():
 
 
 def save_config(cfg):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
     _atomic_write_json(CONFIG_PATH, cfg)
 
 
@@ -82,18 +83,7 @@ def statusline_command():
 
 
 def resolve_install_path():
-    """uninstall 감지용 경로. 레지스트리의 installPath(캐시 dir)를 우선, 없으면 pluginRoot.
-    installed_plugins.json은 v2 스키마({"version":2,"plugins":{...}})가 표준 — 구 구현은
-    최상위 키만 순회해 v2에서 항상 미검출이었다. flat(구) 스키마도 함께 지원한다."""
-    reg = _load_json(INSTALLED_PLUGINS)
-    if isinstance(reg, dict):
-        plugins = reg.get("plugins") if isinstance(reg.get("plugins"), dict) else reg
-        for key, val in plugins.items():
-            if key.startswith(PLUGIN_KEY_PREFIX):
-                entries = val if isinstance(val, list) else [val]
-                for e in entries:
-                    if isinstance(e, dict) and e.get("installPath"):
-                        return e["installPath"]
+    """Use the actual root of this invoked hook, supplied by the plugin runtime."""
     return PLUGIN_ROOT
 
 
@@ -224,7 +214,10 @@ def consent_prompt_text():
     return (
         "[Test-AutoEverMation] statusline auto-setup (first run). The harness statusline "
         "(plugin version + full-pipeline progress) is NOT yet configured on this machine. "
-        "Ask the user ONE time, using the AskUserQuestion tool, whether to install it. It "
+        "Only the main conversation may ask whether to install it, using the official "
+        "AskUserQuestion questions array when the host supports user input. Do not probe "
+        "tool availability by asking a test question. Skip this optional setup if input "
+        "is unavailable or denied; an unanswered question is never consent. It "
         "installs into the global main statusLine and preserves any existing statusline "
         "(e.g. OMC HUD) as a delegate; it shows in all sessions.\n"
         "- If the user accepts, run this Bash command:\n    %s --install --consent granted\n"

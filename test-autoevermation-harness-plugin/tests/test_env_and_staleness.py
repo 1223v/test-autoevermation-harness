@@ -150,6 +150,7 @@ class RemovedSecurityHooksTest(unittest.TestCase):
         write_entries = [
             entry for entry in hooks["hooks"]["PostToolUse"]
             if "Write" in (entry.get("matcher") or "")
+            and "redact-secrets.py" in json.dumps(entry)
         ]
         self.assertTrue(write_entries, "redact-secrets should still run post-write")
         for entry in write_entries:

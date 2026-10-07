@@ -187,12 +187,11 @@ def _abspath(file_path: str, cwd: str) -> str:
 
 
 def _normalize_agent_type(raw) -> str:
-    """플러그인 스코프 접두("plugin:agent")를 제거해 bare 이름으로 정규화."""
-    name = _norm(raw or "")
-    for sep in (":", "/"):
-        if sep in name:
-            name = name.rsplit(sep, 1)[1]
-    return name.strip()
+    name = str(raw or "").strip()
+    prefix = "test-autoevermation-harness-plugin:"
+    if name.startswith(prefix):
+        return name[len(prefix):]
+    return "foreign:" + name if name else ""
 
 
 def _read_json_file(path: str):
@@ -225,11 +224,15 @@ def _marker_session_matches(workspace: str, marker: str, session_id: str) -> boo
 
 
 def _run_active(workspace: str, session_id: str) -> bool:
-    return _marker_session_matches(workspace, RUN_MARKER, session_id)
+    run = _read_json_file(os.path.join(workspace, MARKERS_DIR, RUN_MARKER))
+    return (bool(session_id) and isinstance(run, dict) and run.get("session_id") == session_id
+            and run.get("status", "active") == "active")
 
 
 def _spawned(workspace: str, agent: str, session_id: str) -> bool:
-    return _marker_session_matches(workspace, "spawn-%s.json" % agent, session_id)
+    run = _read_json_file(os.path.join(workspace, MARKERS_DIR, RUN_MARKER)) or {}
+    marker = _read_json_file(os.path.join(workspace, MARKERS_DIR, "spawn-%s.json" % agent)) or {}
+    return (marker.get("session_id") == session_id and marker.get("run_id") == run.get("run_id"))
 
 
 def _artifact_exists(workspace: str, basename: str) -> bool:
@@ -309,6 +312,11 @@ def _is_stub(basename: str, data, workspace: str, session_id: str) -> bool:
     if not allowed or basename != COVERAGE_ARTIFACT:
         return allowed
     current = _current_coverage_thresholds(workspace)
+    config = _read_json_file(os.path.join(workspace, "00_config-harness.json")) or {}
+    current_scope = {"packages": sorted(set(config.get("targets") or [])),
+                     "excludes": sorted(set((config.get("coverage") or {}).get("excludes") or []))}
+    if marker.get("coverageScope", {"packages": [], "excludes": []}) != current_scope:
+        return False
     return (
         marker.get("coverageThresholdsMatch") is True
         and _threshold_maps_equal(marker.get("coverageThresholds"), current)
@@ -494,7 +502,7 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
         elif not _spawned(workspace, producer, session_id):
             return (
                 "위임 없이 산출물 기록: %s를 쓰려면 이 세션에서 "
-                "Agent(subagent_type=%s)로 해당 단계를 실제 수행했어야 한다. %s"
+                "Agent(subagent_type=test-autoevermation-harness-plugin:%s)로 해당 단계를 실제 수행했어야 한다. %s"
                 % (basename, producer, _DELEGATION_HINT)
             )
 
@@ -541,8 +549,8 @@ def _zone_b(workspace: str, session_id: str, agent_type: str) -> str:
         )
     return (
         "하네스 활성 세션에서 오케스트레이터의 테스트 인라인 작성/수정 금지: "
-        "5단계 생성은 Agent(subagent_type=test-code-generator)에, 실패 보정은 "
-        "Agent(subagent_type=test-fixer)에 위임하라. %s" % _DELEGATION_HINT
+        "5단계 생성은 Agent(subagent_type=test-autoevermation-harness-plugin:test-code-generator)에, 실패 보정은 "
+        "Agent(subagent_type=test-autoevermation-harness-plugin:test-fixer)에 위임하라. %s" % _DELEGATION_HINT
     )
 
 

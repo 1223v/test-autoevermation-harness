@@ -34,8 +34,6 @@ CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claud
 CONFIG_PATH = os.path.join(CONFIG_DIR, "test-autoevermation-statusline.json")
 GLOBAL_WRAPPER = os.path.join(CONFIG_DIR, "test-autoevermation-statusline.py")
 SETTINGS_PATH = os.path.join(CONFIG_DIR, "settings.json")
-INSTALLED_PLUGINS = os.path.join(CONFIG_DIR, "plugins", "installed_plugins.json")
-PLUGIN_KEY_PREFIX = "test-autoevermation-harness-plugin@"
 # statusLine 커맨드가 우리 소유인지 식별하는 지문(launcher·wrapper 공통 파일명 조각).
 OWNER_MARK = "test-autoevermation-statusline"
 
@@ -82,42 +80,9 @@ def load_config():
         return None
 
 
-def _registry_entries():
-    """installed_plugins.json에서 이 플러그인의 엔트리 목록을 반환.
-    v2 스키마({"version":2,"plugins":{...}})와 구(flat) 스키마 모두 지원한다."""
-    try:
-        with open(INSTALLED_PLUGINS, encoding="utf-8") as f:
-            reg = json.load(f)
-    except Exception:
-        return []
-    if not isinstance(reg, dict):
-        return []
-    plugins = reg.get("plugins") if isinstance(reg.get("plugins"), dict) else reg
-    entries = []
-    for key, val in plugins.items():
-        if key.startswith(PLUGIN_KEY_PREFIX):
-            entries.extend(val if isinstance(val, list) else [val])
-    return [e for e in entries if isinstance(e, dict)]
-
-
-def registry_install_path():
-    """레지스트리가 가리키는 **현재** 설치 경로(버전업 시 즉시 새 캐시 dir).
-    없으면 None."""
-    for e in _registry_entries():
-        if e.get("installPath"):
-            return e["installPath"]
-    return None
-
-
 def read_version(cfg):
-    """버전은 plugin.json에서 읽는다. 레지스트리의 현재 installPath를 최우선으로
-    해석해 **업데이트 직후에도 세션 재시작 없이** 새 버전을 표시한다(구 캐시 dir가
-    남아 있어 config의 stale pluginRoot가 여전히 유효해 보이는 문제 방지).
-    실패 시 config pluginRoot → SCRIPT_DIR/.. 순으로 폴백한다."""
+    """Read the manifest at the root last refreshed by the SessionStart hook."""
     candidates = []
-    reg_path = registry_install_path()
-    if reg_path:
-        candidates.append(os.path.join(reg_path, ".claude-plugin", "plugin.json"))
     if cfg and cfg.get("pluginRoot"):
         candidates.append(os.path.join(cfg["pluginRoot"], ".claude-plugin", "plugin.json"))
     candidates.append(os.path.join(SCRIPT_DIR, "..", ".claude-plugin", "plugin.json"))
@@ -155,14 +120,13 @@ def run_delegate(command, stdin_bytes):
 # ─────────────────────────── self-heal (자동 uninstall) ───────────────────────────
 
 def plugin_present(cfg):
-    """플러그인이 아직 설치돼 있는가. installPath 존재 OR 레지스트리 등록 중 하나라도
-    참이면 present. 둘 다 아니면 uninstall된 것으로 본다(캐시 dir 삭제 + 레지스트리 제거).
-    레지스트리 조회는 v2 스키마({"plugins":{...}}) 중첩을 처리하는 _registry_entries 사용
-    — 구 구현은 최상위 키만 순회해 v2에서 항상 미검출(죽은 경로)이었다."""
-    install_path = cfg.get("installPath") if cfg else None
-    if install_path and os.path.isdir(install_path):
-        return True
-    return bool(_registry_entries())
+    """Recover only when the known installation files disappear.
+
+    Cache retention after uninstall cannot be detected through a public API;
+    users can explicitly restore their statusline with setup-statusline.
+    """
+    root = (cfg or {}).get("installPath") or (cfg or {}).get("pluginRoot")
+    return bool(root and os.path.isfile(os.path.join(root, ".claude-plugin", "plugin.json")))
 
 
 def _atomic_write_json(path, data):

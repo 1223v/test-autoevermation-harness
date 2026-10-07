@@ -1,90 +1,80 @@
 #!/usr/bin/env python3
-"""Append a stage's token/time telemetry to _workspace/timing.json.
+"""Record only observed stage telemetry; unknown usage is absent, never zero.
 
-서브에이전트 완료 알림의 total_tokens/duration_ms는 그 시점에만 접근 가능하다.
-오케스트레이터(full-pipeline)가 각 단계 완료 직후 이 스크립트를 호출해 누적한다.
-
-Usage:
-  record-timing.py --workspace _workspace --stage 02_ast \
-      --agent ast-structure-analyzer --model inherit \
-      --tokens 63505 --duration-ms 444344
-
-근거: 외부 참고자료 revfactory/harness 저장소의 skill-testing-guide.md §3-3 및
-skill-writing-guide.md §7 (이 플러그인 내 경로가 아님).
-표준 라이브러리만 사용한다(추가 의존성 없음).
+SubagentStart/SubagentStop provide wall-clock observations. Token counts are optional
+host-supplied observations, not guaranteed by the Claude hook contract.
+https://code.claude.com/docs/en/hooks
 """
 from __future__ import annotations
-
 import argparse
 import json
 import os
-import sys
+import runpy
+import tempfile
 
 
 def load(path: str) -> dict:
-    if os.path.isfile(path):
-        try:
-            with open(path, encoding="utf-8") as fh:
-                return json.load(fh)
-        except (OSError, json.JSONDecodeError):
-            pass
-    return {"stages": [], "totals": {}, "slowest": None, "most_expensive": None}
+    try:
+        with open(path, encoding='utf-8') as fh:
+            value = json.load(fh)
+        if isinstance(value, dict) and isinstance(value.get('stages'), list):
+            return value
+    except (OSError, ValueError):
+        pass
+    return {'stages': []}
 
 
 def recompute(doc: dict) -> dict:
-    stages = doc.get("stages", [])
-    tok = sum(int(s.get("total_tokens") or 0) for s in stages)
-    dur = sum(int(s.get("duration_ms") or 0) for s in stages)
-    doc["totals"] = {
-        "total_tokens": tok,
-        "duration_ms": dur,
-        "total_duration_seconds": round(dur / 1000.0, 1),
-    }
-    if stages:
-        doc["slowest"] = max(stages, key=lambda s: int(s.get("duration_ms") or 0)).get("stage")
-        doc["most_expensive"] = max(
-            stages, key=lambda s: int(s.get("total_tokens") or 0)
-        ).get("stage")
+    stages = doc.get('stages', [])
+    totals = {}
+    for key in ('total_tokens', 'duration_ms'):
+        observed = [s[key] for s in stages if isinstance(s.get(key), int) and s[key] >= 0]
+        if observed:
+            totals[key] = sum(observed)
+            totals[key + '_observed_stages'] = len(observed)
+    if 'duration_ms' in totals:
+        totals['total_duration_seconds'] = round(totals['duration_ms'] / 1000, 1)
+    doc['totals'] = totals
+    for label, key in (('slowest', 'duration_ms'), ('most_expensive', 'total_tokens')):
+        observed = [s for s in stages if key in s]
+        doc[label] = max(observed, key=lambda s: s[key])['stage'] if observed else None
     return doc
 
 
+def record(workspace, stage, agent='', model='', tokens=None, duration_ms=None):
+    os.makedirs(workspace, exist_ok=True)
+    bootstrap = os.path.join(os.path.dirname(__file__), '..', 'mcp', 'bootstrap.py')
+    lock_type = runpy.run_path(bootstrap)['InstallLock']
+    with lock_type(os.path.join(workspace, '.timing.lock')):
+        path = os.path.join(workspace, 'timing.json')
+        doc = load(path)
+        entry = {'stage': stage, 'agent': agent, 'model': model}
+        for key, value in (('total_tokens', tokens), ('duration_ms', duration_ms)):
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                entry[key] = value
+        doc['stages'] = [s for s in doc['stages'] if s.get('stage') != stage] + [entry]
+        recompute(doc)
+        fd, temp = tempfile.mkstemp(prefix='.timing-', dir=workspace)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+                json.dump(doc, fh, ensure_ascii=False, indent=2)
+            os.replace(temp, path)
+        finally:
+            if os.path.exists(temp): os.unlink(temp)
+        return doc
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Append stage telemetry to timing.json")
-    ap.add_argument("--workspace", default="_workspace")
-    ap.add_argument("--stage", required=True)
-    ap.add_argument("--agent", default="")
-    ap.add_argument("--model", default="")
-    ap.add_argument("--tokens", type=int, default=0)
-    ap.add_argument("--duration-ms", type=int, default=0)
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--workspace', default='_workspace')
+    ap.add_argument('--stage', required=True)
+    ap.add_argument('--agent', default='')
+    ap.add_argument('--model', default='')
+    ap.add_argument('--tokens', type=int)
+    ap.add_argument('--duration-ms', type=int)
     args = ap.parse_args()
-
-    os.makedirs(args.workspace, exist_ok=True)
-    path = os.path.join(args.workspace, "timing.json")
-    doc = load(path)
-
-    # Idempotent on stage name: replace an existing entry for the same stage.
-    doc["stages"] = [s for s in doc.get("stages", []) if s.get("stage") != args.stage]
-    doc["stages"].append(
-        {
-            "stage": args.stage,
-            "agent": args.agent,
-            "model": args.model,
-            "total_tokens": args.tokens,
-            "duration_ms": args.duration_ms,
-        }
-    )
-    doc = recompute(doc)
-
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(doc, fh, ensure_ascii=False, indent=2)
-
-    print(
-        f"recorded {args.stage}: {args.tokens} tok / {args.duration_ms} ms "
-        f"| totals: {doc['totals']['total_tokens']} tok, "
-        f"{doc['totals']['total_duration_seconds']}s | slowest={doc['slowest']}"
-    )
+    record(args.workspace, args.stage, args.agent, args.model, args.tokens, args.duration_ms)
+    print('recorded observed telemetry for ' + args.stage)
     return 0
 
-
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == '__main__': raise SystemExit(main())

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 r"""record-run-context.py
 
-PreToolUse hook (matcher: ``Skill|Task|Agent``) + PostToolUse hook
-(matcher: ``*detect_pipeline_state``) for the Spring Test Harness plugin.
+Official UserPromptExpansion, tool, SubagentStart/Stop and SessionEnd hooks
+for the Spring Test Harness plugin.
 
 full-pipeline 실행의 **증거 기록자**. 아래 마커를 ``_workspace/.markers/``에 남긴다.
 
@@ -13,7 +13,7 @@ guard-gate-artifacts.py가 판정에 사용하는 마커를 남긴다. run.json�
                                           projectRoot에 기록. {"session_id", "ts",
                                           "projectRoot", "projectRootExplicit"}. 이 세션이
                                           "하네스 활성(run-active)"임을 나타내는 신호.
-  * ``spawn-<subagent_type>.json``      — Agent(구 Task) 스폰 시 기록. {"session_id", "ts"}.
+  * ``spawn-<subagent_type>.json``      — SubagentStart 시 기록. {"session_id", "run_id", "agent_id", "ts"}.
                                           "해당 단계가 실제로 위임되었다"는 물리 증거.
   * ``pipeline-state.detected.json``    — detect_pipeline_state의 실제 요청 root·커버리지
                                           임계값과 응답을 결합해 복원 가능한 산출물 allowlist를
@@ -32,8 +32,8 @@ Decision table:
     * subagent_type == test-code-generator      -> run 활성인데 04_scenario_set.json
                                                    또는 04b_approval.json 부재면 deny
                                                    (4.5 승인 게이트 선행 — 스폰 시점 차단);
-                                                   아니면 spawn 마커 기록 후 allow
-    * 그 외 subagent_type                        -> spawn 마커 기록 후 allow
+                                                   아니면 allow(실행 증거는 SubagentStart에서만 기록)
+    * 그 외 subagent_type                        -> allow
   PostToolUse detect_pipeline_state             -> 실제 응답 기반 allowedArtifacts 기록; allow
   내부 오류/파싱 실패/마커 기록 실패             -> allow (인프라 fail-open — 훅이 세션을
                                                    깨서는 안 된다; 판정은 guard가 담당)
@@ -53,10 +53,15 @@ import json
 import os
 import sys
 import time
+import tempfile
+import uuid
+import importlib.util
 
 MARKERS_DIR = ".markers"
 RUN_MARKER = "run.json"
 DETECT_MARKER = "pipeline-state.detected.json"
+PLUGIN_PREFIX = "test-autoevermation-harness-plugin:"
+DETECT_TOOL = "mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pipeline_state"
 
 SCENARIO_SET = "04_scenario_set.json"
 APPROVAL = "04b_approval.json"
@@ -95,10 +100,10 @@ def _allow() -> None:
     _print({})
 
 
-def _allow_with_context(text: str) -> None:
+def _allow_with_context(text: str, event: str = "PreToolUse") -> None:
     _print({
         "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
+            "hookEventName": event,
             "additionalContext": text,
         }
     })
@@ -161,22 +166,25 @@ def _write_marker(path: str, session_id: str, extra: dict | None = None) -> None
     marker = {"session_id": session_id, "ts": time.time()}
     if isinstance(extra, dict):
         marker.update(extra)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(marker, fh)
+    fd, temporary = tempfile.mkstemp(prefix=".marker-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(marker, fh)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _normalize_agent_type(raw: str) -> str:
-    # "plugin-name:agent" / "plugin_name__agent" 등 스코프 접두 제거 → 마지막 세그먼트
-    name = str(raw).replace("\\", "/")
-    for sep in (":", "/"):
-        if sep in name:
-            name = name.rsplit(sep, 1)[1]
-    return name.strip()
+    name = str(raw or "").strip()
+    return name[len(PLUGIN_PREFIX):] if name.startswith(PLUGIN_PREFIX) else ""
 
 
 def _run_active(markers: str, session_id: str) -> bool:
     run = _read_json(os.path.join(markers, RUN_MARKER))
-    return isinstance(run, dict) and run.get("session_id") == session_id
+    return (bool(session_id) and isinstance(run, dict) and run.get("session_id") == session_id
+            and run.get("status", "active") == "active")
 
 
 def _extract_project_root(value):
@@ -213,7 +221,7 @@ def _clear_invocation_markers(markers: str, *, remove_run: bool = False) -> None
         if not os.path.isdir(markers):
             return
         for entry in os.listdir(markers):
-            if entry.startswith("spawn-") or entry == DETECT_MARKER or (
+            if entry.startswith(("spawn-", "agent-")) or entry == DETECT_MARKER or (
                 remove_run and entry == RUN_MARKER
             ):
                 try:
@@ -229,7 +237,7 @@ def _handle_skill(payload: dict, tool_input: dict, session_id: str) -> None:
     skill_name = str(
         tool_input.get("skill") or tool_input.get("name") or tool_input.get("command") or ""
     )
-    if "full-pipeline" not in skill_name:
+    if skill_name.lstrip("/") != PLUGIN_PREFIX + "full-pipeline":
         _allow()
         return
 
@@ -257,6 +265,8 @@ def _handle_skill(payload: dict, tool_input: dict, session_id: str) -> None:
     route = {
         "projectRoot": target_root,
         "projectRootExplicit": requested is not None,
+        "run_id": uuid.uuid4().hex,
+        "status": "active",
     }
     for root in active_roots:
         _write_marker(
@@ -264,7 +274,7 @@ def _handle_skill(payload: dict, tool_input: dict, session_id: str) -> None:
             session_id,
             route,
         )
-    _allow_with_context(_STAGE_CONTRACT_REMINDER)
+    _allow_with_context(_STAGE_CONTRACT_REMINDER, payload.get("hook_event_name", "PreToolUse"))
 
 
 def _handle_spawn(payload: dict, tool_input: dict, session_id: str) -> None:
@@ -293,7 +303,7 @@ def _handle_spawn(payload: dict, tool_input: dict, session_id: str) -> None:
             )
             return
 
-    _write_marker(os.path.join(markers, "spawn-%s.json" % agent_type), session_id)
+    # PreToolUse is only an attempt; SubagentStart is the execution evidence.
     _allow()
 
 
@@ -447,7 +457,7 @@ def _handle_detect(payload: dict, session_id: str) -> None:
 
     routed_root = cwd_root
     explicit_root = False
-    run_active = isinstance(run, dict) and run.get("session_id") == session_id
+    run_active = _run_active(cwd_markers, session_id)
     if run_active and isinstance(run.get("projectRoot"), str):
         routed_root = _canonical_root(run["projectRoot"], cwd_root)
         explicit_root = run.get("projectRootExplicit") is True
@@ -474,7 +484,8 @@ def _handle_detect(payload: dict, session_id: str) -> None:
     if route_changed:
         _clear_invocation_markers(_markers_for_root(requested_root))
 
-    route = {"projectRoot": requested_root, "projectRootExplicit": True}
+    route = {"projectRoot": requested_root, "projectRootExplicit": True,
+             "run_id": run.get("run_id"), "status": "active"}
     for root in {cwd_root, requested_root}:
         _write_marker(
             os.path.join(_markers_for_root(root), RUN_MARKER),
@@ -484,7 +495,12 @@ def _handle_detect(payload: dict, session_id: str) -> None:
 
     actual_thresholds = _requested_coverage_thresholds(tool_input)
     expected_thresholds = _expected_coverage_thresholds(requested_root)
-    coverage_bound = _thresholds_match(actual_thresholds, expected_thresholds)
+    config = _read_json(os.path.join(requested_root, "_workspace", "00_config-harness.json")) or {}
+    expected_scope = {"packages": sorted(set(config.get("targets") or [])),
+                      "excludes": sorted(set((config.get("coverage") or {}).get("excludes") or []))}
+    actual_scope = {name: sorted(set(tool_input.get(name) or [])) for name in ("packages", "excludes")}
+    coverage_bound = (_thresholds_match(actual_thresholds, expected_thresholds)
+                      and actual_scope == expected_scope)
     allowed = _allowed_stub_artifacts(result, allow_coverage_stub=coverage_bound)
     marker_path = os.path.join(_markers_for_root(requested_root), DETECT_MARKER)
     if allowed:
@@ -498,6 +514,8 @@ def _handle_detect(payload: dict, session_id: str) -> None:
                 "coverageThresholds": actual_thresholds,
                 "expectedCoverageThresholds": expected_thresholds,
                 "coverageThresholdsMatch": coverage_bound,
+                "coverageScope": actual_scope,
+                "run_id": run.get("run_id"),
                 "allowedArtifacts": allowed,
             },
         )
@@ -506,6 +524,62 @@ def _handle_detect(payload: dict, session_id: str) -> None:
             os.remove(marker_path)
         except OSError:
             pass
+    _allow()
+
+
+def _local_script(name):
+    spec = importlib.util.spec_from_file_location("harness_" + name.replace("-", "_"),
+                                                 os.path.join(os.path.dirname(__file__), name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _handle_subagent(payload, session_id):
+    markers = _markers_dir(payload, session_id)
+    agent_type = _normalize_agent_type(payload.get("agent_type"))
+    agent_id = str(payload.get("agent_id") or "")
+    if not _run_active(markers, session_id) or agent_type not in PIPELINE_AGENTS or not agent_id:
+        _allow(); return
+    run = _read_json(os.path.join(markers, RUN_MARKER))
+    import hashlib
+    key = hashlib.sha256(agent_id.encode()).hexdigest()
+    path = os.path.join(markers, "agent-" + key + ".json")
+    if payload["hook_event_name"] == "SubagentStart":
+        extra = {"run_id": run.get("run_id"), "agent_id": agent_id, "agent_type": agent_type}
+        _write_marker(path, session_id, extra)
+        _write_marker(os.path.join(markers, "spawn-" + agent_type + ".json"), session_id, extra)
+    else:
+        started = _read_json(path)
+        if (isinstance(started, dict) and started.get("session_id") == session_id
+                and started.get("run_id") == run.get("run_id")):
+            elapsed = max(0, int((time.time() - started["ts"]) * 1000))
+            timing = _local_script("record-timing")
+            timing.record(_workspace_root(payload, session_id), agent_id, agent_type, "", None, elapsed)
+    _allow()
+
+
+def _close_run(payload, session_id, status):
+    cwd = _cwd_root(payload)
+    markers = _markers_dir(payload, session_id)
+    if not _run_active(markers, session_id):
+        return
+    run = _read_json(os.path.join(markers, RUN_MARKER))
+    run.update({"status": status, "ended_at": time.time()})
+    for root in {cwd, run.get("projectRoot", cwd)}:
+        _write_marker(os.path.join(_markers_for_root(root), RUN_MARKER), session_id, run)
+
+
+def _handle_final(payload, tool_input, session_id):
+    workspace = _workspace_root(payload, session_id)
+    expected = os.path.realpath(os.path.join(workspace, "pipeline_result.json"))
+    actual = _canonical_root(tool_input.get("file_path"), _cwd_root(payload))
+    if actual == expected:
+        data = _read_json(expected)
+        guard = _local_script("guard-gate-artifacts")
+        if (isinstance(data, dict) and data.get("schemaVersion") == 2
+                and not guard._check_pipeline_result(data, workspace)):
+            _close_run(payload, session_id, "completed")
     _allow()
 
 
@@ -523,12 +597,27 @@ def main() -> int:
             tool_input = {}
         session_id = str(payload.get("session_id", ""))
 
-        if tool_name == "Skill":
+        event = payload.get("hook_event_name", "PreToolUse")
+        if not session_id:
+            _allow()
+        elif event == "UserPromptExpansion":
+            if payload.get("expansion_type") == "slash_command" and payload.get("command_source") == "plugin":
+                _handle_skill(payload, {"skill": payload.get("command_name"), "args": payload.get("command_args")}, session_id)
+            else:
+                _allow()
+        elif event in ("SubagentStart", "SubagentStop"):
+            _handle_subagent(payload, session_id)
+        elif event == "SessionEnd":
+            _close_run(payload, session_id, "ended")
+            _allow()
+        elif event == "PreToolUse" and tool_name == "Skill":
             _handle_skill(payload, tool_input, session_id)
-        elif tool_name in ("Task", "Agent"):  # Task = v2.1.63 이전 이름(alias 호환)
+        elif event == "PreToolUse" and tool_name in ("Task", "Agent"):
             _handle_spawn(payload, tool_input, session_id)
-        elif tool_name.endswith("detect_pipeline_state"):
+        elif event == "PostToolUse" and tool_name == DETECT_TOOL:
             _handle_detect(payload, session_id)
+        elif event == "PostToolUse" and tool_name in ("Write", "Edit"):
+            _handle_final(payload, tool_input, session_id)
         else:
             _allow()
         return 0
