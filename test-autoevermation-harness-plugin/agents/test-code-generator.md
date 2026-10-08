@@ -6,6 +6,11 @@ tools: Read, Write, Edit, mcp__plugin_test-autoevermation-harness-plugin_repo-as
 disallowedTools: Bash
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 확정된 시나리오 세트를 입력받아 **컴파일 가능한** JUnit(4 또는 Jupiter) / Spring Test / Mockito 기반 테스트 파일을 생성하고 `src/test/java`에 기록한다. import 완결, fixture 빌더 패턴, Google Java Style, slice 애노테이션 적용을 모두 준수한다.

@@ -34,15 +34,18 @@ import hashlib
 import tempfile
 import threading
 from contextlib import contextmanager
+from pathlib import Path
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 
 try:
     from mcp.server.mcpserver import MCPServer
+    from mcp.server.mcpserver.exceptions import ToolError
 except ImportError as exc:  # clearer startup diagnostic than a raw traceback
     import sys
 
@@ -720,7 +723,11 @@ def _profile_conflict(field: str, build_value: str, source_value: str, evidence:
 
 def _output_tail(value) -> str:
     if isinstance(value, bytes):
-        value = value.decode("utf-8", errors="replace")
+        try:
+            value = value.decode("utf-8")
+        except UnicodeDecodeError:
+            # Java/cmd may emit the Windows ANSI encoding even with PYTHONUTF8=1.
+            value = value.decode("mbcs" if os.name == "nt" else "utf-8", errors="replace")
     return (value or "")[-4000:]
 
 
@@ -739,13 +746,12 @@ def _run_subprocess(cmd: "list[str] | str", cwd: str) -> dict:
             cwd=cwd,
             env=env,
             capture_output=True,
-            text=True,
             timeout=_RUN_TIMEOUT,
         )
         return {
             "exitCode": proc.returncode,
-            "stdoutTail": proc.stdout[-4000:] if proc.stdout else "",
-            "stderrTail": proc.stderr[-4000:] if proc.stderr else "",
+            "stdoutTail": _output_tail(proc.stdout),
+            "stderrTail": _output_tail(proc.stderr),
             "timedOut": False,
         }
     except subprocess.TimeoutExpired as exc:
@@ -768,8 +774,18 @@ def _run_subprocess(cmd: "list[str] | str", cwd: str) -> dict:
 # Tools
 # ---------------------------------------------------------------------------
 
+def _project_root(root: str) -> str:
+    """Keep legacy cwd defaults; portable MCP must name its target explicitly."""
+    if os.environ.get("HARNESS_HOST") == "codex":
+        if not root.strip() or not Path(root).is_absolute():
+            raise ToolError("PROJECT_ROOT_REQUIRED: pass the confirmed absolute project root")
+        if not os.path.isdir(root):
+            raise ToolError("INVALID_PROJECT_ROOT: root directory does not exist")
+    return os.path.abspath(root)
+
+
 @mcp.tool()
-def health() -> dict:
+def health(root: str | None = None) -> dict:
     """Side-effect-free diagnostic probe: report server config status.
 
     Reports the plugin version and whether outbound network is allowed
@@ -779,10 +795,19 @@ def health() -> dict:
         network_allowed = _network_allowed()
     except Exception:
         network_allowed = False
+    scope, scope_error = None, None
+    if root is not None:
+        try:
+            scope = _project_root(root)
+        except (ToolError, ValueError, OSError) as exc:
+            scope_error = str(exc)
     return {
         "server": "build-test",
         "pluginVersion": _plugin_version(),
         "networkAllowed": network_allowed,
+        "projectRoot": scope,
+        "rootRequired": os.environ.get("HARNESS_HOST") == "codex",
+        "scopeError": scope_error,
     }
 
 
@@ -792,7 +817,7 @@ def detect_build_tool(root: str = ".") -> dict:
 
     Returns {status, buildTool, wrapper} or a BUILD_TOOL_UNDETECTED failure.
     """
-    return _detect(os.path.abspath(root))
+    return _detect(_project_root(root))
 
 
 @mcp.tool()
@@ -805,7 +830,7 @@ def detect_spring_profile(root: str = ".") -> dict:
     Supports Boot 2.0–4.x. Returns springProfile.degraded=true when the version cannot be
     detected (caller should interview interactively or assume the latest profile + warn).
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
     if not os.path.isdir(root):
         return {"status": "failed", "error": "PROJECT_ROOT_NOT_FOUND",
                 "message": f"directory not found: {root}"}
@@ -893,7 +918,7 @@ def list_test_tasks(root: str = ".") -> dict:
     Inherited/profile Maven configuration is not guessed from a static POM.
     Gradle discovery runs the build's configuration phase offline, without running tests.
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
     det = _detect(root)
     if det.get("status") != "ok":
         return det
@@ -945,6 +970,10 @@ def _launcher(build_tool: str, root: str) -> str:
     else:
         names = ("mvnw.cmd", "mvnw.bat") if os.name == "nt" else ("mvnw",)
         fallback = "mvn"
+    # An unqualified batch name can give Gradle's %~dp0 the caller's cwd.
+    # Resolve PATH launchers before cmd.exe invocation, just like project wrappers.
+    if os.name == "nt":
+        fallback = shutil.which(fallback) or fallback
     return next((os.path.join(root, n) for n in names if os.path.isfile(os.path.join(root, n))), fallback)
 
 
@@ -1076,7 +1105,7 @@ def run_targeted_tests(build_tool: str, test_pattern: str = "", root: str = ".",
     decides this after `check_dependency_cache` + user approval (fallback-policy.md #18);
     once primed, subsequent runs go offline again.
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
     build_tool = (build_tool or "").strip().lower()
     if build_tool not in ("gradle", "maven"):
         return {"status": "failed", "error": "BUILD_TOOL_UNDETECTED",
@@ -1165,7 +1194,7 @@ def parse_junit_xml(root: str = ".", build_tool: str = "", task: str | None = No
     retry history (Surefire rerunFailure / Gradle mergeReruns flakyFailure)
     even when they eventually passed.
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
     if task is not None:
         if build_tool not in ("gradle", "maven") or not re.fullmatch(r":?[\w-]+(?::[\w-]+)*", task):
             return {"status": "failed", "error": "INVALID_TEST_TASK"}
@@ -1211,7 +1240,7 @@ def parse_jacoco_report(root: str = ".", packages: list[str] | None = None,
     submodule report is summed so an unmeasured module cannot pass the gate.
     `reportPaths[]` lists everything that was counted; `reportPath` stays the first.
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
     jacoco_paths = _find_jacoco_xml_all(root)
     if not jacoco_paths:
         return {"status": "failed", "error": "JACOCO_REPORT_NOT_FOUND",
@@ -1265,7 +1294,7 @@ def detect_pipeline_state(root: str = ".", line: float = 1.0, branch: float = 1.
     previous/current HarnessConfig is unknown. Callers with a schema-v2 config should pass
     its LINE/BRANCH/METHOD/CLASS thresholds explicitly.
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
 
     def _safe(fn, default=None):
         try:
@@ -1471,7 +1500,7 @@ def coverage_gate(root: str = ".", line: float = DEFAULT_LINE, branch: float = D
     narrowly-targeted run whose JaCoCo report scope still includes uncovered sibling
     classes, the overall CLASS ratio can be <1.0 and fail the gate; use packages/excludes to scope the report. Never lower thresholds to compensate for scope.
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
 
     jacoco_paths = _find_jacoco_xml_all(root)
     jacoco_path = jacoco_paths[0] if jacoco_paths else None
@@ -1624,7 +1653,7 @@ def detect_build_capabilities(root: str = ".") -> dict:
     Returns {status, buildTool, capabilities{jacoco,jacocoXml}, missing[],
     proposedChanges[], remediation}.
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
     det = _detect(root)
     if det.get("status") != "ok":
         return det
@@ -1663,7 +1692,7 @@ def check_dependency_cache(build_tool: str = "", root: str = ".") -> dict:
 
     Returns {status, buildTool, primed, evidence, primeCommand, recommendation}.
     """
-    root = os.path.abspath(root)
+    root = _project_root(root)
     tool = (build_tool or "").strip().lower()
     if tool not in ("gradle", "maven"):
         det = _detect(root)

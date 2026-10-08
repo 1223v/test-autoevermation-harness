@@ -3,6 +3,11 @@ name: ingest-specs
 description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화한다. "스펙 문서 리뷰", "요구사항 분석", "스펙 인제스트"처럼 문서 처리가 필요한 상황에서 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 스펙 문서(요구사항서, API 설계서, 도메인 규격 등)를 받아 누락 없이 요약하고, 테스트 가능한 acceptance criteria / 비즈니스 규칙 / edge case / 금지사항을 Given/When/Then 형태로 정규화한다. 결과는 `generate-scenarios` 스킬의 입력으로 쓰인다.

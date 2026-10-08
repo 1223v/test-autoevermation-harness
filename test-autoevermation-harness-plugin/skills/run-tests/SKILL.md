@@ -3,6 +3,11 @@ name: run-tests
 description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 실행한 뒤 JUnit XML 리포트를 파싱해 결과를 반환한다. "테스트 실행", "테스트 돌리기", "빌드 테스트"처럼 테스트 수행이 필요한 상황에서 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 `build-test-mcp`를 통해 빌드 도구(Gradle/Maven)를 감지하고, 생성된 테스트 클래스에 한정된 가장 좁은 범위의 테스트 task를 실행한다. 표준 출력보다 surefire/JUnit XML 리포트를 우선 파싱하고, 결과를 구조화된 JSON으로 반환한다. 실패 시 `repair-tests` 스킬이 이어 호출된다.

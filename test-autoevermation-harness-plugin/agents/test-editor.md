@@ -6,6 +6,11 @@ tools: Read, Write, Edit, Grep, Glob, mcp__plugin_test-autoevermation-harness-pl
 disallowedTools: Bash
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 full-pipeline **밖에서**(또는 파이프라인이 끝난 뒤) 사용자가 **명시적으로 지목한** 기존 테스트 코드를 편집한다. 테스트 메서드 이름 변경, 단언(assertion) 추가·조정, 테스트 파일 구조 정리·리팩토링이 대상이다. 모든 편집은 추측이 아니라 `repo-ast` MCP의 AST 분석 결과에 근거해야 한다. Bash 실행 권한이 없으므로 테스트를 실행하지 않으며(편집만 수행), 파일 쓰기는 Write/Edit로만 한다. 편집 후 재실행·검증은 `/test-autoevermation-harness-plugin:run-tests` 스킬이 담당하며, 이 에이전트는 결과의 `nextActions`로 그 실행을 안내한다.

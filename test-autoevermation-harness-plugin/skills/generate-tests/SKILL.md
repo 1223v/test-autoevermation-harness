@@ -3,6 +3,11 @@ name: generate-tests
 description: 시나리오 집합을 받아 JUnit Jupiter/Spring Test/Mockito 기반의 컴파일 가능한 테스트 코드를 작성하고 빌드 설정 변경안을 제안한다. "테스트 코드 생성", "테스트 작성", "JUnit 생성"처럼 테스트 파일 생성이 필요한 상황에서 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 `generate-scenarios` 결과(ScenarioSet)를 받아 각 시나리오에 대응하는 테스트 클래스·메서드를 작성한다. 컨트롤러는 `@WebMvcTest + MockMvc`, JPA 레포는 `@DataJpaTest`, 서비스/순수 로직은 스프링 컨텍스트 없는 단위 테스트, 다계층 통합은 `@SpringBootTest`(최소화) 방식을 따른다.

@@ -62,6 +62,30 @@ def _get_workspace_root() -> Path | None:
     return None
 
 
+def _request_root(root: str | None) -> Path | None:
+    """Per-call scope; the configured boundary can be narrowed, never widened."""
+    configured = _get_workspace_root()
+    if root is None:
+        if os.environ.get("HARNESS_HOST") == "codex":
+            raise ValueError("PROJECT_ROOT_REQUIRED: pass the confirmed absolute project root")
+        return configured
+    requested = Path(root)
+    if not root.strip() or not requested.is_absolute():
+        raise ValueError("INVALID_PROJECT_ROOT: root must be an absolute directory")
+    requested = requested.resolve()
+    if not requested.is_dir():
+        raise ValueError("INVALID_PROJECT_ROOT: root directory does not exist")
+    if configured is not None and not requested.is_relative_to(configured):
+        raise ValueError("PROJECT_ROOT_OUTSIDE_ALLOWLIST: root exceeds SPEC_DOC_WORKSPACE")
+    return requested
+
+
+def _scope_failure(exc: Exception, **fields: Any) -> dict:
+    return {"status": "failed", "summary": str(exc), "errors": [str(exc)],
+            "warnings": [], "nextActions": ["Confirm root and call index_docs for that root."],
+            **fields}
+
+
 def _get_allowlist() -> list[str]:
     raw = os.environ.get("SPEC_DOC_ALLOWLIST", "docs,specs,requirements,spec,doc,requirement")
     return [d.strip() for d in raw.split(",") if d.strip()]
@@ -147,7 +171,7 @@ def redact_text(text: str) -> str:
 # Path security
 # ---------------------------------------------------------------------------
 
-def _is_path_allowed(path: Path) -> tuple[bool, str]:
+def _is_path_allowed(path: Path, root: Path | None = None) -> tuple[bool, str]:
     """
     Returns (allowed, reason).
     A path is allowed if:
@@ -157,7 +181,7 @@ def _is_path_allowed(path: Path) -> tuple[bool, str]:
     resolved = path.resolve()
 
     # Check workspace root
-    workspace_root = _get_workspace_root()
+    workspace_root = root if root is not None else _get_workspace_root()
     if workspace_root is not None:
         try:
             resolved.relative_to(workspace_root)
@@ -235,12 +259,23 @@ _INDEX: list[dict[str, Any]] = []
 # Glossary extracted from indexed docs
 _GLOSSARY: dict[str, str] = {}
 _INDEX_LOCK = threading.Lock()
+_INDEX_ROOT: str | None = None
 
 
 def _clear_index() -> None:
-    global _INDEX, _GLOSSARY
+    global _INDEX, _GLOSSARY, _INDEX_ROOT
     with _INDEX_LOCK:
         _INDEX, _GLOSSARY = [], {}
+        _INDEX_ROOT = None
+
+
+def _snapshot(root: str | None) -> tuple[list[dict[str, Any]], dict[str, str], Path | None]:
+    scope = _request_root(root)
+    with _INDEX_LOCK:
+        index, glossary, indexed_root = _INDEX, _GLOSSARY, _INDEX_ROOT
+    if (index or indexed_root is not None) and (Path(indexed_root) if indexed_root else None) != scope:
+        raise ValueError("SPEC_DOC_ROOT_MISMATCH: call index_docs for the requested root first")
+    return index, glossary, scope
 
 
 def _build_glossary_from_chunks(chunks: list[dict[str, Any]]) -> dict[str, str]:
@@ -411,7 +446,7 @@ def _strip_prohibition(crit: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def health() -> dict:
+def health(root: str | None = None) -> dict:
     """Side-effect-free diagnostic probe: report server config status.
 
     Reports the plugin version and the redaction/allowlist configuration read
@@ -426,16 +461,24 @@ def health() -> dict:
         allowlist = _get_allowlist()
     except Exception:
         allowlist = []
+    scope_error = None
+    try:
+        scope = _request_root(root) if root is not None else _get_workspace_root()
+    except (ValueError, OSError) as exc:
+        scope, scope_error = None, str(exc)
     return {
         "server": "spec-doc",
         "pluginVersion": _plugin_version(),
         "redact": redact,
         "allowlist": allowlist,
+        "workspaceRoot": str(scope) if scope is not None else None,
+        "rootRequired": os.environ.get("HARNESS_HOST") == "codex",
+        "scopeError": scope_error,
     }
 
 
 @mcp.tool()
-def index_docs(paths: list[str]) -> dict:
+def index_docs(paths: list[str], root: str | None = None) -> dict:
     """
     Walk the provided paths (files or directories), read .md/.txt/.adoc files,
     chunk them, and build an in-memory index.
@@ -450,11 +493,17 @@ def index_docs(paths: list[str]) -> dict:
 
     Args:
         paths: List of file paths or directory paths to index.
+        root: Absolute project directory; required on Codex. Relative paths use
+              this root, constrained by SPEC_DOC_WORKSPACE when configured.
 
     Returns:
         dict with keys: status, indexed_files, chunk_count, unreadable, warnings, errors
     """
-    global _INDEX, _GLOSSARY
+    global _INDEX, _GLOSSARY, _INDEX_ROOT
+    try:
+        scope = _request_root(root)
+    except (ValueError, OSError) as exc:
+        return _scope_failure(exc, indexed_files=[], chunk_count=0, unreadable=[])
     indexed_files: list[str] = []
     unreadable: list[str] = []
     warnings: list[str] = []
@@ -473,7 +522,7 @@ def index_docs(paths: list[str]) -> dict:
                     f"{', '.join(sorted(_SUPPORTED_EXTENSIONS))}): {fpath}"
                 )
             return
-        allowed, reason = _is_path_allowed(fpath)
+        allowed, reason = _is_path_allowed(fpath, scope)
         if not allowed:
             warnings.append(f"Skipped (not allowed): {fpath} — {reason}")
             return
@@ -493,13 +542,15 @@ def index_docs(paths: list[str]) -> dict:
 
     for raw_path in paths:
         p = Path(raw_path)
+        if root is not None and not p.is_absolute():
+            p = scope / p
         if not p.exists():
             warnings.append(f"Path does not exist: {p}")
             continue
         if p.is_file():
             _process_file(p, explicit=True)
         elif p.is_dir():
-            allowed, reason = _is_path_allowed(p)
+            allowed, reason = _is_path_allowed(p, scope)
             if not allowed:
                 warnings.append(f"Directory skipped (not allowed): {p} — {reason}")
                 continue
@@ -513,6 +564,7 @@ def index_docs(paths: list[str]) -> dict:
     new_glossary = _build_glossary_from_chunks(all_chunks)
     with _INDEX_LOCK:
         _INDEX, _GLOSSARY = all_chunks, new_glossary
+        _INDEX_ROOT = str(scope) if scope is not None else None
 
     status = ("partial" if unreadable or warnings else "ok") if indexed_files else "failed"
     if not indexed_files and not unreadable:
@@ -530,7 +582,7 @@ def index_docs(paths: list[str]) -> dict:
 
 
 @mcp.tool()
-def search_requirements(query: str, top_k: int = 10) -> dict:
+def search_requirements(query: str, top_k: int = 10, root: str | None = None) -> dict:
     """
     Keyword/score search over indexed document chunks.
 
@@ -541,8 +593,10 @@ def search_requirements(query: str, top_k: int = 10) -> dict:
     Returns:
         dict with keys: status, query, results (list of chunk matches), total_chunks_searched
     """
-    with _INDEX_LOCK:
-        index, glossary = _INDEX, _GLOSSARY
+    try:
+        index, glossary, _ = _snapshot(root)
+    except (ValueError, OSError) as exc:
+        return _scope_failure(exc, query=query, results=[], total_chunks_searched=0)
     if not index:
         return {
             "status": "failed",
@@ -592,7 +646,7 @@ def search_requirements(query: str, top_k: int = 10) -> dict:
 
 
 @mcp.tool()
-def extract_acceptance_criteria(paths: list[str] | None = None) -> dict:
+def extract_acceptance_criteria(paths: list[str] | None = None, root: str | None = None) -> dict:
     """
     Heuristically extract acceptance criteria from indexed documents (or specific paths).
 
@@ -611,8 +665,17 @@ def extract_acceptance_criteria(paths: list[str] | None = None) -> dict:
         SpecReviewResult dict: status, summary, requirements[], acceptanceCriteria[],
                                prohibitions[], glossary, evidence[], warnings[], errors[]
     """
-    with _INDEX_LOCK:
-        index, glossary = _INDEX, _GLOSSARY
+    try:
+        index, glossary, scope = _snapshot(root)
+        if root is not None and paths:
+            paths = [str(scope / p) if not Path(p).is_absolute() else p for p in paths]
+            for p in paths:
+                allowed, reason = _is_path_allowed(Path(p), scope)
+                if not allowed:
+                    raise ValueError("SPEC_DOC_PATH_DENIED: " + reason)
+    except (ValueError, OSError) as exc:
+        return _scope_failure(exc, requirements=[], acceptanceCriteria=[],
+                              prohibitions=[], glossary={}, evidence=[])
     if not index:
         return {
             "status": "failed",

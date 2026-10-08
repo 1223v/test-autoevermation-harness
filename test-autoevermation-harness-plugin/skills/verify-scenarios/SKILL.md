@@ -3,6 +3,11 @@ name: verify-scenarios
 description: 필수 단계(생성·실행·커버리지)가 끝난 뒤, 승인된 각 BDD 시나리오가 실제로 충족되었는지(테스트가 given/when/then을 만족하는지) 검증하고, 시나리오↔테스트코드↔결과를 대상 프로젝트의 test_docs/에 정리한다. "시나리오 검증", "시나리오 만족 확인", "적합성 검증", "test_docs 정리"처럼 시나리오 충족 확인이 필요할 때 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 생성·통과한 테스트가 **승인된 시나리오의 BDD given/when/then을 실제로 만족하는지** 검증한다(단순 통과 여부가 아님).

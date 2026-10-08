@@ -3,6 +3,11 @@ name: repair-tests
 description: 테스트 실패 원인을 유형별로 분류하고 최소 diff 수정을 적용한 뒤 재실행 대상을 반환한다. "테스트 수정", "테스트 보정", "실패 수정", "flaky 수정"처럼 실패한 테스트의 원인 분석 및 수정이 필요한 상황에서 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 `run-tests`가 반환한 실패 결과를 받아 실패 유형(`TEST_COMPILE_FAILED`, `TEST_RUNTIME_FAILED`, `FLAKY_SUSPECTED`, `SPEC_MISMATCH`, `SYMBOL_UNRESOLVED`)을 분류하고 **최소 diff** 수정을 적용한다. 추가로 **모드 B(적합성 보정)**: full-pipeline 9.5단계가 전달하는 `nonconformantItems[]`(9단계 verifier의 `unsatisfied` 시나리오 — 테스트는 통과하지만 시나리오와 불일치)를 `SCENARIO_NONCONFORMANT`로 보정한다. 무작정 재생성은 금지한다. flaky 의심 시 `Thread.sleep` 대신 await/clock 주입 등 결정적 방식을 제안한다. 수정 후 `run-tests`에 재실행 대상을 전달한다. **그린이 될 때까지 재시도**하되 — `retryCount`/`maxRepairRetries`는 진전 추적 단위일 뿐 고정 상한이 아니다(fallback-policy.md #12) — **직전과 동일한 실패 집합이 3회 연속(무진전)**이면 `status: "partial"`로 잔여 실패를 전량 보고하고 중단한다. 수정은 메인 작업 트리에서 직접 수행한다(`isolation: worktree`는 쓰지 않는다 — 공식 worktree는 원격 기본 브랜치의 추적 파일만 체크아웃해 미커밋 테스트가 보이지 않는다).

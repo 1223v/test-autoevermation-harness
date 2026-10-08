@@ -6,6 +6,11 @@ tools: Read, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_spec-doc
 disallowedTools: Write, Edit, Bash
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 스펙 문서 경로를 받아 **누락 없이** 요약하고, 테스트 가능한 acceptance criteria·규칙·edge case·금지사항을 정규화된 Given/When/Then 형식으로 추출한다. 결과는 `scenario-generator`와 `test-fixer`의 입력으로 직결된다.

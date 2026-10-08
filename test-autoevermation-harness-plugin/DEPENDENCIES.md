@@ -1,5 +1,7 @@
 # 런타임 의존성 — OMC 비의존 선언
 
+> Codex 앱·CLI도 지원한다. 공용 MCP/JavaParser 의존성은 같고 Codex의 JavaParser 빌드 JDK는 17+다. 아래 Claude 네이티브 도구·JDT LS·상태줄·훅 의존성은 Claude 전용이다. Codex는 순차 실행과 실제 제공된 도구를 사용한다. Superpowers 설치 의존성은 없다. [호스트별 환경](references/hosts/codex.md)을 참조한다.
+
 본 플러그인은 **oh-my-claudecode(OMC)에 의존하지 않는다.** 빌드 과정에서 OMC 도구를 사용했더라도, 배포되는 산출물은 **Claude Code 네이티브 기능 + 표준 툴체인**만으로 동작한다.
 
 ## 의존하는 것 (모두 네이티브/표준)

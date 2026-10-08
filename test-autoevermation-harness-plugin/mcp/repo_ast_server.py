@@ -137,6 +137,24 @@ def _is_allowed(path: Path, root: Optional[Path]) -> bool:
         return False
 
 
+def _request_root(root: str | None) -> Optional[Path]:
+    """Resolve a call's scope without changing process-wide environment/cwd."""
+    configured = _allow_root()
+    if root is None:
+        if os.environ.get("HARNESS_HOST") == "codex":
+            raise ValueError("PROJECT_ROOT_REQUIRED: pass the confirmed absolute project root")
+        return configured
+    requested = Path(root)
+    if not root.strip() or not requested.is_absolute():
+        raise ValueError("INVALID_PROJECT_ROOT: root must be an absolute directory")
+    requested = requested.resolve()
+    if not requested.is_dir():
+        raise ValueError("INVALID_PROJECT_ROOT: root directory does not exist")
+    if configured is not None and not _is_allowed(requested, configured):
+        raise ValueError("PROJECT_ROOT_OUTSIDE_ALLOWLIST: root exceeds REPO_AST_ALLOW_ROOT")
+    return requested
+
+
 def _collect_java_files(paths: list[str], root: Optional[Path]) -> tuple[list[Path], list[str]]:
     """Expand the requested paths into allowed ``*.java`` files.
 
@@ -185,7 +203,8 @@ def _data_dir() -> Path:
     cache directory (``CLAUDE_PLUGIN_ROOT``) does not — official docs say not to
     store state there. Local-dev fallback: ``mcp/.plugin-data``.
     """
-    env = os.environ.get("CLAUDE_PLUGIN_DATA", "").strip()
+    key = "PLUGIN_DATA" if os.environ.get("HARNESS_HOST") == "codex" else "CLAUDE_PLUGIN_DATA"
+    env = (os.environ.get(key) or os.environ.get("PLUGIN_DATA") or os.environ.get("CLAUDE_PLUGIN_DATA") or "").strip()
     if env:
         return Path(env)
     return Path(__file__).resolve().parent / ".plugin-data"
@@ -687,8 +706,9 @@ def _build_result(
         if result["unresolvedSymbols"]:
             result["nextActions"].append(
                 "Narrow `targets`/add the defining sources so remaining symbols "
-                "resolve, or rely on the pipeline's JDT LS stage (analyze-source) "
-                "for semantic augmentation — this server itself has no LSP backend."
+                "resolve; use source/build evidence on Codex or the verified JDT LS "
+                "stage on Claude. Defer targets whose semantics remain unclear. "
+                "This server itself has no LSP backend."
             )
     else:
         result["status"] = "ok"
@@ -696,10 +716,17 @@ def _build_result(
     return result
 
 
-def _analyze(paths: list[str], kinds: Optional[list[str]] = None) -> dict[str, Any]:
+def _analyze(paths: list[str], kinds: Optional[list[str]] = None,
+             root: str | None = None) -> dict[str, Any]:
     """Core analysis entrypoint shared by every tool. Pure / side-effect free."""
-    root = _allow_root()
-    files, denied = _collect_java_files(paths, root)
+    try:
+        scope = _request_root(root)
+    except (ValueError, OSError) as exc:
+        return _failed_result(str(exc).split(":", 1)[0], str(exc),
+                              ["Pass the confirmed absolute root inside REPO_AST_ALLOW_ROOT."])
+    if root is not None:
+        paths = [str(scope / p) if not Path(p).is_absolute() else p for p in paths]
+    files, denied = _collect_java_files(paths, scope)
 
     jar = _locate_jar()
     use_java = bool(jar) and _jdk_available()
@@ -717,8 +744,9 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None) -> dict[str, A
             f"(jar={'found' if jar else 'missing'}, "
             f"jdk={'ok' if _jdk_available() else 'missing'}).",
             [
-                "Run /test-autoevermation-harness-plugin:setup-harness (E6: \"${CLAUDE_PLUGIN_ROOT}\"/mcp/javaparser-cli 빌드 후 "
-                "CLAUDE_PLUGIN_DATA로 persist), or set REPO_AST_JAVAPARSER_JAR to a prebuilt astcli shaded jar.",
+                "Run setup-harness E6: build mcp/javaparser-cli and persist to the host's "
+                "PLUGIN_DATA (Codex) or CLAUDE_PLUGIN_DATA (Claude), or set "
+                "REPO_AST_JAVAPARSER_JAR to a prebuilt astcli shaded jar.",
                 "Ensure a JDK 'java' runtime is on PATH (or set REPO_AST_JAVA_BIN).",
             ],
         )
@@ -853,7 +881,7 @@ def build_server() -> Any:
     mcp = MCPServer(SERVER_NAME)
 
     @mcp.tool()
-    def health() -> dict:
+    def health(root: str | None = None) -> dict:
         """Side-effect-free diagnostic probe: report server capability status.
 
         Reports whether the JavaParser jar/JDK are available and the strict-mode
@@ -878,10 +906,12 @@ def build_server() -> Any:
             require = _require_javaparser()
         except Exception:  # noqa: BLE001
             require = False
+        scope_error = None
         try:
-            root = _allow_root()
-            allow_root = str(root) if root is not None else None
-        except Exception:  # noqa: BLE001
+            scope = _request_root(root) if root is not None else _allow_root()
+            allow_root = str(scope) if scope is not None else None
+        except (ValueError, OSError) as exc:
+            scope_error = str(exc)
             allow_root = None
         jar_persisted: Optional[bool] = None
         jar_stale: Optional[bool] = None
@@ -912,10 +942,12 @@ def build_server() -> Any:
                 "jarStale": jar_stale,
             },
             "allowRoot": allow_root,
+            "rootRequired": os.environ.get("HARNESS_HOST") == "codex",
+            "scopeError": scope_error,
         }
 
     @mcp.tool()
-    def parse_java_file(path: str) -> dict:
+    def parse_java_file(path: str, root: str | None = None) -> dict:
         """Parse a single Java file, returning structure-only AST metadata.
 
         Emits class/method signatures, fields and annotations (never method
@@ -929,10 +961,10 @@ def build_server() -> Any:
         distinguish same-named methods on different collaborators. Conforms to
         AstAnalysisResult.
         """
-        return _analyze([path])
+        return _analyze([path], root=root)
 
     @mcp.tool()
-    def resolve_symbol(paths: list[str], symbol: str) -> dict:
+    def resolve_symbol(paths: list[str], symbol: str, root: str | None = None) -> dict:
         """Locate a fully-qualified type or simple name across the given paths.
 
         Returns an AstAnalysisResult whose testTargets are filtered to types
@@ -944,7 +976,9 @@ def build_server() -> Any:
         remain scoped to the ENTIRE analyzed path set. Narrow ``paths`` if you
         need those fields scoped to the symbol as well.
         """
-        full = _analyze(paths)
+        full = _analyze(paths, root=root)
+        if full["status"] == "failed":
+            return full
         needle = symbol.strip()
         matched = [
             t
@@ -964,16 +998,17 @@ def build_server() -> Any:
         return full
 
     @mcp.tool()
-    def list_spring_components(paths: list[str]) -> dict:
+    def list_spring_components(paths: list[str], root: str | None = None) -> dict:
         """List Spring stereotype components found under the given paths.
 
         Detects @RestController/@Controller/@Service/@Repository/@Component and
         classifies each into a target kind.
         """
-        return _analyze(paths, kinds=["controller", "service", "repository", "component"])
+        return _analyze(paths, kinds=["controller", "service", "repository", "component"], root=root)
 
     @mcp.tool()
-    def extract_test_targets(paths: list[str], kinds: list[str] | None = None) -> dict:
+    def extract_test_targets(paths: list[str], kinds: list[str] | None = None,
+                             root: str | None = None) -> dict:
         """Extract test-target candidates (public methods + Spring stereotypes).
 
         ``kinds`` optionally restricts results to a subset of
@@ -981,7 +1016,7 @@ def build_server() -> Any:
         AstAnalysisResult. Symbols are never inferred: unresolved references are
         returned in ``unresolvedSymbols``. Method bodies are never returned.
         """
-        return _analyze(paths, kinds=kinds)
+        return _analyze(paths, kinds=kinds, root=root)
 
     return mcp
 

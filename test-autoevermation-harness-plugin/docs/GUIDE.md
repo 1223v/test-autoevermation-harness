@@ -1,5 +1,7 @@
 # Spring 테스트 하네스 — 동작 원리·사용 가이드 (GUIDE)
 
+> Codex 앱·CLI 설치와 실행은 [CODEX.md](CODEX.md), 호스트별 실행 차이는 [host-runtime.md](../references/host-runtime.md)를 따른다. 이 가이드의 Claude 도구·LSP·상태줄·훅 예시는 Claude 전용이며 공용 단계·검증·산출물은 두 호스트에서 유지한다.
+
 이 문서는 `test-autoevermation-harness-plugin` 플러그인이 **어떤 구조로, 어떤 순서로 동작하는지**와
 **설치부터 실행·설정·산출물 해석까지 어떻게 사용하는지**를 한 곳에 정리한 종합 가이드다.
 

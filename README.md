@@ -1,11 +1,24 @@
 # test-autoevermation-harness
 
-Claude Code용 **Spring 테스트코드 자동 생성 하네스**를 배포하는 플러그인 마켓플레이스 저장소.
+Codex 앱·CLI와 Claude Code용 **Spring 테스트코드 자동 생성 하네스**를 배포하는 플러그인 마켓플레이스 저장소.
 
-이 저장소는 Claude Code 마켓플레이스 카탈로그(`.claude-plugin/marketplace.json`)와
+이 저장소는 Codex 카탈로그(`.agents/plugins/marketplace.json`), Claude Code 카탈로그(`.claude-plugin/marketplace.json`)와
 배포 대상 플러그인(`test-autoevermation-harness-plugin/`)을 포함한다.
 
 ---
+
+## 설치 (Codex 앱·CLI)
+
+배포 버전은 **0.35.0**이다. 저장소 루트에서:
+
+```text
+codex plugin marketplace add .
+codex plugin add test-autoevermation-harness-plugin@test-autoevermation-harness
+```
+
+앱에서는 이 저장소를 프로젝트로 열고 Plugins 디렉터리의 `Test Autoevermation Harness` 소스에서 설치한다. Git 설치·업데이트·환경 준비·실행 예시와 호스트별 차이는 [Codex 가이드](test-autoevermation-harness-plugin/docs/CODEX.md)를 따른다. Codex는 JavaParser·소스/빌드 근거를 사용하며 JDT LS·Claude 상태줄·강제 위임 훅을 사용하지 않는다. Superpowers 원칙은 내장되어 별도 설치가 필요 없다.
+
+아래 설치·제거와 JDT LS 설명은 Claude Code용이다.
 
 ## 설치 (Claude Code)
 

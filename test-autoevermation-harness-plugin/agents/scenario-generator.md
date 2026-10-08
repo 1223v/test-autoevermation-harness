@@ -6,6 +6,11 @@ tools: Read, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_req
 disallowedTools: Write, Edit, Bash
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 `ast-structure-analyzer`, `source-code-analyzer`, `spec-reviewer` 세 에이전트의 결과를 수렴하여 **최소 시나리오 집합**을 설계한다. 중복 시나리오를 병합하고, 빠른 테스트(unit)를 느린 테스트(integration)보다 우선하며, 느린 시나리오는 필요 사유를 반드시 명시한다. 각 시나리오는 acceptance criteria ID와 대상 FQCN에 매핑된다.

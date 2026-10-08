@@ -1,0 +1,12 @@
+{
+  "name": "test-autoevermation-harness",
+  "interface": { "displayName": "Test Autoevermation Harness" },
+  "plugins": [
+    {
+      "name": "test-autoevermation-harness-plugin",
+      "source": { "source": "local", "path": "./test-autoevermation-harness-plugin" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Developer Tools"
+    }
+  ]
+}

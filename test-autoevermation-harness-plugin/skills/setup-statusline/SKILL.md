@@ -3,6 +3,11 @@ name: setup-statusline
 description: TAM 상태줄(플러그인 버전·full-pipeline 진행률·현재 단계)을 Claude Code statusLine에 설치하거나 제거한다. "상태줄 설치", "statusline 설정", "TAM 상태줄", "진행률 표시", "상태줄 제거/원복"처럼 상태줄 구성이 필요한 상황에서 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 Claude Code 상태줄에 아래 형식의 줄을 한 줄 추가한다(공식 문서상 statusLine stdout의 각 줄은 별도 행으로 렌더링됨):

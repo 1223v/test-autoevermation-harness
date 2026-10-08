@@ -3,6 +3,11 @@ name: measure-coverage
 description: JaCoCo로 line/branch/method/class 커버리지를 측정하고 near-100% 게이트에 미달하면 coverage-closer 에이전트로 추가 테스트를 생성해 gap을 닫는 루프를 수행한다. "커버리지 측정", "커버리지 올려줘", "coverage gap", "100% 커버리지"처럼 커버리지 측정/상향이 필요할 때 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메서드/라인/브랜치)를 식별하고, near-100% 목표에 도달할 때까지 **측정 → gap 분석 → 추가 테스트 생성 → 재측정** 루프를 돌린다. 단순 라인 채우기가 아니라 **브랜치 경로**를 실제로 검증하는 테스트를 생성한다.

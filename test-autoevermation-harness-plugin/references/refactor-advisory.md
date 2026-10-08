@@ -1,5 +1,7 @@
 # 리팩토링 권고 게이트 (SSOT)
 
+> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·강제 위임 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
+
 이 문서는 하네스의 **리팩토링 권고 산출물(`test_docs/refactoring/`)·탐지 기준·사용자 결정 게이트(3.5단계)**에 대한
 단일 출처(Single Source of Truth)다. `full-pipeline`·`refactor-advisory` 스킬과 `refactor-advisor` 에이전트는 이 문서를 따른다.
 

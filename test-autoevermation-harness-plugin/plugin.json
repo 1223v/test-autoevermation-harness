@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "test-autoevermation-harness-plugin",
+  "version": "0.35.0",
+  "description": "Spring Boot 테스트 생성·실행·JaCoCo·시나리오 검증 하네스. Codex 앱/CLI와 Claude Code에서 공용 스킬과 MCP 서버를 사용합니다.",
+  "author": { "name": "test-autoevermation-harness-plugin maintainers" },
+  "homepage": "https://github.com/1223v/test-autoevermation-harness",
+  "repository": "https://github.com/1223v/test-autoevermation-harness",
+  "license": "Apache-2.0",
+  "keywords": ["spring", "junit", "test-generation", "harness"],
+  "extensions": {
+    "com.openai": {
+      "hooks": {},
+      "interface": {
+        "displayName": "Test Autoevermation Harness",
+        "shortDescription": "Spring 테스트 생성과 실행 결과 기반 검증",
+        "longDescription": "소스·스펙 분석, 시나리오 승인, BDD 테스트 생성, 실행·보정, JaCoCo 커버리지와 시나리오 적합성 검증을 제공합니다. Codex에서는 JavaParser와 소스·빌드 근거를 사용하며 Claude 전용 훅과 상태줄을 실행하지 않습니다.",
+        "developerName": "test-autoevermation-harness-plugin maintainers",
+        "category": "Developer Tools",
+        "capabilities": ["Interactive", "Read", "Write"],
+        "defaultPrompt": ["이 Spring 프로젝트의 테스트 생성 환경을 준비해줘.", "스펙과 소스를 분석해 승인된 시나리오의 테스트를 생성하고 실행해줘."]
+      }
+    }
+  }
+}

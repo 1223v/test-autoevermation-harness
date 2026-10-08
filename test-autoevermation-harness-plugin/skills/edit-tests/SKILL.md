@@ -3,6 +3,11 @@ name: edit-tests
 description: 사용자가 지목한 기존 테스트 코드를 repo-ast AST 분석 근거로 직접 편집한다(테스트 메서드 이름 변경, 단언 추가·조정, 테스트 파일 정리·리팩토링). "테스트 리팩토링", "이 테스트 메서드 이름 바꿔줘", "단언 추가해줘", "이 테스트 파일 정리해줘", "테스트 코드 편집"처럼 특정 테스트의 직접 편집이 필요한 상황에서 자동 호출된다. 실패 테스트의 원인 보정은 repair-tests, 테스트 재생성·커버리지 상향은 full-pipeline이 담당한다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 full-pipeline **밖에서**(또는 파이프라인 종료 후) 사용자가 **명시적으로 지목한** 기존 테스트 코드를 편집한다. `test-editor` 서브에이전트에 위임하며, 모든 편집은 `repo-ast` MCP의 AST 분석에 근거한다(추측 편집 금지). 이 스킬은 테스트를 **실행하지 않는다** — 편집 후 재실행·검증은 `/test-autoevermation-harness-plugin:run-tests`로 안내한다.

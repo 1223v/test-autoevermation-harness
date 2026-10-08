@@ -39,7 +39,8 @@ FINGERPRINT_BASENAME = "astcli.fingerprint"
 
 def data_dir() -> Path:
     """bootstrap.py data_dir()와 동일 해석: CLAUDE_PLUGIN_DATA → .plugin-data 폴백."""
-    env = os.environ.get("CLAUDE_PLUGIN_DATA", "").strip()
+    key = "PLUGIN_DATA" if os.environ.get("HARNESS_HOST") == "codex" else "CLAUDE_PLUGIN_DATA"
+    env = (os.environ.get(key) or os.environ.get("PLUGIN_DATA") or os.environ.get("CLAUDE_PLUGIN_DATA") or "").strip()
     if env:
         return Path(env)
     return PLUGIN_ROOT / "mcp" / ".plugin-data"

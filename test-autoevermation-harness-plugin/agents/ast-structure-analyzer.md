@@ -6,6 +6,11 @@ tools: Read, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_repo-ast
 disallowedTools: Write, Edit, Bash
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 JavaParser 기반 `repo-ast-mcp`를 통해 대상 모듈/패키지/클래스의 **구조 정보만** 정밀 추출한다. 클래스 계층, public 메서드 시그니처, 필드 타입, Spring stereotype 애노테이션, 의존 그래프를 산출하되 코드 본문은 절대 반환하지 않는다. 추측 불가한 심볼은 `unresolvedSymbols`로 분리한다.

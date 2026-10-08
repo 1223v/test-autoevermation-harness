@@ -5,6 +5,11 @@ model: inherit
 tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_build_tool, mcp__plugin_test-autoevermation-harness-plugin_build-test__run_targeted_tests, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_requirements, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__extract_acceptance_criteria
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 `test-runner`가 반환한 실패 결과를 분석하여 **원인 유형을 분류**하고 **최소 diff**로 테스트를 수정한다. 무작정 재생성은 금지한다. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안한다. 수정 후 `rerunTargets`를 반환하여 `test-runner`가 재실행하도록 한다.

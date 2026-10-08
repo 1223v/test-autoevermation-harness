@@ -6,6 +6,11 @@ tools: Read, Grep, Glob, mcp__plugin_test-autoevermation-harness-plugin_repo-ast
 disallowedTools: Write, Edit, Bash
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 AST(2단계)·소스(3단계) 분석 이후, 시나리오 생성(4단계) **전에** 각 테스트 대상이 "지금 테스트를 붙이기에

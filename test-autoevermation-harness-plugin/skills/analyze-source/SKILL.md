@@ -3,6 +3,11 @@ name: analyze-source
 description: 구조가 아닌 동작 관점에서 호출 관계, 예외 흐름, DI 패턴, 트랜잭션 경계, 외부 I/O·DB·clock·randomness 등 테스트 seam을 식별한다. "호출 분석", "의존 분석", "테스트 seam", "DI 분석"처럼 동작 파악이 필요한 상황에서 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 `analyze-ast` 결과로 확보된 심볼 목록을 기반으로, 각 대상의 **동작** 관점 정보를 추출한다. 구체적으로 협력 객체(collaborators), 부수 효과(sideEffects), 테스트 seam(외부 DB/HTTP/clock/randomness), 트랜잭션 경계를 식별해 `generate-scenarios`가 mock 전략을 수립할 수 있도록 한다. `repo-ast-mcp`와 JDT LS를 함께 사용한다.

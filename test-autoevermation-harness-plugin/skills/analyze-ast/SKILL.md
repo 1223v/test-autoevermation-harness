@@ -3,6 +3,11 @@ name: analyze-ast
 description: JavaParser 기반으로 Spring 프로젝트의 클래스/메서드/애노테이션/의존 그래프를 구조적으로 추출한다. "AST 분석", "구조 추출", "클래스 의존 그래프"처럼 코드 구조 파악이 필요한 상황에서 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 JavaParser 기반 `repo-ast-mcp`를 통해 대상 패키지·클래스의 public 메서드, Spring stereotype 애노테이션, 필드, 의존 그래프를 **구조만** 정밀 추출한다. 코드 본문 유출 및 심볼 추측을 금지하고, unresolved symbol은 별도 배열로 분리한다. 결과는 `analyze-source` 및 `generate-scenarios` 스킬의 입력으로 쓰인다.

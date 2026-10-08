@@ -29,7 +29,12 @@ const { spawn, spawnSync } = require("child_process");
 
 const IS_WIN = process.platform === "win32";
 const SCRIPT_DIR = __dirname;
-const DATA_DIR = process.env.CLAUDE_PLUGIN_DATA || path.join(SCRIPT_DIR, ".plugin-data");
+const IS_CODEX = process.env.HARNESS_HOST === "codex";
+const DATA_DIR = (IS_CODEX ? process.env.PLUGIN_DATA : process.env.CLAUDE_PLUGIN_DATA)
+  || process.env.PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || path.join(SCRIPT_DIR, ".plugin-data");
+// Inherited by bootstrap and every Python child, including stdlib hook scripts.
+process.env.PYTHONUTF8 = "1";
+const RELOAD_HINT = IS_CODEX ? "restart the Codex session" : "/reload-plugins";
 const PIN_FILE = path.join(DATA_DIR, "python-path");
 const LOCK_DIR = path.join(DATA_DIR, ".python-install.lock");
 const UV_PY_VERSION = "3.12";
@@ -222,7 +227,7 @@ function provisionPython() {
 /** 사용자 화면용 수동 폴백 안내 — SessionStart 훅 exit 2 시 stderr가 transcript에 표시된다. */
 function printFallback(kind, py) {
   const req = path.join(SCRIPT_DIR, "requirements.txt");
-  const lines = ["[test-autoevermation-harness-plugin] MCP 의존성 자동 설치 실패 — 아래 명령으로 수동 설치 후 /reload-plugins 하세요:"];
+  const lines = [`[test-autoevermation-harness-plugin] MCP 의존성 자동 설치 실패 — 아래 명령으로 수동 설치 후 ${RELOAD_HINT}:`];
   if (kind === "python") {
     lines.push("  1) Python 3.10+ 설치: macOS 'brew install python' | Ubuntu/Debian 'sudo apt install python3 python3-venv python3-pip' | Windows 'winget install Python.Python.3.12' | https://www.python.org/downloads/");
     lines.push(`  2) MCP SDK 설치: ${IS_WIN ? "python" : "python3"} -m pip install -r "${req}"`);
@@ -298,7 +303,7 @@ function main() {
   const py = resolvePython();
   if (!py) {
     log("Python 3.10+ unavailable and auto-provisioning failed — MCP servers cannot start.");
-    log("Manual fix: install Python 3.10+ (brew/apt/winget/python.org), then /reload-plugins.");
+    log(`Manual fix: install Python 3.10+ (brew/apt/winget/python.org), then ${RELOAD_HINT}.`);
     process.exit(1);
   }
   runInherit(py, [bootstrap, ...argv]);

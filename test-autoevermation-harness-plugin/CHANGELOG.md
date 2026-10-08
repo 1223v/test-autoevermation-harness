@@ -9,6 +9,26 @@
 
 ---
 
+## [0.35.0] - 2026-10-08
+
+### Added
+
+- Codex 앱·CLI용 표준 plugin.json·mcp.json과 저장소 마켓플레이스. 기존 Claude 패키지·MCP·LSP·훅은 유지한다.
+- 전 스킬·역할의 공통 호스트 계약과 Codex/Claude 어댑터. Codex는 순차 실행, 실제 질문 경로, JavaParser·소스/컴파일 근거를 사용한다.
+- 근거 중심 조사·TODO·원인 분석·최신 결과 확인 원칙을 내장한다. 별도 Superpowers 설치와 테스트를 위한 테스트는 추가하지 않는다.
+
+### Changed
+
+- repo-ast·spec-doc에 optional root를 추가하고 Codex 프로젝트 접근 시 절대 root를 요구한다. build-test의 기존 root도 Codex에서는 절대 경로여야 한다. 기존 환경 경계를 넓히지 않는다.
+- 스펙 인덱스에 소속 root를 기록해 프로젝트 간 검색 혼입을 거부한다.
+- 런처·bootstrap·JavaParser 영속화에서 PLUGIN_DATA와 기존 CLAUDE_PLUGIN_DATA를 지원한다. Python 자식은 UTF-8로 실행한다.
+- Windows PATH 빌드 런처를 절대 경로로 해석하고 비 UTF-8 빌드 로그도 결과 손실 없이 읽는다.
+- HarnessConfig schemaVersion 2를 유지하며 선택 host·analysisBackend를 추가한다. Codex의 lspAvailable은 false이며 JDT LS·상태줄·강제 위임 훅은 제외한다.
+
+검증 범위와 환경 제한은 [검증 기록](docs/codex-validation.md)에 남긴다. 플러그인 자체 테스트 파일은 변경하지 않았다.
+
+---
+
 ## [0.34.0] - 2026-09-10
 
 ### Changed — Claude Code 공식 계약 정합 + 문서 간 모순 정정

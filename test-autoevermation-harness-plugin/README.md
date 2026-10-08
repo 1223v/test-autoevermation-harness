@@ -1,7 +1,11 @@
 # Spring 테스트 하네스 플러그인
 
-Claude Code CLI 기반 Spring 테스트코드 자동 생성 플러그인.
+Codex 앱·CLI 및 Claude Code 기반 Spring 테스트코드 자동 생성 플러그인 (0.35.0).
 스펙 문서·AST 분석·시나리오 설계·코드 생성·실행·보정을 하나의 파이프라인으로 연결한다.
+
+**Codex 사용자:** [앱·CLI 설치/운영 가이드](docs/CODEX.md)를 따른다. JavaParser와 소스·컴파일 근거를 사용하고 `lspAvailable:false`를 기록한다. 아래 Claude 네이티브 기능·설치·LSP·상태줄·훅 예시는 Claude Code용이며, 공용 파이프라인과 산출물 계약은 같다. [호스트 대응표](references/host-runtime.md)에서 차이를 확인한다.
+
+**내장 작업 원칙:** 파일·구조 읽기 → 실제 버전의 공식 문서 → 근거 있는 TODO → 실행 → 결과 확인. 별도 Superpowers 설치, 의무 TDD·mutation·메타 테스트·중복 승인은 추가하지 않는다. [상세 정책](references/evidence-workflow.md).
 
 > **상세 가이드**: 동작 원리·설치·사용법·설정·트러블슈팅을 한 곳에 정리한 종합 가이드는
 > [docs/GUIDE.md](./docs/GUIDE.md) 참조.

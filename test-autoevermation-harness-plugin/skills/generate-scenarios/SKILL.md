@@ -3,6 +3,11 @@ name: generate-scenarios
 description: AST 분석·소스 분석·스펙 결과를 수렴해 unit/slice/integration 테스트 시나리오를 설계한다. "테스트 시나리오", "시나리오 설계", "테스트 케이스 도출"처럼 시나리오 계획이 필요한 상황에서 자동 호출된다.
 ---
 
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
+
 ## 목적
 
 `ingest-specs`의 acceptance criteria, `analyze-ast`의 testTargets, `analyze-source`의 testSeams·collaborators를 수렴해 최소 중복의 테스트 시나리오 집합을 설계한다. unit → slice → integration 순으로 우선순위를 부여하고, 중복 시나리오는 병합하며, 느린 시나리오(integration)는 사유를 명시한다.

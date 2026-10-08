@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "repo-ast": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/mcp/launch.cjs", "${PLUGIN_ROOT}/mcp/repo_ast_server.py"],
+      "env": { "HARNESS_HOST": "codex", "REPO_AST_REQUIRE_JAVAPARSER": "1", "PYTHONUTF8": "1" }
+    },
+    "spec-doc": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/mcp/launch.cjs", "${PLUGIN_ROOT}/mcp/spec_doc_server.py"],
+      "env": { "HARNESS_HOST": "codex", "SPEC_DOC_ALLOWLIST": "docs,specs,requirements", "SPEC_DOC_REDACT": "on", "PYTHONUTF8": "1" }
+    },
+    "build-test": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/mcp/launch.cjs", "${PLUGIN_ROOT}/mcp/build_test_server.py"],
+      "env": { "HARNESS_HOST": "codex", "BUILD_TEST_ALLOW_NETWORK": "0", "PYTHONUTF8": "1" }
+    }
+  }
+}

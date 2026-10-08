@@ -1,5 +1,7 @@
 # full-pipeline 오케스트레이션 상세
 
+> [호스트 실행 계약](../../../references/host-runtime.md)을 먼저 적용한다. Agent 호출·마커·훅 증거·hook timing은 Claude 전용이며 Codex의 인라인 실행·재개 증거 규칙은 [Codex 어댑터](../../../references/hosts/codex.md)를 따른다. 공용 산출물·반복 종료 규칙은 동일하다.
+
 > `full-pipeline/SKILL.md`의 실행 모드, workspace, 부분 재실행 규약을 보충한다.
 
 ## 1. 실행 모드

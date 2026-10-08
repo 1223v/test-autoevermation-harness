@@ -6,6 +6,11 @@ tools: Read, Bash, mcp__plugin_test-autoevermation-harness-plugin_build-test__de
 disallowedTools: Write, Edit
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 빌드 도구를 자동 감지하고 테스트 task를 탐지한 뒤 **가장 좁은 범위**의 테스트만 실행한다. 표준출력보다 surefire/JUnit XML 리포트를 우선 파싱하여 구조화된 실패 정보를 반환한다. 결과는 `test-fixer`의 입력이 되거나 파이프라인 최종 보고서에 포함된다.

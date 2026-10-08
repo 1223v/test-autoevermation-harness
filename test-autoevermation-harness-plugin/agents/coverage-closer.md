@@ -6,6 +6,11 @@ tools: Read, Write, Edit, mcp__plugin_test-autoevermation-harness-plugin_build-t
 disallowedTools: Bash
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 `parse_jacoco_report`가 반환한 `uncovered[]` 목록(미커버 클래스·메서드·라인·브랜치)을 소비하고, 해당 갭을 닫을 추가 테스트 코드를 생성한다. 목표 게이트는 **LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS = 1.00** (RESEARCH_NOTES §6)이며, 제외 allowlist에 포함된 클래스는 생성 대상에서 제외한다. Bash 실행 권한은 없으며 파일 쓰기는 Write/Edit로만 수행한다.

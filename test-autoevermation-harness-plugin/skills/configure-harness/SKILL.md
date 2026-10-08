@@ -1,7 +1,12 @@
 ---
 name: configure-harness
-description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행하고 HarnessConfig JSON을 생성한다. "하네스 설정", "커버리지 임계값 설정", "테스트 대상 지정", "하네스 구성"처럼 설정 또는 초기화가 필요한 상황에서 자동 호출된다. 환경 세팅(Phase E)은 수행하지 않는다 — /test-autoevermation-harness-plugin:setup-harness 선행이 필수이며, 시작 시 E-verify 검증 프로브만 돌려 미완료면 하드 중단한다. 비대화형(AskUserQuestion 사용 불가) 세션에서는 인터뷰를 건너뛰고 HarnessRequest 값으로 구성하되, 필수 항목이 비면 하드 중단한다.
+description: Spring 테스트 하네스의 인터랙티브 인터뷰를 수행하고 HarnessConfig JSON을 생성한다. "하네스 설정", "커버리지 임계값 설정", "테스트 대상 지정", "하네스 구성"처럼 설정 또는 초기화가 필요한 상황에서 자동 호출된다. 환경 세팅(Phase E)은 수행하지 않는다 — /test-autoevermation-harness-plugin:setup-harness 선행이 필수이며, 시작 시 E-verify 검증 프로브만 돌려 미완료면 하드 중단한다. 명시적 비대화형 세션에서는 인터뷰를 건너뛰고 HarnessRequest 값으로 구성하되, 필수 항목이 비면 하드 중단한다.
 ---
+
+## 실행 전 호스트 확인
+
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+
 
 ## 목적
 
@@ -425,7 +430,7 @@ build-test-mcp.check_dependency_cache(build_tool=buildTool, root=projectRoot) �
 
 ### 4단계: HarnessConfig 생성
 
-인터뷰 결과와 입력된 `HarnessRequest` 기본값을 병합하여 `HarnessConfig` JSON을 생성한다.
+인터뷰 결과와 입력된 `HarnessRequest` 기본값을 병합하여 `HarnessConfig` JSON을 생성한다. 선택 메타데이터 `host`(`claude-code`/`codex`)와 `analysisBackend`(`javaparser-lsp`/`javaparser-source`)를 함께 기록할 수 있다. 아래는 실제 LSP 연결이 확인된 Claude 예시다. Codex는 `host:"codex"`, `analysisBackend:"javaparser-source"`, `lspAvailable:false`를 사용한다. schemaVersion과 기존 산출물 구조는 바꾸지 않는다.
 
 ```json
 {

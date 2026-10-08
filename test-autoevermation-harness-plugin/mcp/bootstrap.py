@@ -40,7 +40,8 @@ def log(msg):
 
 
 def data_dir():
-    d = os.environ.get("CLAUDE_PLUGIN_DATA")
+    key = "PLUGIN_DATA" if os.environ.get("HARNESS_HOST") == "codex" else "CLAUDE_PLUGIN_DATA"
+    d = os.environ.get(key) or os.environ.get("PLUGIN_DATA") or os.environ.get("CLAUDE_PLUGIN_DATA")
     if not d:
         # 로컬 dev(--plugin-dir 미사용 상황 등) 폴백 — 플러그인 루트 안이라 업데이트 시 초기화됨
         d = os.path.join(SCRIPT_DIR, ".plugin-data")

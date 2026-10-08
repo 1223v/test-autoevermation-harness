@@ -6,6 +6,11 @@ tools: Read, Grep, Glob, LSP, mcp__plugin_test-autoevermation-harness-plugin_rep
 disallowedTools: Write, Edit, Bash
 ---
 
+## 호스트별 역할 실행
+
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+
+
 ## 목적
 
 AST 구조 분석 이후 **동작(behavior) 관점**에서 Spring 소스를 분석한다. 호출 체인, 예외 흐름, DI 패턴, 트랜잭션 경계, 외부 I/O·DB·clock·randomness 등 테스트 seam을 식별하여 후속 시나리오 설계와 모킹 전략을 지원한다.
