@@ -1,203 +1,41 @@
 ---
 name: run-tests
-description: 빌드 도구를 감지하고 가장 좁은 범위의 테스트를 실행한 뒤 JUnit XML 리포트를 파싱해 결과를 반환한다. "테스트 실행", "테스트 돌리기", "빌드 테스트"처럼 테스트 수행이 필요한 상황에서 자동 호출된다.
+description: 지정한 Spring 테스트를 실행하고 JUnit 결과를 반환한다. 테스트 실행·테스트 돌리기 요청에 사용한다. 실패해도 자동 수정하지 않는다. 결과 조회는 기존 보고서만 읽고 실행하지 않는다.
 ---
 
-## 실행 전 호스트 확인
+## 계약
 
-[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
-
-
-## 목적
-
-`build-test-mcp`를 통해 빌드 도구(Gradle/Maven)를 감지하고, 생성된 테스트 클래스에 한정된 가장 좁은 범위의 테스트 task를 실행한다. 표준 출력보다 surefire/JUnit XML 리포트를 우선 파싱하고, 결과를 구조화된 JSON으로 반환한다. 실패 시 `repair-tests` 스킬이 이어 호출된다.
-
----
-
-## MCP 필수 (대체 금지)
-
-이 스킬은 `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 `setup-harness`(E3b)가 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브(`health` 3종 호출)가 재확인한다.
-
----
-
-## 자동 호출 조건
-
-- 사용자가 "테스트 실행", "테스트 돌리기", "빌드 테스트", "테스트 결과 확인"과 같은 키워드를 사용할 때
-- `full-pipeline` 스킬의 6단계(`generate-tests` 완료 직후)에서 순차 호출될 때
-- `repair-tests`가 패치를 적용한 후 재실행 요청이 있을 때
-
-## 수동 호출 예시
-
-```
-/test-autoevermation-harness-plugin:run-tests
-```
-
-입력 JSON을 별도로 전달하는 경우:
-
-```json
-{
-  "buildTool": "gradle",
-  "task": "test",
-  "targetScope": ["com.example.order.OrderServiceTest"]
-}
-```
-
----
+[호스트 계약](../../references/host-runtime.md)과 [실행 정책](../../references/execution-policy.md)을 문맥에 없을 때만 읽는다.
+build-test MCP가 필수다. 실패를 직접 셸/임의 파싱으로 대체하지 않는다.
+메인이 test-runner 역할을 직접 수행한다. 역할의 상세 결과 스키마가 필요할 때만 [test-runner](../../agents/test-runner.md)를 읽는다.
+`Agent(subagent_type="test-autoevermation-harness-plugin:test-runner", ...)`는 선택적 위임 예시다.
 
 ## 입력
 
-| 필드 | 타입 | 필수 | 기본값 | 설명 |
-|---|---|---|---|---|
-| `buildTool` | `string` | 아니오 | `"미지정"` → auto-detect | `gradle` 또는 `maven` |
-| `task` | `string` | 아니오 | `"미지정"` → auto-detect | 실행할 테스트 task 이름 |
-| `targetScope` | `object\|string[]` | 아니오 | 없음 — 비면 `TARGET_SCOPE_UNSPECIFIED` 신호 → 대화형 질문/비대화형 중단(#8, 임의 전체 실행 금지) | 실행 대상 — 정본 형상은 test-runner 에이전트의 `{classes[], packages[], methods[]}`. string[] 전달 시 `classes`로 매핑 |
-| `projectRoot` | `string` | 아니오 | 없음 — 미지정이면 질문(대화형)/중단(비대화형), 자동 cwd 금지(#13) | 프로젝트 루트 절대 경로 |
-| `rerunTargets` | `string[]` | 아니오 | `[]` | repair-tests가 전달하는 재실행 대상 |
+projectRoot(확정 절대 경로), buildTool, task, targetScope{classes,packages,methods} 또는 string[], rerunTargets를 받는다.
+저장 설정과 실제 요청에서 값을 확인하고 누락/모호한 대상만 질문한다. string[]는 classes로 변환한다.
+methods > classes > packages 순으로 test_patterns를 만들고, test_pattern과 동시에 전달하지 않는다.
+targetScope가 비면 TARGET_SCOPE_UNSPECIFIED로 범위를 확인한다. 전체 실행은 명시적 요청일 때만 ["*"]를 사용한다.
+모듈은 root/task 경로로 지정하고 패키지 패턴에 넣지 않는다.
+javaHome/reportDirs/coverageReportPaths/coverageTask는 확인한 값만 대응 MCP 인자로 전달한다.
 
-`buildTool`이 `"미지정"`이면 `build-test-mcp.detect_build_tool`로 auto-detect. 탐지 실패 시 `BUILD_TOOL_UNDETECTED` 오류로 즉시 반환.
+## 실행
 
----
+1. **조회 요청**이면 기존 TestRunResult/JUnit과 신선도만 확인한다. 낡은 결과는 stale로 표시하고 종료한다. 빌드를 실행하지 않는다.
+2. buildTool/task가 확인되지 않았을 때만 detect_build_tool/list_test_tasks를 호출한다.
+3. run_targeted_tests를 한 번 호출한다. 명시적 실행은 reuse_if_fresh:false(기본값), 파이프라인 검증·측정에서 요청된 결과 공유는 true다.
+4. 파이프라인은 with_coverage:true로 실행한다. 단독 실행은 커버리지 포함이 요청/저장 설정에 명시된 경우만 with_coverage:true, 그 외에는 false를 전달하며 JaCoCo가 없는 프로젝트에 측정만을 위해 빌드 변경을 강요하지 않는다.
+5. 응답의 passed/failed/skipped/testcases/flaky를 그대로 사용한다. 이미 반환된 JUnit 정보를 다시 parse_junit_xml로 얻지 않는다. 누락 시에만 같은 root/build_tool/task/report_dirs로 보완한다.
+6. 결과를 반환한다. 실패하면 원인·잔여와 repair-tests 안내만 남기고 자동 호출하지 않는다. 파이프라인 보정 판단은 호출자가 공용 예산으로 수행한다.
 
-## 단계별 절차
+Gradle은 --tests를 사용하고 Class#method를 Class.method로 매핑한다. Maven test는 -Dtest, verify는 -Dit.test다.
+Maven verify는 수명주기상 단위 테스트도 실행할 수 있다. 사용자 정의 coverage_task를 추정하지 않는다.
+기본 의존성 오프라인을 유지한다. 1회 온라인 동의가 있으면 해당 호출에만 online:true를 전달한다.
+테스트 코드·설정은 Write/Edit하지 않는다.
 
-1. **빌드 도구 감지**
-   - `buildTool`이 `"미지정"`이면 `build-test-mcp.detect_build_tool`을 호출한다.
-   - 감지 실패 시 `status: "failed"`, `errors: ["BUILD_TOOL_UNDETECTED"]` 반환.
+## 결과
 
-2. **테스트 task 탐지**
-   - `task`가 `"미지정"`이면 `build-test-mcp.list_test_tasks`로 사용 가능한 task 목록을 조회한다.
-   - Gradle: `test` task 기본, 통합은 `integrationTest`. Maven: `test`(Surefire) 기본, 통합은 `verify`(Failsafe). (build-test `list_test_tasks` 반환과 일치; `run_targeted_tests`는 task에 따라 test/-Dtest 또는 verify/-Dit.test 실행.)
-
-3. **subagent 호출**
-
-   ```
-   Agent(
-     subagent_type="test-autoevermation-harness-plugin:test-runner",
-     prompt="""
-   다음 입력으로 테스트를 실행하라.
-
-   입력:
-   {
-     "buildTool": <buildTool>,
-     "task": <task>,
-     "targetScope": <targetScope (string[]이면 {classes: [...]}로 매핑)>,
-     "projectRoot": <projectRoot>,
-     "rerunTargets": <rerunTargets>
-   }
-
-   지시:
-   - build-test-mcp의 `run_targeted_tests` 도구를 사용하라.
-   - targetScope가 있으면 해당 클래스만 실행하라(Gradle: --tests, Maven: -Dtest=).
-   - rerunTargets가 있으면 해당 클래스를 우선 실행하라.
-   - targetScope가 비어 있어도 임의로 전체 test task를 실행하지 말고 `status:"failed"` + `errors:["TARGET_SCOPE_UNSPECIFIED"]`로 신호만 반환하라(#8) — 호출자가 대화형이면 AskUserQuestion으로 "대상 지정/전체 실행"을 확정해 재호출하고, 비대화형이면 중단한다. 사용자가 명시적으로 전체 실행을 택한 경우에만 전체 task를 실행한다.
-   - 표준 출력보다 surefire XML / JUnit XML 리포트를 우선 파싱하라(build-test-mcp.parse_junit_xml 사용).
-   - 실제 네트워크 호출을 금지한다. 쉘 인자를 반드시 escaping하라.
-   - Write/Edit 도구를 사용하지 마라.
-   - 결과를 아래 JSON 스키마에 맞게 반환하라.
-
-   출력 스키마:
-   {
-     "status": "ok" | "partial" | "failed",
-     "summary": string,
-     "passed": integer,
-     "failed": [
-       {
-         "test": string,
-         "type": "TEST_COMPILE_FAILED" | "TEST_RUNTIME_FAILED" | "FLAKY_SUSPECTED",
-         "message": string,
-         "stackTrace": string
-       }
-     ],
-     "skipped": integer,
-     "reportPaths": [string],
-     "failureClasses": [string],
-     "evidence": [string],
-     "warnings": [string],
-     "errors": [string],
-     "nextActions": [string]
-   }
-
-   skipped는 parse_junit_xml의 skipped 값을 그대로 채우고, parse_junit_xml의 flaky[]
-   (재시도 이력 — Surefire rerunFailure / Gradle mergeReruns flakyFailure)가 비어 있지
-   않으면 warnings에 기록하라. 메서드 단위 기계 기록(testcases[])은 리포트에 남아
-   9단계 verify-scenarios가 직접 파싱한다.
-   """
-   )
-   ```
-
-4. **결과 평가**
-   - `exitCode==0`, `timedOut==false`, 실제 `passed>0`, `failed=[]`가 모두 충족될 때만 `status: "ok"`. 보고서 없음·전부 skipped·기동 실패는 실패다.
-   - `failed`가 있으면 `status: "partial"` 또는 `"failed"` 설정 후 `nextActions`에 `repair-tests` 호출 안내 추가.
-   - `FLAKY_SUSPECTED` 유형이 있으면 `warnings`에 "flaky 의심 — sleep/nondeterminism 제거 필요" 추가.
-
-5. **결과 반환**
-   - `TestRunResult` JSON을 메인 세션으로 반환한다.
-
----
-
-## 출력 (TestRunResult)
-
-```json
-{
-  "status": "ok",
-  "summary": "5개 테스트 통과, 0개 실패",
-  "passed": 5,
-  "failed": [],
-  "reportPaths": [
-    "/example/project/build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"
-  ],
-  "failureClasses": [],
-  "evidence": ["JUnit XML 파싱 완료"],
-  "warnings": [],
-  "errors": [],
-  "nextActions": []
-}
-```
-
-실패 포함 예시:
-
-```json
-{
-  "status": "partial",
-  "summary": "4개 통과, 1개 실패",
-  "passed": 4,
-  "failed": [
-    {
-      "test": "com.example.order.OrderServiceTest#재고_부족_시_예외_발생",
-      "type": "TEST_RUNTIME_FAILED",
-      "message": "Expected InsufficientStockException but was NullPointerException",
-      "stackTrace": "..."
-    }
-  ],
-  "reportPaths": ["/example/project/build/test-results/test/TEST-com.example.order.OrderServiceTest.xml"],
-  "failureClasses": ["TEST_RUNTIME_FAILED"],
-  "evidence": [],
-  "warnings": [],
-  "errors": [],
-  "nextActions": ["repair-tests 호출 권장"]
-}
-```
-
----
-
-## 실패 처리
-
-| 오류 코드 | 발생 조건 | 처리 방식 |
-|---|---|---|
-| `BUILD_TOOL_UNDETECTED` | 빌드 도구 감지 실패 | `status: "failed"`, 즉시 반환 |
-| `TEST_COMPILE_FAILED` | 컴파일 오류 | `failed[]`에 기록, `repair-tests` 안내 |
-| `TEST_RUNTIME_FAILED` | 런타임 오류 | `failed[]`에 기록, `repair-tests` 안내 |
-| `FLAKY_SUSPECTED` | 비결정적 실패 패턴 | `failed[]`에 기록, `warnings`에 flaky 경고 |
-| subagent 오류 | Agent 호출 실패 | `status: "failed"`, `errors`에 원인 기록 |
-
-보안: 쉘 인자 escaping 필수. 실제 네트워크 호출 금지. Write/Edit 권한 없음.
-성능: targetScope 한정 실행 기본. 전체 task는 사용자가 명시적으로 전체 실행을 택했을 때만.
-
-## 실제 MCP 입력·출력 계약
-
-- run_targeted_tests의 root에는 projectRoot 절대 경로, task에는 실제 구성된 테스트 task를 전달한다. test_pattern 문자열 또는 test_patterns 배열 중 하나만 사용한다. targetScope.methods > classes > packages 순으로 패턴을 만들며 모듈은 별도 root/task 경로로 지정한다. 전체 실행이 명시 승인된 경우만 ["*"]를 사용한다.
-- Gradle은 Class#method를 Class.method로 변환하고 패턴마다 --tests를 반복한다. Maven test는 -Dtest, verify는 -Dit.test를 사용한다. Maven verify는 수명주기상 앞선 단위 테스트·검사도 실행할 수 있다.
-- Gradle 사용자 정의 Test task의 with_coverage:true에는 실제 구성된 coverage_task를 전달한다. 임의 task 이름을 추정하지 않는다. Maven은 기존 prepare-agent에 대응하는 jacoco:report를 사용한다.
-- list_test_tasks는 Gradle Test task를 실제 조회한다. Maven은 로컬 POM의 Failsafe 실행 바인딩만 확인하며 inherited/profile 구성은 미확인으로 표시한다.
-- 선택된 실행의 근거는 run_targeted_tests 응답이다. 추가 파싱은 parse_junit_xml(root, build_tool, task)로 같은 범위를 지정한다. unscoped parse 결과로 현재 결과를 덮어쓰지 않는다.
-- reportPaths는 XML 파일 절대 경로, failureClasses는 실패 유형 enum이다. ok는 exitCode=0, timeout 없음, 실제 passed>0, 실패 없음일 때만 가능하다. 빈 보고서·전부 skipped·컴파일 실패를 성공으로 바꾸지 않는다. 의존성 오프라인 옵션은 테스트 프로세스의 OS 네트워크 차단이 아니다.
+TestRunResult의 status, summary, passed, failed[], skipped, reportPaths, failureClasses, evidence, warnings, errors, nextActions를 유지한다.
+MCP의 command는 executedCommand에도 매핑하고 testcases/coverageReportPaths/executionEvidence/reused를 잃지 않고 전달한다.
+성공은 exitCode==0, timedOut==false, passed>0, failed=[]일 때만 가능하다. 전부 skipped·리포트 없음·기동 실패는 성공이 아니다.
+flaky 이력은 경고로 보존한다. 실행하지 않은 조회를 새 실행으로 기록하지 않는다.

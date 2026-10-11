@@ -1,103 +1,56 @@
 ---
 name: measure-coverage
-description: JaCoCo로 line/branch/method/class 커버리지를 측정하고 near-100% 게이트에 미달하면 coverage-closer 에이전트로 추가 테스트를 생성해 gap을 닫는 루프를 수행한다. "커버리지 측정", "커버리지 올려줘", "coverage gap", "100% 커버리지"처럼 커버리지 측정/상향이 필요할 때 자동 호출된다.
+description: 지정한 Spring 테스트의 JaCoCo 커버리지를 측정·조회한다. 커버리지 측정 요청은 보고서만 반환하며 테스트를 추가하지 않는다. 커버리지 상향이 명시되거나 파이프라인이 improve를 지정한 경우에만 공용 예산 안에서 gap 보정을 수행한다.
 ---
 
-## 실행 전 호스트 확인
+## 입력과 경계
 
-[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+[호스트 계약](../../references/host-runtime.md), [실행 정책](../../references/execution-policy.md)을 문맥에 없을 때만 읽는다.
+build-test MCP가 필수다. 부족한 환경을 임의 파싱으로 대체하지 않는다.
+기존 root, buildTool, coverage{line,branch,method,class,excludes}, maxIterations,
+targetScope(패키지/FQCN 배열), springProfile, existingTestPaths를 받는다.
+run-tests의 targetScope{classes,packages,methods}와 측정 targetScope 배열을 혼동하지 않는다.
+선택 입력: operation=inspect|measure|improve(기본 measure), runResult, executionPolicy, roundId.
+maxIterations는 기존 strict 무진전 추적 입력이고 새 총 상한은 executionPolicy.maxAutoFixRounds다.
+신규 profile/임계값은 configure-harness에서 선택한다. 이 스킬이 조용히 모드를 바꾸지 않는다.
 
+## 측정
 
-## 목적
+1. inspect는 기존 coverage_gate와 보고서의 신선도만 보고한다. 빌드·수정하지 않는다. 낡으면 stale/partial로 표시한다.
+2. measure는 정확한 테스트 범위로 `run_targeted_tests(with_coverage=true,reuse_if_fresh=true)`를 사용한다. 같은 검증 회차에서 방금 받은 runResult가 있으면 해당 보고서의 신선도를 확인해 바로 3번으로 간다.
+3. `coverage_gate(root=root,line=coverage.line,branch=coverage.branch,method=coverage.method,klass=coverage.class,packages=targetScope,excludes=coverage.excludes,report_paths=runResult.coverageReportPaths,require_fresh=true,java_home=javaHome)`.
+4. counters/gaps.uncovered/reportPaths를 바로 사용한다. 추가 parse_jacoco_report 호출은 하지 않는다. 기존 parse_jacoco_report 도구 자체는 독립 파싱 용도로 유지한다.
+5. 결과를 저장·반환한다. 미달이어도 측정 요청은 테스트를 추가하거나 보정 질문을 띄우지 않는다. 임의 제외하지 않고 remainingGaps를 전량 보고한다.
 
-JaCoCo 리포트를 파싱해 미달 카운터와 uncovered 요소(클래스/메서드/라인/브랜치)를 식별하고, near-100% 목표에 도달할 때까지 **측정 → gap 분석 → 추가 테스트 생성 → 재측정** 루프를 돌린다. 단순 라인 채우기가 아니라 **브랜치 경로**를 실제로 검증하는 테스트를 생성한다.
+## 명시적 개선
 
-근거: `[[../../RESEARCH_NOTES.md]]` §3(JaCoCo 0.8.12), §6(near-100% 정책). 게이트 도구는 build-test MCP의 `parse_jacoco_report` / `coverage_gate`.
+full-pipeline 호출에서는 초기 측정만 반환한다. 호출자가 9단계 적합성 확인 후 실패 > 적합성 > coverage 우선순위로 보정을 결정한다.
+coverage-closer를 실행하려면 공용 budget reserve가 허용한 roundId가 필요하다.
+직접 상향 요청은 full-pipeline의 8단계 부분 실행으로 연결하고 저장된 승인·범위·예산을 재사용한다.
+현재 gaps, existingTestPaths, coverage, springProfile와 필요한 소스만 coverage-closer 역할에 전달한다.
+메인이 직접 수행하거나 필요 시 `Agent(subagent_type="test-autoevermation-harness-plugin:coverage-closer", ...)`로 위임한다.
+수정 전 보고서로 게이트를 다시 호출하지 않는다. 수정 후 호출자가 실행→측정→적합성 확인을 마치고 budget complete한다.
+별도 중첩 루프나 budget 초기화는 금지한다. 엄격의 무진전 3회와 적합성 3라운드 종료 규칙도 유지한다.
+RA 권고는 자동 제외 근거가 아니다. 예산 소진으로 보정하지 못했으면 그 이유와 남은 gap을 기록한다.
 
-## MCP 필수 (대체 금지)
+## 결과
 
-이 스킬은 `build-test` MCP 도구가 **필수**다. 미가용 시 처리(Grep/Read/직접 파싱 대체 금지 · `status:"failed"`+remediation · 즉시 중단)는 [fallback-policy.md](../../references/fallback-policy.md) #20을 그대로 따른다 — 연결은 `setup-harness`(E3b)가 세팅·검증하고, 파이프라인 시작 전 E-verify 프로브(`health` 3종 호출)가 재확인한다.
-
-## 호출 조건
-- 자동: `full-pipeline` 의 생성·실행 단계 직후, 또는 사용자가 커버리지 상향을 요청할 때.
-- 수동: `/test-autoevermation-harness-plugin:measure-coverage`
-
-## 입력 (HarnessConfig 일부)
 ```json
 {
-  "buildTool": "gradle|maven",
-  "root": ".",
-  "coverage": {
-    "line": 0.95, "branch": 0.90, "method": 0.95, "class": 1.00,
-    "excludes": ["**/*Application*", "**/config/**", "**/dto/**", "**/generated/**"]
-  },
-  "maxIterations": 3,
-  "targetScope": ["com.example.orders"],
-  "springProfile": { "...": "0단계 configure-harness가 확정한 버전 프로파일" },
-  "existingTestPaths": ["src/test/java/com/example/orders/OrderServiceTest.java"]
+  "status": "partial",
+  "summary": "현재 측정은 목표 미달이며 테스트 수정은 수행하지 않음",
+  "coverage": {"line":0.88,"branch":0.78,"method":0.91,"class":1.0},
+  "gatePassed": false,
+  "iterations": 0,
+  "addedTests": [],
+  "remainingGaps": [{"class":"example.OrderService","counter":"BRANCH","reason":"측정된 미커버 분기"}],
+  "evidence": [], "warnings": [], "errors": [], "nextActions": []
 }
 ```
-> `coverage` 임계값/제외는 `configure-harness` 인터뷰 3단계(항목 c: 커버리지 임계값·제외)에서 사용자가 조정 가능.
-> `targetScope`는 full-pipeline이 `HarnessConfig.targets`(패키지/FQCN; 모듈은 root를 별도로 적용)를 매핑해 전달한다(HarnessConfig에 `targetScope`라는 필드는 없음). 이 필드는 **커버리지 측정 스코프(패키지 목록)** 로, run-tests의 실행 스코프 `targetScope{classes,packages,methods}`(객체)와 의도적으로 다른 형상이다 — 서로 그대로 전달하지 말 것.
-> `maxIterations`는 full-pipeline이 `HarnessConfig.coverageMaxIterations`를 매핑해 전달한다.
-> `springProfile`·`existingTestPaths`는 coverage-closer의 버전 인식 생성·중복 방지에 필수 — 미전달 시 closer가 기존 테스트 import로 판별/재탐색한다.
 
-## 절차
-1. **측정 실행**: test-runner(또는 build-test `run_targeted_tests(with_coverage=true)`)로 타깃 범위 테스트 + JaCoCo 리포트 생성. 네트워크 off, 최소 범위.
-2. **파싱**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_jacoco_report(root=root, packages=targetScope, excludes=coverage.excludes)` → 카운터별 overall + per-class + `uncovered[]`.
-3. **게이트**: `mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate(root=root, line=coverage.line, branch=coverage.branch, method=coverage.method, klass=coverage.class, packages=targetScope, excludes=coverage.excludes)` → JaCoCo counter별 pass/fail + gaps. (서버 파라미터명은 `klass`.)
-4. **분기**:
-   - 게이트 통과 → 상태 `ok`, 종료.
-   - 미달 → `uncovered[]`를 **coverage-closer** 에이전트에 구조화 입력으로 전달(에이전트 입력 스키마와 1:1):
-     ```
-     Agent(subagent_type="test-autoevermation-harness-plugin:coverage-closer",
-          prompt="""
-     입력:
-     {
-       "projectRoot": <root 절대 경로>,
-       "jacocoReportPath": <parse_jacoco_report가 읽은 XML 경로>,
-       "uncovered": <parse_jacoco_report.uncovered[]>,
-       "coverage": <coverage(임계값+excludes)>,
-       "existingTestPaths": <existingTestPaths + 이전 반복의 addedTests 병합>,
-       "buildTool": <buildTool>,
-       "springProfile": <springProfile>
-     }
-     지시: 기존 시나리오 테스트 수정 시 scenarioRef 메서드명·javadoc 보존.
-     springProfile 관용구(@MockBean/@MockitoBean·javax/jakarta·junit4/jupiter) 준수.
-     CoverageCloserResult JSON으로 반환하라.
-     """)
-     ```
-5. **재측정 루프**: coverage-closer가 추가한 테스트를 포함해 재실행한다. 게이트 통과 시 중단. `maxIterations`는 고정 상한이 아니라 **진전 추적 단위**다 — 진전(미커버 집합 감소)이 있는 한 계속하고, **동일 미커버 집합이 3회 연속(무진전)**이면 `partial`로 `remainingGaps[]`를 전량 보고 후 중단한다(fallback-policy.md #12).
-6. **수렴 실패 처리**: 잔여 gap이 남으면 `partial` 상태로 `remainingGaps[]`와 사유(예: 도달 불가 코드, 제외 후보)를 보고하고 nextActions에 "exclude 검토" 제안.
+iterations는 실제 coverage 보정 횟수다. 측정만 수행하거나 다른 보정이 예산을 소진했다면 0이 유효하다.
+addedTests는 closer가 반환한 addedTests[].path를 flatten한다. reportPaths/executionEvidence를 선택 보존한다.
+선택 범위·보고서가 부족하면 partial/failed이고 게이트 통과를 선언하지 않는다.
+보고서 자체가 없으면 JACOCO_REPORT_NOT_FOUND로 실패한다. 증거가 낡으면 결과 재사용을 거부한다.
 
-**스킵 금지 (fallback-policy.md #21)**: 미달 분기에서 coverage-closer 호출은 **무조건**이다. RA advisory(리팩토링 권고) 대상이라는 이유로 루프를 건너뛸 수 없다 — advisory는 4단계 입력 필터링에만 관여하며 8단계 게이트와 무관하다. "구조적으로 커버 불가" 판단은 오케스트레이터가 아니라 **coverage-closer가 루프를 실제 수행한 뒤** `remainingGaps[].reason`으로만 내릴 수 있고, 스코프 제외는 `coverage.excludes`(사용자 승인)로만 가능하다. **무효 조건**: `gatePassed:false`인데 `iterations<1` 또는 `remainingGaps`가 비어 있는 결과는 "게이트 미수행" 산출물로 무효 — 이 상태로 반환·저장하지 말고 루프를 수행하라(`guard-gate-artifacts.py` 훅이 무효 산출물 기록을 차단한다 — 파이프라인 활성 세션 한정).
-
-## 출력
-```json
-{
-  "status": "ok|partial|failed",
-  "summary": "라인 0.97 / 브랜치 0.92 / 메서드 0.98 / 클래스 1.00 — 게이트 통과",
-  "coverage": {"line":0.97,"branch":0.92,"method":0.98,"class":1.00},
-  "gatePassed": true,
-  "iterations": 2,
-  "addedTests": ["src/test/java/.../OrderServiceBranchTest.java"],
-  "remainingGaps": [],
-  "evidence": ["build/reports/jacoco/test/jacocoTestReport.xml"],
-  "warnings": [], "errors": [], "nextActions": []
-}
-```
-> `addedTests`(경로 배열)는 coverage-closer 출력 `addedTests[]`(object — `{path, action, addedMethods, targetsUncovered}`)에서 `path`만 **flatten**한 것이다. 다음 반복의 `existingTestPaths`와 full-pipeline의 회귀 실행·9단계 `generatedFiles` 병합에 쓰인다.
-
-## 실패 유형
-- `BUILD_TOOL_UNDETECTED` / `TEST_COMPILE_FAILED` / `TEST_RUNTIME_FAILED` → run-tests/repair-tests로 위임 후 재측정.
-- `COVERAGE_UNREACHABLE` → 도달 불가 코드로 판단, 제외 allowlist 후보로 보고(임의 제외 금지, 사용자/설정 확인).
-
-## 보안·성능
-- 측정은 타깃 스코프로 최소화, 네트워크 off.
-- per-class 결과를 캐시해 반복 측정 비용 절감.
-- coverage-closer는 read+write만, Bash 금지(실행은 이 스킬이 build-test로 수행).
-
-## 연결
-- 에이전트: `coverage-closer`
-- MCP: build-test(`run_targeted_tests`, `parse_jacoco_report`, `coverage_gate`), repo-ast(대상 메서드 시그니처 확인)
-- 후속: 게이트 통과 시 `[[../verify-scenarios/SKILL.md]]` 로 진행.
+Claude 활성 세션의 guard-gate-artifacts는 잔여 gap과 0 이상의 iterations를 확인한다. 보정 위임 여부는 요구하지 않는다.

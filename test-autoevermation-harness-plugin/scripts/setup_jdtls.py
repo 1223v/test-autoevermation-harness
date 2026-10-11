@@ -129,24 +129,24 @@ def _java_major(java_exe):
 
 
 def detect_java_major():
-    """Best (highest) Java major across PATH `java` and $JAVA_HOME/bin/java."""
+    """Probe the executable the JDT launcher will use, following JAVA_HOME priority."""
+    executable = detect_java_executable()
+    return _java_major(executable) if executable else None
+
+
+def detect_java_executable():
     candidates = []
-    on_path = shutil.which("java")
-    if on_path:
-        candidates.append(on_path)
+    explicit = os.environ.get("HARNESS_JDT_JAVA_BIN")
+    if explicit:
+        return explicit
     java_home = os.environ.get("JAVA_HOME")
     if java_home:
         exe = "java.exe" if IS_WIN else "java"
         candidates.append(os.path.join(java_home, "bin", exe))
-
-    best = None
-    for exe in candidates:
-        if not exe or (os.path.sep in exe and not os.path.exists(exe)):
-            continue
-        major = _java_major(exe)
-        if major is not None and (best is None or major > best):
-            best = major
-    return best
+    on_path = shutil.which("java")
+    if on_path:
+        candidates.append(on_path)
+    return candidates[0] if candidates else None
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +263,11 @@ def remediation_cmd():
 
 
 def main():
+    if "--launcher-info" in sys.argv[1:]:
+        major = detect_java_major()
+        emit({"javaExecutable": detect_java_executable(), "javaMajor": major,
+              "pythonExecutable": sys.executable})
+        return 0 if major and major >= MIN_JAVA_MAJOR else 1
     check_only = "--check-only" in sys.argv[1:]
 
     # Step 1 — hard Java 21+ gate (JDT LS won't run without it).

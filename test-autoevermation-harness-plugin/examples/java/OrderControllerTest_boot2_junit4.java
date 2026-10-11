@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.Collections;
-import java.util.List;
 import org.junit.Test; // JUnit 4
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +31,7 @@ public class OrderControllerTest {
   public void sc001_listActiveOrders_returnsOkJsonWithOneElement() throws Exception {
     // given
     given(orderQueryService.findActiveOrders())
-        .willReturn(List.of(OrderFixtures.confirmedOrder(1L)));
+        .willReturn(Collections.singletonList(OrderFixtures.confirmedOrder(1L)));
 
     // when
     ResultActions result =

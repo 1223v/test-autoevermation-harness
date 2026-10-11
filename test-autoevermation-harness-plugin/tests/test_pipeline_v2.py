@@ -83,9 +83,45 @@ class RemovedComponentContractTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("3. 8단계 measure-coverage", full_pipeline)
+        self.assertIn("**8단계 커버리지**", full_pipeline)
         self.assertIn("각 라운드는 반드시 6→8→9 순서", full_pipeline)
-        self.assertIn("6단계 테스트 → 8단계 커버리지 → 9단계 적합성", fallback)
+        self.assertIn("6→8→9", fallback)
+
+    def test_shared_budget_persists_across_reasons_and_resume(self) -> None:
+        from harness_policy import resolve_config, update_budget
+        for profile, cap in (("fast", 1), ("balanced", 3)):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as tmp:
+                workspace = Path(tmp) / "_workspace"
+                workspace.mkdir()
+                config = resolve_config({"executionPolicy": {"profile": profile}})
+                (workspace / "00_config-harness.json").write_text(json.dumps(config), encoding="utf-8")
+                self.assertIn("승인", gate_guard._zone_b(str(workspace), "session", ""))
+                for name in ("04_scenario_set.json", "04b_approval.json", "05_test-gen_files.json"):
+                    (workspace / name).write_text("{}", encoding="utf-8")
+                self.assertEqual("", gate_guard._zone_b(str(workspace), "session", ""))
+                for index in range(cap):
+                    reason = ("test-failure", "conformance", "coverage")[index]
+                    current = update_budget(tmp, "reserve", str(index), reason)
+                    self.assertTrue(current["reserved"])
+                    self.assertEqual("", gate_guard._zone_b(str(workspace), "session", ""))
+                    self.assertFalse(update_budget(tmp, "reserve", "nested", "coverage")["reserved"])
+                    self.assertEqual(index+1, update_budget(tmp, "reserve", str(index), reason)["autoFixRounds"])
+                    update_budget(tmp, "complete", str(index))
+                    self.assertFalse(update_budget(tmp, "reserve", str(index), reason)["reserved"])
+                self.assertFalse(update_budget(tmp, "reserve", "after-resume", "coverage")["reserved"])
+                self.assertEqual(cap, update_budget(tmp)["autoFixRounds"])
+                self.assertEqual(0, update_budget(tmp)["remainingRounds"])
+                self.assertEqual("", gate_guard._zone_b(str(workspace), "session", ""))
+                with self.assertRaisesRegex(ValueError, "AUTHORIZATION_REQUIRED"):
+                    update_budget(tmp, "continue")
+                update_budget(tmp, "continue", authorization="request-2: 계속 보정해줘")
+                self.assertEqual(cap, update_budget(tmp, "continue", authorization="request-2: 계속 보정해줘")["remainingRounds"])
+                (workspace / "08_coverage_result.json").write_text(json.dumps({"iterations": cap}), encoding="utf-8")
+                (workspace / "execution-budget.json").unlink()
+                with self.assertRaisesRegex(ValueError, "BUDGET_STATE_REQUIRED"):
+                    update_budget(tmp, "reserve", "lost", "coverage")
+        self.assertEqual("", gate_guard._check_coverage({"status": "partial", "gatePassed": False, "iterations": 0, "remainingGaps": [{"class": "A"}]}))
+        self.assertTrue(gate_guard._check_coverage({"status": "partial", "gatePassed": False, "iterations": 0, "remainingGaps": []}))
 
     def test_inventory_and_statusline_docs_do_not_use_stale_counts(self) -> None:
         envelope = (PLUGIN_ROOT / "references" / "agent-result-envelope.md").read_text(

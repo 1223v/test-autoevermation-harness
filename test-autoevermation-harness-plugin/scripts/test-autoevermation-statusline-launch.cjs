@@ -17,6 +17,8 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const IS_WIN = process.platform === "win32";
+process.env.PYTHONUTF8 = "1";
+process.env.PYTHONIOENCODING = "utf-8";
 const HERE = __dirname;
 const WRAPPER_PY = path.join(HERE, "test-autoevermation-statusline.py");
 const CONFIG_JSON = path.join(HERE, "test-autoevermation-statusline.json");
@@ -52,15 +54,17 @@ function findPython() {
 /** wrapper .py가 없거나 파이썬이 없을 때: config.delegate만 실행해 기존 상태줄 유지. */
 function runDelegateOnly(stdin) {
   let delegate = null;
+  let configuredShell = null;
   try {
-    delegate = JSON.parse(fs.readFileSync(CONFIG_JSON, "utf8")).delegate;
+    const config = JSON.parse(fs.readFileSync(CONFIG_JSON, "utf8"));
+    delegate = config.delegate;
+    configuredShell = config.delegateShell;
   } catch (_) {
     delegate = null;
   }
   if (!delegate) return; // 원래 상태줄이 없었음 — 아무것도 출력하지 않음
-  const shell = IS_WIN
-    ? [process.env.COMSPEC || "cmd.exe", ["/c", delegate]]
-    : ["/bin/sh", ["-c", delegate]];
+  const shell = configuredShell ? [configuredShell[0], [...configuredShell.slice(1), delegate]]
+    : (IS_WIN ? ["powershell.exe", ["-NoProfile", "-Command", delegate]] : ["/bin/sh", ["-c", delegate]]);
   try {
     const r = spawnSync(shell[0], shell[1], {
       input: stdin,

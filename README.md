@@ -9,14 +9,19 @@ Codex 앱·CLI와 Claude Code용 **Spring 테스트코드 자동 생성 하네�
 
 ## 설치 (Codex 앱·CLI)
 
-배포 버전은 **0.35.0**이다. 저장소 루트에서:
+현재 작업 브랜치의 로컬 패키지는 **0.35.1**이다. 게시된 main의 **0.35.0**은 아래 Git 설치로 사용할 수 있다. 로컬 변경은 [로컬 설치 절](test-autoevermation-harness-plugin/docs/CODEX.md#로컬-저장소에서-설치)을 따른다. 터미널에서 GitHub 마켓플레이스를 등록하고 설치한다:
 
 ```text
-codex plugin marketplace add .
+codex plugin marketplace add 1223v/test-autoevermation-harness --ref main
 codex plugin add test-autoevermation-harness-plugin@test-autoevermation-harness
+codex plugin list --json
 ```
 
-앱에서는 이 저장소를 프로젝트로 열고 Plugins 디렉터리의 `Test Autoevermation Harness` 소스에서 설치한다. Git 설치·업데이트·환경 준비·실행 예시와 호스트별 차이는 [Codex 가이드](test-autoevermation-harness-plugin/docs/CODEX.md)를 따른다. Codex는 JavaParser·소스/빌드 근거를 사용하며 JDT LS·Claude 상태줄·강제 위임 훅을 사용하지 않는다. Superpowers 원칙은 내장되어 별도 설치가 필요 없다.
+설치 후 **테스트할 Spring 프로젝트**를 앱 또는 CLI에서 열고 새 대화를 시작한다. [Codex 설치·사용 가이드](test-autoevermation-harness-plugin/docs/CODEX.md)에 앱 화면 설치, 로컬 설치, 환경 준비, 첫 실행·시나리오 승인, 결과 확인, 재실행, 업데이트·문제 해결을 정리했다.
+
+[내부 구조·데이터 흐름](test-autoevermation-harness-plugin/docs/ARCHITECTURE.md)과 [호환성 수정·검증](test-autoevermation-harness-plugin/docs/compatibility-remediation.md)도 참고한다.
+
+Codex는 JavaParser·소스/빌드 근거를 사용하며 JDT LS·Claude 상태줄·강제 위임 훅을 사용하지 않는다. Superpowers 원칙은 내장되어 별도 설치가 필요 없다.
 
 아래 설치·제거와 JDT LS 설명은 Claude Code용이다.
 
@@ -117,3 +122,5 @@ test-autoevermation-harness/
 ## 라이선스
 
 Apache-2.0
+
+실행 비용 개선: [요청별 실행·모드 안내](test-autoevermation-harness-plugin/references/execution-policy.md), [진단·검증 기록](test-autoevermation-harness-plugin/docs/efficiency-audit.md).

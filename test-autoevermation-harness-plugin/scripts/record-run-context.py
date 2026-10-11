@@ -81,16 +81,13 @@ PIPELINE_AGENTS = {
 }
 
 _STAGE_CONTRACT_REMINDER = (
-    "[full-pipeline 단계 계약 — 훅 물리 강제] 각 단계는 SKILL.md 단계 계약 표의 "
-    "subagent에 Agent 위임으로만 수행한다. 위임 없이 오케스트레이터가 직접 수행한 "
-    "단계는 무효다: guard-gate-artifacts 훅이 (1) spawn 마커 없는 _workspace 단계 "
-    "산출물 기록, (2) 오케스트레이터의 src/test/java 직접 기록, (3) 선행 산출물 "
-    "없는 후속 산출물 기록(순서 게이트)을 deny한다. 산출물 JSON은 단계 완료 즉시 "
-    "Write하라 — 산출물 없는 단계는 미수행으로 간주되어 후속 기록이 차단된다. "
-    "durable-resume stub은 detect_pipeline_state 호출 이후에만 유효하다. "
+    "[full-pipeline 단계 계약] 두 호스트 모두 메인이 역할을 직접 수행한다. 독립 분석만 선택 위임한다. "
+    "spawn 여부는 완료 조건이 아니다. guard-gate-artifacts는 승인 전 테스트 쓰기, 선행 산출물 없는 "
+    "후속 기록과 무효 결과를 차단한다. 산출물은 실제 단계 완료 즉시 기록한다. "
+    "공용 harness_policy 예산을 예약한 후 보정하고 6→8→9 검증 뒤 완료한다. "
+    "자동 재개로 예산을 초기화하지 않는다. durable-resume stub은 실제 detect 증거가 필요하다. "
     "이 강제는 파이프라인이 도는 세션에서만 적용된다(run.json 기준)."
 )
-
 
 def _print(obj) -> None:
     print(json.dumps(obj, ensure_ascii=False))

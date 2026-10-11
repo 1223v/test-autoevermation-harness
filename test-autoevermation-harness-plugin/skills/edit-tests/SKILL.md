@@ -5,12 +5,16 @@ description: 사용자가 지목한 기존 테스트 코드를 repo-ast AST 분�
 
 ## 실행 전 호스트 확인
 
-[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 질문 대기·JavaParser/소스 분석 경로로 치환한다.
 
+
+## 실행 주체
+
+메인이 해당 역할을 직접 수행한다. 아래 Agent 호출 예시는 독립 작업을 선택적으로 위임할 때의 형식이다. 승인·입출력·검증 책임은 동일하며 위임만을 위해 같은 작업을 반복하지 않는다.
 
 ## 목적
 
-full-pipeline **밖에서**(또는 파이프라인 종료 후) 사용자가 **명시적으로 지목한** 기존 테스트 코드를 편집한다. `test-editor` 서브에이전트에 위임하며, 모든 편집은 `repo-ast` MCP의 AST 분석에 근거한다(추측 편집 금지). 이 스킬은 테스트를 **실행하지 않는다** — 편집 후 재실행·검증은 `/test-autoevermation-harness-plugin:run-tests`로 안내한다.
+full-pipeline **밖에서**(또는 파이프라인 종료 후) 사용자가 **명시적으로 지목한** 기존 테스트 코드를 편집한다. 메인이 `test-editor` 역할을 직접 수행하며, 모든 편집은 `repo-ast` MCP의 AST 분석에 근거한다(추측 편집 금지). 이 스킬은 테스트를 **실행하지 않는다** — 편집 후 재실행·검증은 `/test-autoevermation-harness-plugin:run-tests`로 안내한다.
 
 **경계(3분법)** — 이 스킬은 아래 셋 중 첫 번째만 담당한다:
 
@@ -33,7 +37,7 @@ full-pipeline **밖에서**(또는 파이프라인 종료 후) 사용자가 **�
 ## 자동 호출 조건
 
 - 사용자가 특정 테스트 파일/클래스/메서드를 지목하고 "테스트 리팩토링", "이 테스트 메서드 이름 바꿔줘", "단언 추가해줘", "이 테스트 파일 정리해줘", "테스트 코드 편집" 등 **직접 편집**을 요청할 때
-- **자동 호출되지 않아야 하는 경우**: 실패/에러 보정(→ `repair-tests`), "테스트 다시 생성 / 재실행 / 커버리지 더 올려 / 보완 / 업데이트"(→ `full-pipeline`)
+- **자동 호출되지 않아야 하는 경우**: 실패/에러 보정(→ `repair-tests`), 테스트 재생성·커버리지 상향(→ `full-pipeline`), 단순 실행(→ `run-tests`), 단순 측정(→ `measure-coverage`)
 
 ## 수동 호출 예시
 
@@ -67,7 +71,7 @@ full-pipeline **밖에서**(또는 파이프라인 종료 후) 사용자가 **�
 
 `editRequest`가 실패 보정성(스택트레이스·컴파일 오류·"깨졌다 고쳐줘")이면 `repair-tests`로, 재생성·커버리지·재개성이면 `full-pipeline`로 안내하고 이 스킬을 종료한다(편집하지 않음).
 
-### 3. test-editor 위임
+### 3. test-editor 역할 수행 (Agent 예시는 선택 사항)
 
 ```
 Agent(

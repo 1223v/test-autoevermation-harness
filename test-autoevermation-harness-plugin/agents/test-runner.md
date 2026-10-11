@@ -8,7 +8,7 @@ disallowedTools: Write, Edit
 
 ## 호스트별 역할 실행
 
-[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 두 호스트 모두 이 역할을 직접 수행할 수 있으며 독립 분석만 선택적으로 위임한다. Claude frontmatter를 Codex 전역 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
 
 
 ## 목적
@@ -192,7 +192,7 @@ disallowedTools: Write, Edit
 | `BUILD_TOOL_UNDETECTED` | `detect_build_tool` 실패, `build.gradle`·`pom.xml` 모두 미존재 | `failed` 반환. `nextActions`에 `buildTool` 수동 지정 요청 |
 | `TEST_COMPILE_FAILED` | 컴파일 오류로 테스트 실행 불가 | `failed` 반환. 오류 메시지를 `errors`에 기록. `nextActions`에 `test-fixer` 호출 권고 |
 | `TEST_RUNTIME_FAILED` | 일부 테스트 실패 | `partial` 반환 (통과한 테스트가 있는 경우). 실패 목록을 `failed[]`에 기록 |
-| XML 리포트 미생성 | 빌드 자체가 실패하여 XML 없음 | 표준출력 파싱 fallback. `warnings`에 "XML 리포트 미생성, 표준출력 fallback" 기록 |
+| XML 리포트 미생성 | 빌드 자체가 실패하여 XML 없음 | 실행 미검증으로 failed/partial 반환. stdout은 실패 진단에만 사용하고 테스트 통과를 추론하지 않는다 |
 
 ---
 
@@ -202,7 +202,7 @@ disallowedTools: Write, Edit
 - **`--no-daemon`(Gradle)**: CI 환경에서 데몬 프로세스 잔존 방지.
 - **병렬 실행 제한**: JUnit 병렬 실행(`junit.jupiter.execution.parallel.enabled`)은 기본 비활성. 파일시스템 경합·포트 충돌 방지. opt-in만 허용.
 - **Gradle `maxParallelForks`**: 기본값 유지(프로젝트 CPU 코어 수의 절반 이하 권장).
-- **결과 캐시 미사용**: 테스트 실행 결과는 매번 신선하게 파싱.
+- **명시 실행과 재사용 구분**: 직접 실행은 매번 수행하고, 파이프라인/측정은 reuse_if_fresh:true로 입력·범위·JDK·보고서 지문이 일치하는 결과만 공유한다.
 
 ---
 
@@ -211,7 +211,7 @@ disallowedTools: Write, Edit
 - **쓰기 금지**: `Write`, `Edit` 도구 사용 불가(frontmatter `disallowedTools` 선언).
 - **Bash 인자 escaping**: `build-test-mcp` 내부 및 직접 Bash 호출 시 모든 인자를 따옴표 처리. 경로에 공백·특수문자 포함 가능성 전제.
 - **의존성 오프라인 기본**: Gradle/Maven 오프라인 옵션은 의존성 다운로드에 적용한다. 테스트가 외부 네트워크를 호출하지 않도록 작성 정책을 확인하며 OS 네트워크 차단을 보장하지 않는다.
-- **실행 범위 최소**: 전체 test task는 fallback으로만 사용. 무조건적인 전체 빌드 명령 생성 금지.
+- **실행 범위 최소**: 전체 test task는 사용자가 전체 실행을 명시한 경우에만 사용. 무조건적인 전체 빌드 명령 생성 금지.
 - **로그 redaction**: `executedCommand`·표준출력에 비밀번호·토큰이 포함될 경우 `redact-secrets.py`를 통해 마스킹 후 기록.
 
 ## 실제 MCP 입력·출력 계약
@@ -222,3 +222,5 @@ disallowedTools: Write, Edit
 - list_test_tasks는 Gradle Test task를 실제 조회한다. Maven은 로컬 POM의 Failsafe 실행 바인딩만 확인하며 inherited/profile 구성은 미확인으로 표시한다.
 - 선택된 실행의 근거는 run_targeted_tests 응답이다. 추가 파싱은 parse_junit_xml(root, build_tool, task)로 같은 범위를 지정한다. unscoped parse 결과로 현재 결과를 덮어쓰지 않는다.
 - reportPaths는 XML 파일 절대 경로, failureClasses는 실패 유형 enum이다. ok는 exitCode=0, timeout 없음, 실제 passed>0, 실패 없음일 때만 가능하다. 빈 보고서·전부 skipped·컴파일 실패를 성공으로 바꾸지 않는다. 의존성 오프라인 옵션은 테스트 프로세스의 OS 네트워크 차단이 아니다.
+
+같은 실행의 testcases/coverageReportPaths/executionEvidence/reused를 호출자에게 보존한다. 응답에 testcases가 있으면 parse_junit_xml 중복 호출하지 않는다. 실패를 자동 수정하지 않는다.

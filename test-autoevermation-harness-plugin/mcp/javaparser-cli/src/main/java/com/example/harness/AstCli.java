@@ -2,12 +2,15 @@ package com.example.harness;
 
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
+import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -15,8 +18,11 @@ import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 
 import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -56,6 +62,7 @@ public final class AstCli {
     }
 
     public static void main(String[] args) {
+        System.setOut(new PrintStream(System.out, true, StandardCharsets.UTF_8));
         if (args.length < 1) {
             System.err.println("usage: java -jar astcli.jar <path-to-.java-or-srcRoot>");
             System.exit(2);
@@ -63,7 +70,7 @@ public final class AstCli {
         }
         Path target = Paths.get(args[0]).toAbsolutePath().normalize();
         try {
-            JsonObject out = analyze(target);
+            JsonObject out = analyze(target, args);
             System.out.println(out.render());
         } catch (Exception e) {
             // Emit a structured error object so the Python side can degrade gracefully.
@@ -75,23 +82,42 @@ public final class AstCli {
             unresolved.add(JsonValue.str("FATAL: " + e.getClass().getSimpleName() + ": " + e.getMessage()));
             err.put("unresolvedSymbols", unresolved);
             System.out.println(err.render());
+            System.exit(1);
         }
     }
 
-    private static JsonObject analyze(Path target) throws IOException {
+    private static JsonObject analyze(Path target, String[] args) throws IOException {
         Path srcRoot = inferSourceRoot(target);
+        List<Path> sourceRoots = new ArrayList<>();
+        List<Path> jars = new ArrayList<>();
+        ParserConfiguration.LanguageLevel level = ParserConfiguration.LanguageLevel.CURRENT;
+        for (int i = 1; i < args.length; i += 2) {
+            if (i + 1 >= args.length) throw new IllegalArgumentException("Missing option value");
+            switch (args[i]) {
+                case "--language-level": level = ParserConfiguration.LanguageLevel.valueOf("JAVA_" + args[i + 1]); break;
+                case "--source-root": sourceRoots.add(Paths.get(args[i + 1])); break;
+                case "--classpath": jars.add(Paths.get(args[i + 1])); break;
+                default: throw new IllegalArgumentException("Unknown option: " + args[i]);
+            }
+        }
+        ParserConfiguration config = new ParserConfiguration().setLanguageLevel(level)
+                .setCharacterEncoding(StandardCharsets.UTF_8);
         CombinedTypeSolver typeSolver = new CombinedTypeSolver();
         typeSolver.add(new ReflectionTypeSolver());
         if (srcRoot != null && Files.isDirectory(srcRoot)) {
-            typeSolver.add(new JavaParserTypeSolver(srcRoot.toFile()));
+            sourceRoots.add(srcRoot);
         }
-        ParserConfiguration config = new ParserConfiguration()
-                .setSymbolResolver(new JavaSymbolSolver(typeSolver));
+        for (Path source : new LinkedHashSet<>(sourceRoots)) {
+            typeSolver.add(new JavaParserTypeSolver(source.toFile(), config));
+        }
+        for (Path jar : jars) typeSolver.add(new JarTypeSolver(jar));
+        config.setSymbolResolver(new JavaSymbolSolver(typeSolver));
         JavaParser parser = new JavaParser(config);
 
         List<Path> files = collectJavaFiles(target);
         Set<String> unresolved = new LinkedHashSet<>();
         JsonArray classes = new JsonArray();
+        JsonArray problems = new JsonArray();
         String packageName = "";
         JsonArray imports = new JsonArray();
         boolean firstFile = true;
@@ -99,7 +125,13 @@ public final class AstCli {
         for (Path file : files) {
             CompilationUnit cu;
             try {
-                cu = parser.parse(file).getResult().orElse(null);
+                ParseResult<CompilationUnit> parsed = parser.parse(file);
+                if (!parsed.isSuccessful()) {
+                    parsed.getProblems().forEach(p -> problems.add(JsonValue.str(file + ": " + p.getVerboseMessage())));
+                    unresolved.add("PARSE_FAILED: " + file);
+                    continue;
+                }
+                cu = parsed.getResult().orElse(null);
             } catch (Exception ex) {
                 unresolved.add("PARSE_FAILED: " + file.getFileName());
                 continue;
@@ -118,10 +150,8 @@ public final class AstCli {
                 cu.getImports().forEach(i -> imports.add(JsonValue.str(i.getNameAsString())));
                 firstFile = false;
             }
-            for (TypeDeclaration<?> type : cu.getTypes()) {
-                if (type instanceof ClassOrInterfaceDeclaration) {
-                    classes.add(describeClass((ClassOrInterfaceDeclaration) type, cuPackage, unresolved));
-                }
+            for (TypeDeclaration<?> type : cu.findAll(TypeDeclaration.class)) {
+                classes.add(describeClass(type, cuPackage, unresolved));
             }
         }
 
@@ -134,19 +164,29 @@ public final class AstCli {
             unresolvedArr.add(JsonValue.str(s));
         }
         obj.put("unresolvedSymbols", unresolvedArr);
+        obj.put("parseProblems", problems);
+        obj.put("languageLevel", JsonValue.str(level.name()));
         return obj;
     }
 
     private static JsonObject describeClass(
-            ClassOrInterfaceDeclaration cls, String cuPackage, Set<String> unresolved) {
+            TypeDeclaration<?> cls, String cuPackage, Set<String> unresolved) {
         JsonObject obj = new JsonObject();
         obj.put("name", JsonValue.str(cls.getNameAsString()));
+        obj.put("fqcn", JsonValue.str(cls.getFullyQualifiedName().orElse(cls.getNameAsString())));
+        obj.put("declarationKind", JsonValue.str(cls instanceof RecordDeclaration ? "record" : cls instanceof EnumDeclaration ? "enum" : cls instanceof ClassOrInterfaceDeclaration && ((ClassOrInterfaceDeclaration) cls).isInterface() ? "interface" : "class"));
         obj.put("package", JsonValue.str(cuPackage == null ? "" : cuPackage));
         obj.put("annotations", annotationsOf(cls.getAnnotations()));
 
         List<String> ei = new ArrayList<>();
-        cls.getExtendedTypes().forEach(t -> ei.add("extends " + t.getNameAsString()));
-        cls.getImplementedTypes().forEach(t -> ei.add("implements " + t.getNameAsString()));
+        if (cls instanceof ClassOrInterfaceDeclaration) {
+            ClassOrInterfaceDeclaration declaration = (ClassOrInterfaceDeclaration) cls;
+            declaration.getExtendedTypes().forEach(t -> { ei.add("extends " + t.asString()); resolveType(t, "EXTENDS", unresolved); });
+            declaration.getImplementedTypes().forEach(t -> { ei.add("implements " + t.asString()); resolveType(t, "IMPLEMENTS", unresolved); });
+        }
+        if (cls instanceof RecordDeclaration) ((RecordDeclaration) cls).getImplementedTypes().forEach(t -> resolveType(t, "IMPLEMENTS", unresolved));
+        if (cls instanceof EnumDeclaration) ((EnumDeclaration) cls).getImplementedTypes().forEach(t -> resolveType(t, "IMPLEMENTS", unresolved));
+        cls.getAnnotations().forEach(a -> resolveAnnotation(a, unresolved));
         obj.put("extendsImplements", JsonValue.str(String.join(", ", ei)));
 
         JsonArray methods = new JsonArray();
@@ -158,6 +198,8 @@ public final class AstCli {
         JsonArray fields = new JsonArray();
         for (FieldDeclaration f : cls.getFields()) {
             String typeStr = f.getElementType().asString();
+            resolveType(f.getElementType(), "FIELD", unresolved);
+            f.getAnnotations().forEach(a -> resolveAnnotation(a, unresolved));
             JsonArray fieldAnnos = annotationsOf(f.getAnnotations());
             for (VariableDeclarator v : f.getVariables()) {
                 JsonObject fo = new JsonObject();
@@ -165,6 +207,16 @@ public final class AstCli {
                 fo.put("type", JsonValue.str(typeStr));
                 fo.put("annotations", fieldAnnos);
                 fields.add(fo);
+            }
+        }
+        if (cls instanceof RecordDeclaration) {
+            for (Parameter parameter : ((RecordDeclaration) cls).getParameters()) {
+                resolveType(parameter.getType(), "RECORD_COMPONENT", unresolved);
+                JsonObject field = new JsonObject();
+                field.put("name", JsonValue.str(parameter.getNameAsString()));
+                field.put("type", JsonValue.str(parameter.getTypeAsString()));
+                field.put("annotations", annotationsOf(parameter.getAnnotations()));
+                fields.add(field);
             }
         }
         obj.put("fields", fields);
@@ -187,15 +239,20 @@ public final class AstCli {
         JsonArray params = new JsonArray();
         List<String> paramSig = new ArrayList<>();
         for (Parameter p : m.getParameters()) {
+            resolveType(p.getType(), "PARAMETER", unresolved);
+            p.getAnnotations().forEach(a -> resolveAnnotation(a, unresolved));
             String ps = p.getType().asString() + " " + p.getNameAsString();
             params.add(JsonValue.str(ps));
             paramSig.add(p.getType().asString());
         }
         obj.put("parameters", params);
         obj.put("annotations", annotationsOf(m.getAnnotations()));
-        obj.put("public", JsonValue.bool(m.isPublic()));
+        boolean isPublic = m.isPublic() || (m.getParentNode().orElse(null) instanceof ClassOrInterfaceDeclaration
+                && ((ClassOrInterfaceDeclaration) m.getParentNode().get()).isInterface() && !m.isPrivate());
+        obj.put("public", JsonValue.bool(isPublic));
+        m.getAnnotations().forEach(a -> resolveAnnotation(a, unresolved));
 
-        String signature = (m.isPublic() ? "public " : "")
+        String signature = (isPublic ? "public " : "")
                 + returnType + " " + m.getNameAsString()
                 + "(" + String.join(", ", paramSig) + ")";
         obj.put("signature", JsonValue.str(signature));
@@ -208,6 +265,7 @@ public final class AstCli {
         // complex scope expressions may embed argument text, so they degrade to "".
         Set<String> callKeys = new LinkedHashSet<>();
         JsonArray invokedCalls = new JsonArray();
+        JsonArray resolvedCalls = new JsonArray();
         m.findAll(MethodCallExpr.class).forEach(c -> {
             calls.add(c.getNameAsString());
             String scope = c.getScope().map(s -> {
@@ -222,11 +280,24 @@ public final class AstCli {
                 }
                 return "";
             }).orElse("");
-            if (callKeys.add(scope + "#" + c.getNameAsString())) {
+            String declaringType = "";
+            String resolvedSignature = "";
+            try {
+                var resolved = c.resolve();
+                declaringType = resolved.declaringType().getQualifiedName();
+                resolvedSignature = resolved.getQualifiedSignature();
+            } catch (Exception | StackOverflowError ex) { /* ambiguity remains explicit */ }
+            if (callKeys.add(scope + "#" + c.getNameAsString() + "#" + resolvedSignature)) {
                 JsonObject call = new JsonObject();
                 call.put("name", JsonValue.str(c.getNameAsString()));
                 call.put("scope", JsonValue.str(scope));
                 invokedCalls.add(call);
+                JsonObject detail = new JsonObject();
+                detail.put("name", JsonValue.str(c.getNameAsString()));
+                detail.put("scope", JsonValue.str(scope));
+                detail.put("declaringType", JsonValue.str(declaringType));
+                detail.put("resolvedSignature", JsonValue.str(resolvedSignature));
+                resolvedCalls.add(detail);
             }
         });
         JsonArray invoked = new JsonArray();
@@ -235,6 +306,7 @@ public final class AstCli {
         }
         obj.put("invokedMethods", invoked);
         obj.put("invokedCalls", invokedCalls);
+        obj.put("resolvedInvokedCalls", resolvedCalls);
         // Contract: never emit method bodies or call arguments.
         return obj;
     }
@@ -245,6 +317,14 @@ public final class AstCli {
             arr.add(JsonValue.str("@" + a.getNameAsString()));
         }
         return arr;
+    }
+
+    private static void resolveType(com.github.javaparser.ast.type.Type type, String kind, Set<String> unresolved) {
+        try { type.resolve(); } catch (Exception | StackOverflowError ex) { unresolved.add(kind + ": " + type.asString()); }
+    }
+
+    private static void resolveAnnotation(AnnotationExpr annotation, Set<String> unresolved) {
+        try { annotation.resolve(); } catch (Exception | StackOverflowError ex) { unresolved.add("ANNOTATION: " + annotation.getNameAsString()); }
     }
 
     private static List<Path> collectJavaFiles(Path target) throws IOException {

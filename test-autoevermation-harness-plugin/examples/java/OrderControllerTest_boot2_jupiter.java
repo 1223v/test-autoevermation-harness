@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.List;
+import java.util.Collections;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +30,7 @@ class OrderControllerTest {
   void sc001_listActiveOrders_returnsOkJsonStructure() throws Exception {
     // given
     given(orderQueryService.findActiveOrders())
-        .willReturn(List.of(OrderFixtures.confirmedOrder(1L)));
+        .willReturn(Collections.singletonList(OrderFixtures.confirmedOrder(1L)));
 
     // when
     ResultActions result =
@@ -49,7 +49,7 @@ class OrderControllerTest {
   @DisplayName("활성 주문이 없을 때 - 빈 배열과 200 OK를 반환한다")
   void sc002_listActiveOrders_returnsEmptyArray() throws Exception {
     // given
-    given(orderQueryService.findActiveOrders()).willReturn(List.of());
+    given(orderQueryService.findActiveOrders()).willReturn(Collections.emptyList());
 
     // when
     ResultActions result =

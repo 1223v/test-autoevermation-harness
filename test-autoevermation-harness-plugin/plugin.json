@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "test-autoevermation-harness-plugin",
-  "version": "0.35.0",
+  "version": "0.35.1",
   "description": "Spring Boot 테스트 생성·실행·JaCoCo·시나리오 검증 하네스. Codex 앱/CLI와 Claude Code에서 공용 스킬과 MCP 서버를 사용합니다.",
   "author": { "name": "test-autoevermation-harness-plugin maintainers" },
   "homepage": "https://github.com/1223v/test-autoevermation-harness",

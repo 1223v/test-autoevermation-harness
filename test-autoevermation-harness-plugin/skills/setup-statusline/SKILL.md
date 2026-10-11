@@ -5,7 +5,7 @@ description: TAM 상태줄(플러그인 버전·full-pipeline 진행률·현재 
 
 ## 실행 전 호스트 확인
 
-[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 질문 대기·JavaParser/소스 분석 경로로 치환한다.
 
 
 ## 목적

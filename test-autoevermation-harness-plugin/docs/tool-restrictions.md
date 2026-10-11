@@ -37,8 +37,8 @@ Claude Code 공식 계약상 **도구 실행을 실제로 막을 수 있는 훅 
 |---|---|
 | 매처 | `Write\|Edit` (PreToolUse) |
 | **전제 조건** | `_workspace/.markers/run.json`의 `session_id` == 현재 세션. **아니면 경로·내용과 무관하게 전부 allow** |
-| Zone A `_workspace/**` | `.markers/**` 위조, 위임 증거 없는 산출물, 순서 게이트 위반, 8단계 커버리지 필드 불변식(#21) 위반 |
-| Zone B `src/test/java/**` | 04/04b 승인 전 기록, 허용 에이전트(`test-code-generator`·`coverage-closer`·`test-fixer`·`test-editor`) 외 기록 |
+| Zone A `_workspace/**` | `.markers/**` 위조, 예산 파일의 직접 변조, 순서 게이트 위반, 8단계 커버리지 필드 불변식(#21) 위반 |
+| Zone B `src/test/java/**` | 04/04b 승인 전 기록, 메인 및 허용 역할(`test-code-generator`·`coverage-closer`·`test-fixer`·`test-editor`) 외 기록 |
 | Zone C `test_docs/**` | 선행 산출물 없는 문서 기록 |
 
 **존치 이유**: `fallback-policy.md #21`(커버리지 게이트 무효 조건)과 단계 순서 계약을 기계로 강제하는
@@ -58,7 +58,7 @@ Claude Code 공식 계약상 **도구 실행을 실제로 막을 수 있는 훅 
 | 차단 대상 | `test-code-generator` 서브에이전트 **스폰** |
 | 발동 조건 | `_workspace/.markers/run.json`의 `session_id`가 현재 세션과 일치(= 하네스 파이프라인 활성) **그리고** `04_scenario_set.json` 또는 `04b_approval.json` 부재 |
 | 비파이프라인 세션 | 발동 **안 함** (`run.json` 부재 → `_run_active()` false) |
-| 우회 | 4단계(`scenario-generator` 위임) 수행 → `test_docs/scenarios/*.md` 저장 → `AskUserQuestion` 승인 → `04b_approval.json` 기록 |
+| 우회 | 4단계(`scenario-generator` 역할) 수행 → `test_docs/scenarios/*.md` 저장 → `AskUserQuestion` 승인 → `04b_approval.json` 기록 |
 
 **존치 이유**: 사용자가 승인하지 않은 시나리오로 테스트 코드가 생성되는 것은 하네스의 핵심 계약 위반이다.
 쓰기 도구와 무관하고 발동 범위가 파이프라인 내부로 한정되므로 v0.30.0 차단 해제 대상에서 제외했다.

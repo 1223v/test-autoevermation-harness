@@ -42,7 +42,7 @@ function jdtlsOnPath() {
     const probe = IS_WIN
       ? spawnSync("where", [name], { encoding: "utf8", timeout: 15000, windowsHide: true })
       : spawnSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8", timeout: 15000 });
-    if (probe.status === 0 && (probe.stdout || "").trim()) return name;
+    if (probe.status === 0 && (probe.stdout || "").trim()) return probe.stdout.trim().split(/\r?\n/)[0];
   } catch (_) {
     /* PATH에 없음 */
   }
@@ -61,7 +61,7 @@ function resolveJdtls() {
 
 /** 자식 프로세스를 stdio 상속으로 실행하고 종료 코드를 그대로 전달한다(LSP stdio 패스스루). */
 function runInherit(cmd, args) {
-  let options = { stdio: "inherit", windowsHide: true };
+  let options = { stdio: "inherit", windowsHide: true, detached: !IS_WIN };
   if (IS_WIN && /\.(bat|cmd)$/i.test(cmd)) {
     // Node cannot execute batch files directly. Disable AutoRun and delayed expansion.
     // Refuse expansion characters instead of interpreting user-provided text as cmd code.
@@ -76,7 +76,13 @@ function runInherit(cmd, args) {
     options.windowsVerbatimArguments = true;
   }
   const child = spawn(cmd, args, options);
-  const forward = (sig) => { try { child.kill(sig); } catch (_) { /* 이미 종료 */ } };
+  const forward = (sig) => {
+    if (child.exitCode !== null || !child.pid) return;
+    try {
+      if (IS_WIN) spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 30000 });
+      else process.kill(-child.pid, sig);
+    } catch (_) { /* 이미 종료 */ }
+  };
   process.on("SIGINT", () => forward("SIGINT"));
   process.on("SIGTERM", () => forward("SIGTERM"));
   child.on("exit", (code, signal) => process.exit(signal ? 143 : (code == null ? 1 : code)));
@@ -94,7 +100,20 @@ function main() {
     log("(installs a pinned Eclipse JDT LS milestone; requires a JDK 21+ on PATH or JAVA_HOME).");
     process.exit(1);
   }
-  runInherit(jdtls, argv);
+  const launch = path.join(SCRIPT_DIR, "launch.cjs");
+  const setup = path.join(PLUGIN_ROOT, "scripts", "setup_jdtls.py");
+  const probe = spawnSync(process.execPath, [launch, "script", setup, "--launcher-info"], { encoding: "utf8", timeout: 60000, windowsHide: true });
+  let info;
+  try { info = JSON.parse(probe.stdout); } catch (_) { log("cannot verify JDT Python/Java runtime"); process.exit(1); }
+  if (probe.status !== 0 || !info.javaMajor || info.javaMajor < 21) {
+    log(`JDT requires Java 21+; selected ${info.javaExecutable || "(missing)"} (Java ${info.javaMajor || "unknown"}). Set HARNESS_JDT_JAVA_BIN or JAVA_HOME.`); process.exit(1);
+  }
+  const pythonLauncher = path.join(path.dirname(jdtls), "jdtls.py");
+  if (fs.existsSync(pythonLauncher) && fs.readFileSync(pythonLauncher, "utf8").includes("--java-executable")) {
+    runInherit(info.pythonExecutable, [pythonLauncher, "--java-executable", info.javaExecutable, ...argv]);
+  } else {
+    log("JDT launcher does not expose a verified Python/--java-executable entry; use the pinned setup-harness installation."); process.exit(1);
+  }
 }
 
 main();

@@ -23,10 +23,11 @@ repositories {
 }
 
 dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-webmvc")
 
     // spring-boot-starter-test: JUnit Jupiter, Mockito, AssertJ, Hamcrest — 모두 BOM 관리
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    // JPA/security slices additionally need their matching Boot 4 test starters.
 }
 
 // ── 테스트 태스크 설정 ────────────────────────────────────────────────────────
@@ -60,9 +61,9 @@ tasks.named<Test>("test") {
     finalizedBy(tasks.named("jacocoTestReport"))
 }
 
-// ── JaCoCo 커버리지 (RESEARCH_NOTES §3, JaCoCo 0.8.12) ───────────────────────
+// ── JaCoCo 커버리지 (RESEARCH_NOTES §3, JaCoCo 0.8.15) ───────────────────────
 jacoco {
-    toolVersion = "0.8.12"
+    toolVersion = "0.8.15"
 }
 
 // near-100% 게이트 제외 allowlist (RESEARCH_NOTES §6): 생성코드/DTO/config/부트스트랩

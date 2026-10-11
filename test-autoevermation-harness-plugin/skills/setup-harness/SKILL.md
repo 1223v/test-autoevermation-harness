@@ -5,8 +5,12 @@ description: Spring 테스트 하네스를 돌리기 위한 환경 세팅(공용
 
 ## 실행 전 호스트 확인
 
-[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 질문 대기·JavaParser/소스 분석 경로로 치환한다.
 
+
+## 실행 주체
+
+메인이 해당 역할을 직접 수행한다. 아래 Agent 호출 예시는 독립 작업을 선택적으로 위임할 때의 형식이다. 승인·입출력·검증 책임은 동일하며 위임만을 위해 같은 작업을 반복하지 않는다.
 
 ## 목적
 
@@ -38,7 +42,7 @@ description: Spring 테스트 하네스를 돌리기 위한 환경 세팅(공용
 /test-autoevermation-harness-plugin:setup-harness
 ```
 
-> **위임 금지 — 메인 루프 전용.** 이 스킬은 `AskUserQuestion`으로 항목별 세팅 동의를 받는데, `AskUserQuestion`은 **서브에이전트 도구 목록에서 제거된다**([Sub-agents](https://code.claude.com/docs/en/sub-agents) — MCP 도구는 서브에이전트도 쓸 수 있지만 질문은 불가). `Agent(subagent_type=...)`로 위임하지 말고 메인 루프에서 직접 수행한다.
+> **위임 금지 — 메인 루프 전용.** 이 스킬은 `AskUserQuestion`으로 누락 항목의 세팅 동의를 묶어 받는데, `AskUserQuestion`은 **서브에이전트 도구 목록에서 제거된다**([Sub-agents](https://code.claude.com/docs/en/sub-agents) — MCP 도구는 서브에이전트도 쓸 수 있지만 질문은 불가). `Agent(subagent_type=...)`로 위임하지 말고 메인 루프에서 직접 수행한다.
 
 ---
 
@@ -68,12 +72,11 @@ S1 상태줄 설치(선택)
 
 ### 세팅 방식 (정책: environment-setup.md 핵심 원칙 2·3)
 
-- **대화형 — 항목별로 함께 세팅**: 자동으로 고칠 수 있는 항목(E1·E2·E6·E7)은 항목마다
-  `AskUserQuestion으로 “〈항목〉이 없습니다. 지금 함께 세팅할까요?” 질문` → "예"면 그 자리에서 설치/빌드 실행
-  (E1+E2=`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only`,
-  E6=`cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"`
+- **대화형 — 변경 내용을 묶어서 확인**: 먼저 E1~E10을 감지한다. 누락 항목의 명령·설치 경로·온라인 다운로드를 한 번에 제시한다. 현재 요청에서 동의한 항목은 다시 묻지 않고, 새 변경만 `AskUserQuestion`으로 확인한 뒤 설치/빌드 실행
+  (E1+E2=`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --data "${CLAUDE_PLUGIN_DATA}" --ensure-only`,
+  E6=`cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --data "${CLAUDE_PLUGIN_DATA}" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"`
   — 반드시 `${CLAUDE_PLUGIN_ROOT}` 앵커(이 스킬의 cwd는 대상 프로젝트다) + persist까지 한 단계(jar를 업데이트 생존 위치 `${CLAUDE_PLUGIN_DATA}/javaparser/`로 복사; `--check`로 `upToDate:true`면 빌드 스킵),
-  E7=`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs script ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py`)
+  E7=`node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --data "${CLAUDE_PLUGIN_DATA}" script ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py`)
   → **재감지 검증** → `completed`. "아니오"면 `status:"failed"` 중단.
   assist 항목(E4 JDK 21+, E10 실행 JDK, 그리고 자동 설치 실패·`HARNESS_AUTO_PYTHON=0`인 E1)은 설치/경로 안내 질문 —
   사용자가 못 갖추면 중단.
@@ -98,7 +101,7 @@ build-test-mcp.health() → { server, pluginVersion, networkAllowed, ... }
 - **3종 모두 성공**: 응답의 `pluginVersion`과 repo-ast의 `javaparser` 상태를 요약에 기록하고 E3b를 `completed`로 표시한다.
 - **도구 미존재 또는 호출 실패**(어느 서버든): 침묵 fallback·Grep/Read 대체 없이 **하드 중단**한다 — `status:"failed"` + remediation:
   1. 플러그인이 활성화되어 있는지 확인(`/plugin` 목록에 `test-autoevermation-harness-plugin`).
-  2. `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only`로 런타임을 재프로비저닝.
+  2. `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --data "${CLAUDE_PLUGIN_DATA}" --ensure-only`로 런타임을 재프로비저닝.
   3. `/reload-plugins` 또는 Claude Code 재시작으로 MCP 서버를 재등록.
   4. SessionStart 훅 stderr 확인.
 - **repo-ast health의 `javaparser.jarFound:false`**: jar 미빌드 상태다 — E6 세팅(자동 빌드)으로 연결한다. `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1`이므로 jar 없이는 이후 파싱이 `JAVAPARSER_REQUIRED`로 실패한다.
@@ -113,7 +116,7 @@ TAM 상태줄(플러그인 버전·full-pipeline 진행률·현재 단계)을 �
 
 ```bash
 # <AUTOSETUP> 로 줄여 표기
-node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/hooks/statusline-autosetup.py"
+node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --data "${CLAUDE_PLUGIN_DATA}" script "${CLAUDE_PLUGIN_ROOT}/hooks/statusline-autosetup.py"
 ```
 
 절차:

@@ -1,6 +1,6 @@
 # 환경 세팅 체크리스트 (Preflight SSOT)
 
-> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·강제 위임 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
+> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·승인·순서 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
 
 이 문서는 하네스를 돌리기 **전에** 미리 끝내야 하는 **환경 세팅의 단일 출처(SSOT)**다.
 fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서 **선제적으로 세팅**해 제거한다.
@@ -12,14 +12,14 @@ fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서
 
 | 주체 | 담당 | 성격 |
 |---|---|---|
-| **`setup-harness` 스킬** | **E1~E10 환경 세팅 + 상태줄(S1) 설치** | **설치·빌드·프로비저닝을 실제로 수행**한다. 사용자가 명시적으로 1회(또는 환경이 깨졌을 때) 실행 |
-| `configure-harness` 스킬 | **E-verify 프로브**(시작 게이트) → 0.5단계 E8·E9 감지 → 0.6단계 E11·E12 | 세팅을 **수행하지 않는다**. 프로브 실패 시 하드 중단 |
-| `full-pipeline` 스킬 | **E-verify 프로브**(configure-harness를 건너뛰는 재사용·재개 경로에서 직접 실행) | 세팅을 **수행하지 않는다**. 프로브 실패 시 파이프라인 미시작 |
+| **`setup-harness` 스킬** | **E1~E10 환경 세팅 + 상태줄(S1) 설치** | **설치·빌드·프로비저닝을 실제로 수행**한다. 최초 준비 또는 원래 요청에서 동의한 환경 복구를 수행 |
+| `configure-harness` 스킬 | **E-verify 프로브**(시작 게이트) → 0.5단계 E8·E9 감지 → 0.6단계 E11·E12 | 세팅 실행은 setup-harness에 맡긴다. 필요한 동의 후 준비·복귀, 불가 시 중단 |
+| `full-pipeline` 스킬 | **E-verify 프로브**(configure-harness를 건너뛰는 재사용·재개 경로에서 직접 실행) | 현재 세션 프로브를 재사용한다. 누락 시 setup-harness로 동의된 준비를 넘기고 재개 |
 
 ## 핵심 원칙
 
-1. **세팅과 실행의 분리.** 환경 세팅(E1~E10)의 수행 주체는 **`setup-harness` 스킬 단 하나**다. `full-pipeline`/`configure-harness`는 시작 시 아래 **「E-verify 검증 프로브」만** 실행하며, **어떤 항목도 스스로 세팅하지 않는다** — 미충족이면 파이프라인을 시작하지 않고 `setup-harness` 실행을 안내하며 하드 중단한다.
-2. **함께 세팅 (대화형, setup-harness 안에서).** 자동으로 고칠 수 있는 항목은 **항목별로** `AskUserQuestion으로 “지금 함께 세팅할까요?” 질문`로 묻고, "예"면 그 자리에서 설치/빌드 → 재검증 → 체크. 침묵 진행·임의 degrade 금지.
+1. **세팅과 실행의 분리.** 환경 세팅(E1~E10)의 수행 주체는 **`setup-harness` 스킬 단 하나**다. `full-pipeline`/`configure-harness`는 시작 시 아래 **「E-verify 검증 프로브」만** 실행하며, **어떤 항목도 스스로 세팅하지 않는다** — 미충족이면 변경 내용을 제시해 필요한 동의를 받고 `setup-harness`로 넘긴다. 세팅 성공 후 원래 작업을 재개하고, 세션 재시작이 필요하면 `_resume.json`에 원래 요청·재개 지점을 저장한다. 연결 실패 자체를 우회하거나 미검증 상태로 진행하지 않는다.
+2. **함께 세팅 (대화형, setup-harness 안에서).** 자동으로 고칠 수 있는 항목은 먼저 전체 누락을 감지하고 명령·변경·다운로드를 한 번에 묶어 `AskUserQuestion`으로 묻고, "예"면 그 자리에서 설치/빌드 → 재검증 → 체크. 침묵 진행·임의 degrade 금지.
 3. **항상 자동 세팅 (비대화형/CI, setup-harness 안에서).** 비대화형(판정 규칙: `setup-harness` 「인터랙티브 모드 감지」 — 호스트 입력 처리기 부재 또는 명시적 `dontAsk` 모드)에는 질문할 수 없으므로 **결정적 세팅 항목**(pip 설치·jar 빌드 등 고정 명령으로 고칠 수 있는 것)은 **자동 수행**한다. 자동 수행이 실패하거나 **비결정적 항목**(버전 미감지·프로파일 충돌처럼 사람이 골라야 하는 것)은 `status:"failed"` + remediation으로 **하드 중단**한다.
 4. **체크리스트 가시화.** 각 항목을 응답 텍스트의 체크리스트로 표시하고 `ok`/`fixed`/`failed`/`skipped`로 갱신해 나간다. 사용자/로그에 진척이 보이게 한다(`TodoWrite`·task 도구는 쓰지 않는다 — 기본 비활성이며 최신 모델에서는 제공되지 않는다).
 5. **검증 후 체크.** 세팅 액션 뒤에는 반드시 **재감지**해서 통과를 확인한 뒤에만 completed로 표시한다.
@@ -34,19 +34,19 @@ fallback은 파이프라인 도중에 "마주치는" 것이 아니라, 여기서
 
 | # | 항목 | 감지 | 세팅 종류 | 대화형 동작 | CI 동작 | 연계 |
 |---|---|---|---|---|---|---|
-| E1 | **Python 3.10+** | `python3 -c "import sys;assert sys.version_info>=(3,10)"` (Windows: `py -3 -c ...` 또는 `python -c ...`) 또는 `${CLAUDE_PLUGIN_DATA}/python-path` 핀 존재 | auto(전 OS) | **자동**(v0.15.0+ 전 OS): `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` — PATH에 3.10+ 없으면 uv(무-sudo; POSIX `install.sh` / Windows `install.ps1`)로 관리형 Python 자동 설치. 실패 시에만 설치 경로 안내(brew/apt/winget/python.org). `HARNESS_AUTO_PYTHON=0`이면 assist로 강등. POSIX 전용 구진입점 `run-server.sh`는 수동 폴백으로 유지 | 동일 자동, 실패 시 하드 중단 + remediation | MCP 런타임 |
+| E1 | **Python 3.10+** | `python3 -c "import sys;assert sys.version_info>=(3,10)"` (Windows: `py -3 -c ...` 또는 `python -c ...`) 또는 `${CLAUDE_PLUGIN_DATA}/python-path` 핀 존재 | auto(전 OS) | **자동**(v0.15.0+ 전 OS): `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --data "${CLAUDE_PLUGIN_DATA}" --ensure-only` — PATH에 3.10+ 없으면 uv(무-sudo; POSIX `install.sh` / Windows `install.ps1`)로 관리형 Python 자동 설치. 실패 시에만 설치 경로 안내(brew/apt/winget/python.org). `HARNESS_AUTO_PYTHON=0`이면 assist로 강등. POSIX 전용 구진입점 `run-server.sh`는 수동 폴백으로 유지 | 동일 자동, 실패 시 하드 중단 + remediation | MCP 런타임 |
 | E2 | **MCP Python SDK** (`mcp[cli]>=2.2,<3`) | `python3 -c "import mcp"` 성공 **또는** bootstrap venv marker 존재 | auto | **자동**(v0.12.0+): `python3 ${CLAUDE_PLUGIN_ROOT}/mcp/bootstrap.py --ensure-only` — `${CLAUDE_PLUGIN_DATA}/venv`에 설치, 시스템 python 비오염. 실패 시에만 `AskUserQuestion` → pip 수동 폴백 | **자동** bootstrap 동일, 실패 시 중단 + pip 폴백 remediation | policy #1 |
 | E3 | **MCP 서버 3종 등록** (repo-ast·spec-doc·build-test) | `.mcp.json` 존재 + 각 서버 import 가능(`python3 mcp/<server>.py --help` 또는 모듈 로드) | auto | 누락 서버를 `.mcp.json`에 맞춰 점검, import 실패는 E2로 귀결. 재로딩 안내 | 자동 점검, import 실패면 중단 | `.mcp.json` |
-| E3b | **MCP 라이브 연결 검증** | 메인 루프가 `repo-ast-mcp.health`·`spec-doc-mcp.health`·`build-test-mcp.health` 3종 도구를 **실제 호출**해 응답 확인 (E3의 import 검사로는 플러그인 MCP 등록 실패를 못 잡음) | auto | 실패 시 하드 중단 + remediation(① 플러그인 활성화 확인 → ② `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` 수동 실행 → ③ `/reload-plugins` 또는 Claude Code 재시작 → ④ SessionStart 훅 stderr 확인) | 동일 절차로 하드 중단(질문 없이 자동 판정) | policy #20 (repo-ast health는 jar 상태도 함께 반환 — E6 검증 겸용) |
-| E4 | **JDK 21+** (jar 빌드·JDT LS 구동 공통 필수) | `java -version` ≥ 21 | assist | AskUserQuestion으로 설치/`JAVA_HOME` 지정 안내(sdkman/brew). 미충족이면 중단 | 하드 중단 + remediation | jar/E6, JDT LS/E7 |
+| E3b | **MCP 라이브 연결 검증** | 메인 루프가 `repo-ast-mcp.health`·`spec-doc-mcp.health`·`build-test-mcp.health` 3종 도구를 **실제 호출**해 응답 확인 (E3의 import 검사로는 플러그인 MCP 등록 실패를 못 잡음) | auto | 실패 시 하드 중단 + remediation(① 플러그인 활성화 확인 → ② `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --data "${CLAUDE_PLUGIN_DATA}" --ensure-only` 수동 실행 → ③ `/reload-plugins` 또는 Claude Code 재시작 → ④ SessionStart 훅 stderr 확인) | 동일 절차로 하드 중단(질문 없이 자동 판정) | policy #20 (repo-ast health는 jar 상태도 함께 반환 — E6 검증 겸용) |
+| E4 | **AST Java 17+ / Claude JDT Java 21+** (별도 실행 JVM) | `java -version` ≥ 21 | assist | AskUserQuestion으로 설치/`JAVA_HOME` 지정 안내(sdkman/brew). 미충족이면 중단 | 하드 중단 + remediation | jar/E6, JDT LS/E7 |
 | E5 | **Maven 3.6.3+** (jar 빌드용, 선택적) | `mcp/javaparser-cli/mvnw`(Windows `mvnw.cmd`) 존재 또는 `mvn -version` ≥ 3.6.3 | auto | mvnw 동봉으로 시스템 Maven 불필요(있으면 사용 가능). mvnw도 시스템 Maven도 없으면 설치 안내 | mvnw 사용, 둘 다 없으면 중단(빌드 불가) | E6 |
-| E6 | **JavaParser CLI jar** (필수) | `persist_astcli_jar.py --check`의 `upToDate:true`, 또는 `REPO_AST_JAVAPARSER_JAR` 지정, 또는 repo-ast `health()`의 `jarFound:true`·`jarStale:false` | auto | `AskUserQuestion`: "예 — jar 빌드(`./mvnw package`)" / "아니오 — 중단" (정규식 degrade 선택지 없음) → 예: `cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"` → `${CLAUDE_PLUGIN_DATA}/javaparser/astcli-1.0.0-shaded.jar` (업데이트 생존 위치 — 「세팅 명령 레퍼런스」 E6 참조) | **자동** 동일 명령 빌드+persist, 실패 시 하드 중단(`JAVAPARSER_REQUIRED`) | policy #2 (필수; `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1` 기본 설정) |
-| E7 | **JDT LS + Java 21+ 런타임** (필수) | `jdtls`(PATH) + `.lsp.json` + Java 21+ on `JAVA_HOME`/PATH | auto | 세팅: `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs script ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py`. 실패(Java 21 미탐지 포함) 시 중단 | 동일 세팅 자동 수행, 실패 시 하드 중단(AST-only degrade 문구 없음) | policy #3 |
+| E6 | **JavaParser CLI jar** (필수) | `persist_astcli_jar.py --check`의 `upToDate:true`, 또는 `REPO_AST_JAVAPARSER_JAR` 지정, 또는 repo-ast `health()`의 `jarFound:true`·`jarStale:false` | auto | `AskUserQuestion`: "예 — jar 빌드(`./mvnw package`)" / "아니오 — 중단" (정규식 degrade 선택지 없음) → 예: `cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --data "${CLAUDE_PLUGIN_DATA}" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"` → `${CLAUDE_PLUGIN_DATA}/javaparser/astcli-1.0.0-shaded.jar` (업데이트 생존 위치 — 「세팅 명령 레퍼런스」 E6 참조) | **자동** 동일 명령 빌드+persist, 실패 시 하드 중단(`JAVAPARSER_REQUIRED`) | policy #2 (필수; `.mcp.json`이 `REPO_AST_REQUIRE_JAVAPARSER=1` 기본 설정) |
+| E7 | **JDT LS + Java 21+ 런타임** (필수) | `jdtls`(PATH) + `.lsp.json` + Java 21+ on `JAVA_HOME`/PATH | auto | 세팅: `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --data "${CLAUDE_PLUGIN_DATA}" script ${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py`. 실패(Java 21 미탐지 포함) 시 중단 | 동일 세팅 자동 수행, 실패 시 하드 중단(AST-only degrade 문구 없음) | policy #3 |
 | E8 | **빌드 도구**(gradle/maven) | `build-test-mcp.detect_build_tool(root)` | data | `BUILD_TOOL_UNDETECTED`면 `AskUserQuestion으로 “gradle? maven?” 질문` | 미감지면 중단(`HarnessRequest.buildTool` 명시 요청) | policy #5 |
 | E9 | **Spring Boot 버전/프로파일** | `build-test-mcp.detect_spring_profile(root)` | data | `interviewRequired`면 정확한 Boot 버전(major/minor 포함) 메인 대화에서 질문(#4); `requiresConfirmation`면 충돌 확정(#6). 가정 금지 | 미감지/충돌이면 중단(`HarnessRequest.springVersion` 명시) | policy #4·#6 |
 | E10 | **테스트 실행 JDK ↔ Mockito 호환** | 실행 JDK major vs Mockito/ByteBuddy 지원 범위 | assist | JDK 24/25에서 inline mock-maker 미지원 위험이면 `AskUserQuestion`: "① 테스트 실행 JDK를 17/21 LTS로 / ② Mockito 5.16+(ByteBuddy 1.17+)로 / ③ `-Dnet.bytebuddy.experimental=true`" | 위험이면 자동 보정 불가 → 중단(remediation 안내) | RESEARCH_NOTES §5, ByteBuddy |
 | E11 | **대상 빌드 능력**(JaCoCo XML 필수) | `build-test.detect_build_capabilities(root)` → `missing[]` | data(approve→inject) | JaCoCo 누락을 보여주고 승인한 최소 스니펫만 주입한 뒤 재감지 | 자동 주입 금지. JaCoCo 또는 XML 출력 누락 시 remediation 중단 | policy #17, [build-provisioning.md](./build-provisioning.md) §1 |
-| E12 | **의존성 캐시 프라이밍**(콜드 캐시 첫 실행) | `build-test.check_dependency_cache(buildTool, root)` → `primed` | data(approve→prime) | `primed:false`/신규 플러그인이면 `AskUserQuestion으로 “1회 온라인 프라이밍?” 질문` → 예: `run_targeted_tests(online=True)` 1회(또는 Maven `dependency:go-offline`)→이후 오프라인 | 자동 온라인 금지 → `BUILD_TEST_ALLOW_NETWORK=1` 옵트인·사전 워밍업 안내 | policy #18, [build-provisioning.md](./build-provisioning.md) §2 |
+| E12 | **의존성 캐시 프라이밍**(콜드 캐시 첫 실행) | `build-test.check_dependency_cache(buildTool, root)` → `primed` | data(approve→prime) | `primed:false`/신규 플러그인이면 `AskUserQuestion으로 “1회 온라인 프라이밍?” 질문` → 예: 6단계 실제 테스트를 `run_targeted_tests(online=True, with_coverage=True)`로 실행해 준비와 검증을 겸함→이후 오프라인 | 자동 온라인 금지 → `BUILD_TEST_ALLOW_NETWORK=1` 옵트인·사전 워밍업 안내 | policy #18, [build-provisioning.md](./build-provisioning.md) §2 |
 
 E8·E9·E10·E11·E12는 **데이터 감지**라 "자동 빌드"로는 못 고친다 — 대화형은 질문(E11·E12는 승인 후 함께 세팅), CI는 필수 값·캐시를 사전 준비한다. E11·E12는 **0.5단계(프로파일 확정) 직후 0.6단계에서 6단계 run-tests 이전에** 처리한다 — JaCoCo 에이전트는 `test` 실행 중 attach되므로 빌드 능력이 먼저 갖춰져야 한다.
 
@@ -71,15 +71,15 @@ python3 -m pip install -r mcp/requirements.txt          # (which python3 로 인
 #   버전 키 스냅샷이라 업데이트마다 교체·삭제되므로(공식문서: CLAUDE_PLUGIN_ROOT에 상태 저장 금지),
 #   jar를 ${CLAUDE_PLUGIN_DATA}/javaparser/로 복사해야 업데이트에서 살아남는다.
 cd "${CLAUDE_PLUGIN_ROOT}/mcp/javaparser-cli" && ./mvnw -q -DskipTests package \
-  && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"
+  && node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --data "${CLAUDE_PLUGIN_DATA}" script "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py"
 #   (Windows: mvnw.cmd -q -DskipTests package 후 동일 persist 실행)
 #   산출물: ${CLAUDE_PLUGIN_DATA}/javaparser/astcli-1.0.0-shaded.jar + astcli.fingerprint(소스 지문)
-#   빌드 스킵 판정: node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script \
+#   빌드 스킵 판정: node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --data "${CLAUDE_PLUGIN_DATA}" script \
 #     "${CLAUDE_PLUGIN_ROOT}/scripts/persist_astcli_jar.py" --check → upToDate:true면 이미 최신(재빌드 불필요)
 #   오프라인 대안: 사전 빌드한 jar를 REPO_AST_JAVAPARSER_JAR="/abs/path/astcli-1.0.0-shaded.jar" 로 지정
 
 # E7: JDT LS — jdtls 실행 파일 + Java 21+ 런타임 필요, 자동 설치 스크립트 제공
-node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py"
+node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --data "${CLAUDE_PLUGIN_DATA}" script "${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py"
 #   PATH → brew(macOS) → eclipse.org milestone tarball(${CLAUDE_PLUGIN_DATA}/jdtls) 순으로 프로비저닝
 #   (Eclipse JDT LS는 구동에 Java 21+ 요구, 컴파일 대상은 1.8–25 지원)
 #   오프라인 대안: jdtls를 사전 설치해 PATH에 두거나 ${CLAUDE_PLUGIN_DATA}/jdtls에 미리 배치
@@ -106,7 +106,7 @@ node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/script
 | `repo-ast.health()` · `spec-doc.health()` · `build-test.health()` **3종 실제 호출** | **E3b**(라이브 연결) + 전이적으로 **E1·E2·E3**(런타임·venv·서버 등록이 없으면 애초에 응답 불가) | 도구 미노출/호출 실패 → 실패. repo-ast 응답의 `javaparser.jarFound:false` → E6 실패로 간주 |
 | `java -version` ≥ 21 | **E4** | 미충족 → 실패 |
 | repo-ast `health()`의 `jarFound:true`(+`jarPersisted`/`jarStale` 점검) 또는 `REPO_AST_JAVAPARSER_JAR` 설정 | **E5·E6** | 미충족 → 실패. `jarPersisted:false`면 jar가 버전 키 캐시에만 있어 다음 업데이트에서 소실 — persist 실행 권고. `jarStale:true`면 CLI 소스 변경 — 재빌드 |
-| `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py" --check-only` | **E7** | 종료코드 ≠ 0 → 실패 (`--check-only`는 감지만 하고 설치하지 않는다) |
+| `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" --data "${CLAUDE_PLUGIN_DATA}" script "${CLAUDE_PLUGIN_ROOT}/scripts/setup_jdtls.py" --check-only` | **E7** | 종료코드 ≠ 0 → 실패 (`--check-only`는 감지만 하고 설치하지 않는다) |
 | 실행 JDK major ↔ Mockito/ByteBuddy 지원 범위 | **E10** | 위험이면 실패(또는 명시적 사용자 확인) |
 
 **하나라도 실패하면** 대화형·CI 동일하게 `status:"failed"` + `errors`에 실패 항목을 담고 **파이프라인을 시작하지 않는다.** 이때 remediation은 항상 아래 **고정 안내 문자열**을 포함한다:
@@ -142,7 +142,11 @@ verify_mcp_health(E3b)                # repo-ast/spec-doc/build-test health 3종
 ```
 # configure-harness / full-pipeline — 검증 전용(verify-only). 세팅하지 않는다.
 if not e_verify_probes():                       # 위 「E-verify 검증 프로브」 표
-    return failed(errors, "먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요")
+    # 구체적인 변경·다운로드의 기존 동의를 사용하고 새 동의만 묶어 요청
+    if preparation_authorized:
+        setup_harness_then_resume_original_request()
+    else:
+        return failed(errors, "먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요")
 ```
 
 ---
@@ -150,6 +154,6 @@ if not e_verify_probes():                       # 위 「E-verify 검증 프로�
 ## 통과 기준
 
 - **`setup-harness` 완료 기준**: **E1·E2·E3·E3b·E4·E5(동봉 mvnw)·E6·E7·E10 전부 통과**. 하나라도 미충족이면 `status:"failed"` + remediation. (상태줄 S1은 선택 — 실패해도 `warnings`.)
-- **파이프라인(`full-pipeline`/`configure-harness`) 시작 기준**: **E-verify 프로브 전부 통과**. 미통과 시 `status:"failed"` + 위 고정 안내 문자열로 **미시작 하드 중단**(자동 세팅 금지, 정규식·AST-only degrade 금지).
+- **파이프라인(`full-pipeline`/`configure-harness`) 시작 기준**: **E-verify 프로브 전부 통과**. 미통과 시 동의된 준비를 setup-harness에서 수행한 뒤 복귀한다. 동의·복구 불가 시 `status:"failed"` + 위 안내로 중단한다(무동의 변경·정규식·AST-only 대체 금지).
 - **E8·E9(빌드도구·프로파일)**는 configure-harness **0.5단계**에서 확정한다(데이터 감지).
 - **E11(빌드 능력)·E12(캐시 프라이밍)**는 0.5단계 직후 **0.6단계**에서 처리한다(6단계 run-tests 이전 필수). 대화형=승인 후 주입/프라이밍, CI=JaCoCo XML 능력 미비 시 remediation 중단.

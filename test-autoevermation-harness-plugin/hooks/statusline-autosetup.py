@@ -63,6 +63,16 @@ def _atomic_write_json(path, data):
     os.replace(tmp, path)
 
 
+def _delegate_shell():
+    if os.name != "nt":
+        return ["/bin/sh", "-c"]
+    candidates = [os.environ.get("CLAUDE_CODE_GIT_BASH_PATH"), shutil.which("bash"), r"C:\Program Files\Git\bin\bash.exe"]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and "system32" not in candidate.lower():
+            return [candidate, "-c"]
+    return ["powershell.exe", "-NoProfile", "-Command"]
+
+
 def load_config():
     return _load_json(CONFIG_PATH)
 
@@ -134,11 +144,13 @@ def do_install(consent="granted"):
                     shutil.copyfile(SETTINGS_PATH, backup)
             except Exception:
                 pass
-        settings["statusLine"] = {"type": "command", "command": new_cmd}
+        settings["statusLine"] = {**(sl if isinstance(sl, dict) else {}), "type": "command", "command": new_cmd}
         _atomic_write_json(SETTINGS_PATH, settings)
 
     cfg = {
         "delegate": delegate,
+        "delegateStatusLine": existing.get("delegateStatusLine") if OWNER_MARK in current_cmd else sl,
+        "delegateShell": existing.get("delegateShell") if OWNER_MARK in current_cmd else _delegate_shell(),
         "pluginRoot": PLUGIN_ROOT,
         "installPath": resolve_install_path(),
         "consent": consent,
@@ -177,7 +189,7 @@ def do_uninstall():
         cmd = sl.get("command", "") if isinstance(sl, dict) else ""
         if OWNER_MARK in cmd:
             if delegate:
-                settings["statusLine"] = {"type": "command", "command": delegate}
+                settings["statusLine"] = cfg.get("delegateStatusLine") or {"type": "command", "command": delegate}
             else:
                 settings.pop("statusLine", None)
             _atomic_write_json(SETTINGS_PATH, settings)

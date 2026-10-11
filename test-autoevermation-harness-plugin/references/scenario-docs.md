@@ -1,6 +1,6 @@
 # 시나리오 문서·승인·적합성 검증 (SSOT)
 
-> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·강제 위임 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
+> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·승인·순서 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
 
 이 문서는 하네스의 **시나리오 산출물(`test_docs/`)·사용자 승인 게이트·시나리오 적합성(conformance) 검증**에 대한
 단일 출처(Single Source of Truth)다. `full-pipeline`·`generate-scenarios`·`verify-scenarios` 스킬과
@@ -156,13 +156,10 @@ approvedAt: 2026-06-27
 
 ### 4.1 게이트 (fallback-policy.md #16)
 
-- `missing` 또는 `unsatisfied` 시나리오가 하나라도 있으면 **full-pipeline 9.5단계 적합성 자동 보정 루프**가
-  대화형·CI 동일하게 자동 수행된다: unsatisfied→`test-fixer` 모드 B(`SCENARIO_NONCONFORMANT`),
-  missing→`test-code-generator` 부분 재생성 → 6단계 테스트 재실행 → 8단계 커버리지 재검증 → 9단계 적합성 재검증.
-  **최대 3라운드, 직전 라운드와 동일 unmet 집합이면 즉시 무진전 중단**(#12의 명시적 예외 — 적합성 판정은 일부 LLM 판단).
-- 루프 소진 후 잔여가 있으면 `status: "partial"`로 잔여를 전량 명시한다. 전부 `satisfied`라야 `status: "ok"`.
-  임의 제외·무시 금지.
-- 소진 후 대화형: 잔여에 대해 `AskUserQuestion`("수동 보정 계속 / partial로 종료"). CI: `partial`로 보고 후 종료.
+단독 확인은 unmet과 partial을 반환하며 테스트를 자동 수정하지 않는다.
+생성/수정 요청에서는 메인이 [공용 예산](execution-policy.md)을 예약한다. unsatisfied는 test-fixer 모드 B, missing은 부분 생성 한 묶음으로 처리한 뒤 6→8→9를 다시 검증한다.
+실패·적합성·커버리지 보정은 fast 총 1회·balanced 총 3회를 공유한다. 적합성 자체는 최대 3라운드, 동일 unmet 즉시 종료한다.
+소진 후 partial과 잔여 전량을 보고한다. 추가 질문은 하지 않으며 명시적 계속 요청만 새 예산을 허용한다. 전부 satisfied라야 ok다.
 
 ### 4.2 `ConformanceResult` 스키마
 

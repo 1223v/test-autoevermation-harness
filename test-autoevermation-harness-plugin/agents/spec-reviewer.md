@@ -8,7 +8,7 @@ disallowedTools: Write, Edit, Bash
 
 ## 호스트별 역할 실행
 
-[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 두 호스트 모두 이 역할을 직접 수행할 수 있으며 독립 분석만 선택적으로 위임한다. Claude frontmatter를 Codex 전역 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
 
 
 ## 목적
@@ -131,7 +131,7 @@ disallowedTools: Write, Edit, Bash
 ### spec-doc-mcp (필수)
 - **연결 이유**: 텍스트 스펙 문서(.md/.txt/.adoc/.rst/.text)를 청크 단위로 인덱싱하고 도메인 키워드 기반 검색으로 관련 섹션을 우선 추출하는 기능은 단순 파일 읽기로 구현할 수 없다. `index_docs`로 문서를 분할 인덱싱하고, `search_requirements`로 테스트 관련 조항만 선택적으로 수집하며, `extract_acceptance_criteria`로 Given/When/Then 정규화를 수행한다.
 - **transport**: `stdio` 또는 local HTTP
-- **사용 도구**: `index_docs`, `search_requirements`, `extract_acceptance_criteria`
+- **사용 도구**: `index_docs`, `search_requirements`, `extract_acceptance_criteria`. 모든 specDocPaths를 한 번의 index_docs 호출로 인덱싱한다. 문서별 병렬 인덱싱은 전체 스냅샷을 덮어쓰므로 금지한다. UTF-8 지원 텍스트 외 문서는 변환이 필요하다고 보고한다. 수용 기준은 마스킹한 원문에서 추출하며 검색 청크를 연결하지 않는다.
 - **민감정보 처리**: MCP 레벨에서 토큰·이메일·접속문자열·비밀번호를 자동 redaction. 원문 노출 없이 정규화된 criteria만 반환.
 - **경로 allowlist**: `specDocPaths`에 명시된 경로만 허용. 프로젝트 루트 외부 경로 거부.
 
@@ -165,7 +165,7 @@ disallowedTools: Write, Edit, Bash
 ## 성능 고려사항
 
 - **청크 인덱싱**: 대형 문서는 `spec-doc-mcp.index_docs`로 분할 처리. 전체 문서를 컨텍스트에 올리지 않음.
-- **병렬 처리**: 복수 문서는 병렬로 인덱싱.
+- **일괄 처리**: 복수 문서 경로는 한 번의 `index_docs` 호출로 전달한다. 독립적인 AST 분석과의 동시 실행은 호스트 지침을 따른다.
 - **도메인 키워드 우선**: `domainKeywords` 기반 검색으로 관련 섹션만 추출하여 불필요한 토큰 소비 억제.
 - **우선순위 처리**: `priority` 배열 순서로 문서 처리. 앞 문서의 criteria가 뒷 문서보다 높은 신뢰도를 가짐.
 

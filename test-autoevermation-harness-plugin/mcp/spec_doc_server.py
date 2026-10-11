@@ -28,8 +28,11 @@ import json
 import os
 import re
 import threading
+import sys
 from pathlib import Path
 from typing import Any
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness_runtime import runtime_info
 
 try:
     from mcp.server.mcpserver import MCPServer
@@ -210,8 +213,12 @@ def _is_path_allowed(path: Path, root: Path | None = None) -> tuple[bool, str]:
 def _safe_read(path: Path) -> tuple[str | None, str | None]:
     """Read a file safely; returns (content, error_message)."""
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
+        if path.stat().st_size > 10 * 1024 * 1024:
+            return None, f"SPEC_DOC_UNREADABLE: document exceeds 10 MiB: {path}"
+        with open(path, encoding="utf-8-sig") as fh:
             return fh.read(), None
+    except UnicodeError:
+        return None, f"SPEC_DOC_UNREADABLE: convert to UTF-8 before indexing: {path}"
     except PermissionError:
         return None, f"SPEC_DOC_UNREADABLE: permission denied: {path}"
     except OSError as exc:
@@ -260,22 +267,35 @@ _INDEX: list[dict[str, Any]] = []
 _GLOSSARY: dict[str, str] = {}
 _INDEX_LOCK = threading.Lock()
 _INDEX_ROOT: str | None = None
+_ORIGINALS: dict[str, str] = {}  # redacted source, never reconstructed from overlapping chunks
+_GENERATION = 0
+
+
+def _check_cancelled() -> None:
+    try:
+        from anyio.from_thread import check_cancelled
+        check_cancelled()
+    except RuntimeError:
+        pass  # direct synchronous calls outside the SDK worker thread
 
 
 def _clear_index() -> None:
-    global _INDEX, _GLOSSARY, _INDEX_ROOT
+    global _INDEX, _GLOSSARY, _INDEX_ROOT, _ORIGINALS, _GENERATION
     with _INDEX_LOCK:
         _INDEX, _GLOSSARY = [], {}
         _INDEX_ROOT = None
+        _ORIGINALS = {}
+        _GENERATION += 1
 
 
-def _snapshot(root: str | None) -> tuple[list[dict[str, Any]], dict[str, str], Path | None]:
+def _snapshot(root: str | None, originals: bool = False) -> tuple:
     scope = _request_root(root)
     with _INDEX_LOCK:
         index, glossary, indexed_root = _INDEX, _GLOSSARY, _INDEX_ROOT
+        source_text = _ORIGINALS
     if (index or indexed_root is not None) and (Path(indexed_root) if indexed_root else None) != scope:
         raise ValueError("SPEC_DOC_ROOT_MISMATCH: call index_docs for the requested root first")
-    return index, glossary, scope
+    return (index, glossary, scope, source_text) if originals else (index, glossary, scope)
 
 
 def _build_glossary_from_chunks(chunks: list[dict[str, Any]]) -> dict[str, str]:
@@ -468,6 +488,7 @@ def health(root: str | None = None) -> dict:
         scope, scope_error = None, str(exc)
     return {
         "server": "spec-doc",
+        "runtime": runtime_info(),
         "pluginVersion": _plugin_version(),
         "redact": redact,
         "allowlist": allowlist,
@@ -499,7 +520,7 @@ def index_docs(paths: list[str], root: str | None = None) -> dict:
     Returns:
         dict with keys: status, indexed_files, chunk_count, unreadable, warnings, errors
     """
-    global _INDEX, _GLOSSARY, _INDEX_ROOT
+    global _INDEX, _GLOSSARY, _INDEX_ROOT, _ORIGINALS, _GENERATION
     try:
         scope = _request_root(root)
     except (ValueError, OSError) as exc:
@@ -509,13 +530,18 @@ def index_docs(paths: list[str], root: str | None = None) -> dict:
     warnings: list[str] = []
     errors: list[str] = []
     all_chunks: list[dict[str, Any]] = []
+    originals: dict[str, str] = {}
+    with _INDEX_LOCK:
+        _GENERATION += 1
+        generation = _GENERATION
 
     def _process_file(fpath: Path, explicit: bool = False) -> None:
+        _check_cancelled()
         if fpath.suffix.lower() not in _SUPPORTED_EXTENSIONS:
             # A file the caller named explicitly (e.g. an advertised .pdf spec)
             # must not be dropped silently — report it so the agent knows it was
             # not ingested. Files discovered by directory scan are skipped quietly.
-            if explicit:
+            if explicit or fpath.suffix.lower() in {".pdf", ".yaml", ".yml", ".docx"}:
                 unreadable.append(
                     f"SPEC_DOC_UNREADABLE: unsupported file type "
                     f"'{fpath.suffix or '(none)'}' (supported: "
@@ -536,6 +562,12 @@ def index_docs(paths: list[str], root: str | None = None) -> dict:
         # (which resolves its `paths`) matches regardless of the path form used at index
         # time (directory vs file, relative vs absolute). _is_path_allowed also resolves.
         src_key = str(fpath.resolve())
+        if src_key in originals:
+            return
+        if len(originals) >= 5000 or sum(len(t.encode("utf-8")) for t in originals.values()) + len(redacted.encode("utf-8")) > 50 * 1024 * 1024:
+            unreadable.append(f"SPEC_DOC_UNREADABLE: index limit (5000 files / 50 MiB) reached: {fpath}")
+            return
+        originals[src_key] = redacted
         chunks = _chunk_text(redacted, src_key)
         all_chunks.extend(chunks)
         indexed_files.append(src_key)
@@ -554,17 +586,25 @@ def index_docs(paths: list[str], root: str | None = None) -> dict:
             if not allowed:
                 warnings.append(f"Directory skipped (not allowed): {p} — {reason}")
                 continue
-            for fpath in sorted(p.rglob("*")):
-                if fpath.is_file():
-                    _process_file(fpath)
+            try:
+                for fpath in sorted(p.rglob("*")):
+                    if fpath.is_file():
+                        _process_file(fpath)
+            except OSError as exc:
+                unreadable.append(f"SPEC_DOC_UNREADABLE: directory scan failed: {p}: {exc}")
         else:
             warnings.append(f"Not a file or directory: {p}")
 
     # Publish one complete snapshot; concurrent readers retain the prior snapshot.
     new_glossary = _build_glossary_from_chunks(all_chunks)
+    _check_cancelled()
     with _INDEX_LOCK:
+        if generation != _GENERATION:
+            return _scope_failure(ValueError("SPEC_DOC_INDEX_SUPERSEDED: a newer indexing request owns the snapshot"),
+                                  indexed_files=[], chunk_count=0, unreadable=unreadable)
         _INDEX, _GLOSSARY = all_chunks, new_glossary
         _INDEX_ROOT = str(scope) if scope is not None else None
+        _ORIGINALS = originals
 
     status = ("partial" if unreadable or warnings else "ok") if indexed_files else "failed"
     if not indexed_files and not unreadable:
@@ -666,7 +706,7 @@ def extract_acceptance_criteria(paths: list[str] | None = None, root: str | None
                                prohibitions[], glossary, evidence[], warnings[], errors[]
     """
     try:
-        index, glossary, scope = _snapshot(root)
+        index, glossary, scope, originals = _snapshot(root, originals=True)
         if root is not None and paths:
             paths = [str(scope / p) if not Path(p).is_absolute() else p for p in paths]
             for p in paths:
@@ -698,14 +738,13 @@ def extract_acceptance_criteria(paths: list[str] | None = None, root: str | None
         target_sources = None
         target_sources_raw = None
 
-    # Group chunks by source
+    # Use the redacted original once; overlapping search chunks are not a document.
     source_to_text: dict[str, list[str]] = {}
-    for chunk in index:
-        src = chunk["source"]
+    for src, text in originals.items():
         if target_sources is not None:
             if src not in target_sources and src not in target_sources_raw:  # type: ignore[operator]
                 continue
-        source_to_text.setdefault(src, []).append(chunk["text"])
+        source_to_text[src] = [text]
 
     all_criteria: list[dict[str, Any]] = []
     prohibitions: list[dict[str, Any]] = []

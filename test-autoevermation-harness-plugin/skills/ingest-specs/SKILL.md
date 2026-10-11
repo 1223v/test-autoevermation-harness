@@ -5,8 +5,12 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
 
 ## 실행 전 호스트 확인
 
-[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 질문 대기·JavaParser/소스 분석 경로로 치환한다.
 
+
+## 실행 주체
+
+메인이 해당 역할을 직접 수행한다. 아래 Agent 호출 예시는 독립 작업을 선택적으로 위임할 때의 형식이다. 승인·입출력·검증 책임은 동일하며 위임만을 위해 같은 작업을 반복하지 않는다.
 
 ## 목적
 
@@ -35,7 +39,7 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
 
 ```json
 {
-  "specDocPaths": ["docs/api-spec.md", "docs/domain-rules.yaml"],
+  "specDocPaths": ["docs/api-spec.md", "docs/domain-rules.md"],
   "priority": ["docs/api-spec.md"],
   "domainKeywords": ["주문", "결제", "재고"]
 }
@@ -79,7 +83,7 @@ description: 스펙 문서를 인덱싱하고 acceptance criteria를 정규화�
 
    지시:
    - spec-doc-mcp의 `index_docs`, `search_requirements`, `extract_acceptance_criteria` 도구를 순서대로 사용하라.
-   - 문서를 청크로 인덱싱하고, 테스트 가능한 acceptance criteria를 Given/When/Then으로 정규화하라.
+   - 모든 specDocPaths를 한 번에 index_docs에 전달하라(문서별 병렬 호출 금지). 검색은 청크를 사용하고 수용 기준은 마스킹한 원문으로 정규화한다.
    - 읽을 수 없는 문서는 SPEC_DOC_UNREADABLE로 보고하라.
    - 민감정보(토큰, 이메일, 접속문자열)는 redact 처리하라.
    - 긴 문서는 청크별로 분리해 처리하고, 코드 본문을 메인 컨텍스트에 노출하지 마라.

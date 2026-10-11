@@ -13,13 +13,15 @@
 <properties>
   <!-- Boot 2.x 베이스라인: Java 8. (11로 올리려면 8 → 11) -->
   <java.version>8</java.version>
-  <maven.compiler.release>8</maven.compiler.release>
+  <!-- JDK 8 with Boot 2.7 compiler 3.10.1: --release is unavailable. -->
+  <maven.compiler.source>8</maven.compiler.source>
+  <maven.compiler.target>8</maven.compiler.target>
 </properties>
 
 <build>
   <plugins>
 
-    <!-- Surefire: 버전은 Boot BOM 관리. JUnit Platform(2.22+)·JUnit4 모두 지원. -->
+    <!-- Surefire: Boot starter-parent의 pluginManagement가 버전 관리. BOM만 import하면 별도 버전 필요. -->
     <plugin>
       <groupId>org.apache.maven.plugins</groupId>
       <artifactId>maven-surefire-plugin</artifactId>
@@ -31,11 +33,11 @@
       </configuration>
     </plugin>
 
-    <!-- JaCoCo 0.8.12: Java 8 런타임 정상 (RESEARCH_NOTES §8). -->
+    <!-- JaCoCo 0.8.15: Java 8 런타임 정상 (RESEARCH_NOTES §8). -->
     <plugin>
       <groupId>org.jacoco</groupId>
       <artifactId>jacoco-maven-plugin</artifactId>
-      <version>0.8.12</version>
+      <version>0.8.15</version>
       <configuration>
         <excludes>
           <exclude>**/*Application*</exclude>
@@ -46,7 +48,7 @@
       </configuration>
       <executions>
         <execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>
-        <execution><id>report</id><phase>test</phase><goals><goal>report</goal></goals></execution>
+        <execution><id>report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>
         <execution>
           <id>check</id><goals><goal>check</goal></goals>
           <configuration>

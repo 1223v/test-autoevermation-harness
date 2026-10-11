@@ -1,89 +1,22 @@
 #!/usr/bin/env python3
-r"""guard-gate-artifacts.py
+r"""PreToolUse Write|Edit guard, only inside the current active harness run.
 
-PreToolUse hook for the Spring Test Harness plugin (matcher: ``Write|Edit``).
-
-8단계 커버리지 게이트 필드 불변식(#21)과 **위임(delegation)·산출물 순서를 물리 강제**한다.
-record-run-context.py가 남기는 ``_workspace/.markers/`` 증거(run.json /
-spawn-<agent>.json / pipeline-state.detected.json)를 판정에 사용한다. 배경: v0.21.0
-SSOT 통합 이후 오케스트레이터가 서브에이전트 위임과 산출물 영속화를 인라인 수행으로
-우회한 실세션 회귀 — prose는 강제가 아니므로 훅으로 차단한다.
-
-**전제 게이트 (v0.32.0 — 이 훅의 유일한 발동 조건)**: ``_workspace/.markers/run.json``의
-``session_id``가 현재 세션과 일치할 때, 즉 **이 세션에서 full-pipeline이 실제로 돌고 있을
-때만** 판정한다. 그 외에는 경로·내용과 무관하게 전부 allow — 하네스를 쓰지 않는 일반 개발
-세션은 이 훅의 존재를 체감할 수 없다.
-
-이력: v0.22.0 도입 시 markers 검사와 Zone A에는 이 게이트가 없어 아무 세션에서나
-``_workspace/`` 편집이 막혔다. 그 오탐 때문에 v0.30.0에서 훅 등록을 해제하고 v0.31.0에서
-파일까지 삭제했으나, #21·순서 계약이 기계 검증을 잃었다. v0.32.0에서 게이트를 전 Zone에
-적용해 복원했다 — 막아야 할 것만 막는다.
-
-Decision table (아래 전부 run-active 전제):
-
-Zone A — ``_workspace`` 단계 산출물 (basename 매칭):
-  * ``_workspace/.markers/**``                 -> deny (훅 전용 증거, 도구 위조 금지)
-  * 오케스트레이터 소유 산출물(00/03c/04b/09b/_resume/timing/result)
-      - 00_config-harness.json / _resume.json / pipeline_result.json:
-        Write는 schemaVersion=2 JSON 객체 필수(00은 "springProfile" 포함 — 빈 껍데기 차단;
-        pipeline_result.json은 09_conformance.json 집계값과 대조), Edit는 deny
-      - 09b: Write는 JSON 객체 필수 + 순서 게이트(09 선행) / 03c·04b·timing.json: 무검사 allow
-  * producer 산출물(01/02/03/03b/04/05/06/07/09) 및 08:
-      - Edit                                    -> deny (전체 Write만 — 검증 불가)
-      - Write, 내용이 JSON 객체 아님             -> deny
-  * 08 필드 불변식(#21)                          -> 기존 로직 유지 (아래 참조)
-  * 08: gatePassed=false && iterations>=1 && spawn-coverage-closer 부재
-                                                -> deny (루프 증거 위조 — 미위임)
-  * producer 산출물 provenance:
-      - agent_type == producer                  -> allow (자기 산출물)
-      - 메인 에이전트 + stub(content.source=="durable-scan" &&
-        pipeline-state.detected.json 세션 일치)  -> allow (durable resume 복원)
-      - 메인 에이전트 + spawn-<producer> 마커(세션 일치)
-                                                -> allow (위임 후 결과 기록)
-      - 그 외                                    -> deny (위임 없이 산출물 기록)
-  * 순서 게이트(stub 면제):
-      01|02 without 00 / 05 without 04∧04b / 06 without 05
-      / 08 without 06 / 09 without 08 / 09b without 09 -> deny
-
-Zone B — ``src/test/java/**``:
-  * 04_scenario_set.json 또는 04b_approval.json 부재
-                                                -> deny (4.5 승인 전 기록 금지 — 누구든)
-  * agent_type ∈ TEST_WRITE_AGENTS
-    {test-code-generator, coverage-closer, test-fixer, test-editor}
-                                                -> allow
-  * 그 외                                        -> deny (오케스트레이터 인라인 작성/수정 금지 —
-                                                   test-fixer가 메인 트리에서 직접 고치므로
-                                                   오케스트레이터 patch-apply 예외는 없다, v0.34.0)
-
-Zone C — ``test_docs/**``:
-  * test_docs/scenarios/*.md without 04         -> deny
-  * test_docs/refactoring/RA-*.md without 03b   -> deny
-  * 그 외                                        -> allow
-
-Zone D — 그 외 전부 allow. run-active가 아닌 세션도 전부 allow(위 전제 게이트).
-인프라 오류(malformed stdin/내부 예외)          -> allow (fail-open — 훅이 세션을
-                                                   깨서는 안 된다; 판정 로직 자체는
-                                                   fail-closed).
-
-Hook JSON 입력 (공식 계약 — Hooks reference §Common input fields / §PreToolUse,
-  https://code.claude.com/docs/en/hooks; 회귀 확인용 프로브: scripts/dev/probe-hook-stdin.py):
-  { "tool_name": "Write"|"Edit", "tool_input": {"file_path", "content"(Write)},
-    "session_id": "...", "cwd": "...",
-    "agent_id"/"agent_type": 훅이 서브에이전트 안에서 발화할 때 채워짐(메인은 없음) }
-
-Hook JSON 출력 (PreToolUse 결정 계약 — hookSpecificOutput 중첩 필수; top-level
-permissionDecision은 무시되어 fail-open):
-  Allow:  {}
-  Deny:   {"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                  "permissionDecision": "deny",
-                                  "permissionDecisionReason": "<reason>"}}
-
-Stdlib only (json, sys, os). Windows 경로(``\``) 정규화.
+Checks schema v2, approval prerequisites, stage ordering, durable resume evidence,
+coverage gaps and the shared correction budget. Main execution is allowed;
+spawn markers are observations, never a completion prerequisite.
+Delegated test writers: {test-code-generator, coverage-closer, test-fixer, test-editor}.
+An unrelated session is unaffected. Hook-owned markers and budget state cannot
+be forged through Write/Edit. Official hookSpecificOutput envelope is retained.
+https://code.claude.com/docs/en/hooks
 """
 
 import json
 import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
+from harness_policy import execution_policy, budget_summary
 
 COVERAGE_ARTIFACT = "08_coverage_result.json"
 PIPELINE_SCHEMA_VERSION = 2
@@ -142,18 +75,8 @@ DURABLE_STUB_ARTIFACTS = {
 #  지시로 기존 테스트를 편집할 수 있어야 하므로 허용 목록에 포함한다.)
 TEST_WRITE_AGENTS = {"test-code-generator", "coverage-closer", "test-fixer", "test-editor"}
 
-_CONTRACT_HINT = (
-    "(fallback-policy.md #21) 게이트 미달 시 coverage-closer 루프를 실제 수행한 뒤 "
-    "잔여를 전량 보고하고 기록하라. RA advisory는 8단계 게이트의 면제·스킵 사유가 "
-    "아니며, '구조적 커버리지 한계' 판단은 에이전트의 remainingGaps[].reason으로만 성립한다. "
-    "스코프 제외는 HarnessConfig.coverage.excludes(사용자 승인)로만 가능하다."
-)
-
-_DELEGATION_HINT = (
-    "full-pipeline 단계 계약: 각 단계는 지정된 subagent에 Agent 위임으로만 수행하며, "
-    "위임 없이 오케스트레이터가 직접 수행한 단계는 무효다. 해당 단계를 "
-    "Agent(subagent_type=...)로 재실행한 뒤 산출물을 기록하라."
-)
+_CONTRACT_HINT = "잔여 gap을 전량 보고하라. 제외는 승인된 coverage.excludes만 허용한다."
+_DELEGATION_HINT = "메인이 직접 수행하거나 필요한 역할만 위임한다. 실제 결과와 선행 산출물을 확인하라."
 
 
 def _deny(message: str) -> None:
@@ -206,12 +129,13 @@ def _workspace_root(abs_path: str, cwd: str) -> str:
     """워크스페이스 루트 탐색: ① 경로 내 _workspace 세그먼트, ② 대상 프로젝트
     루트(src/test_docs 직상위)/_workspace, ③ cwd/_workspace."""
     parts = abs_path.split("/")
-    if "_workspace" in parts:
-        idx = parts.index("_workspace")
+    comparable = [p.casefold() for p in parts] if os.name == "nt" else parts
+    if "_workspace" in comparable:
+        idx = comparable.index("_workspace")
         return "/".join(parts[: idx + 1])
     for seg in ("src", "test_docs"):
-        if seg in parts:
-            idx = parts.index(seg)
+        if seg in comparable:
+            idx = comparable.index(seg)
             candidate = "/".join(parts[:idx]) + "/_workspace"
             if os.path.isdir(candidate):
                 return candidate
@@ -327,6 +251,18 @@ def _is_stub(basename: str, data, workspace: str, session_id: str) -> bool:
 def _check_pipeline_result(data: dict, workspace: str) -> str:
     """PipelineResult v2의 최소 완료 계약을 검사한다."""
     status = data.get("status")
+    config = _read_json_file(os.path.join(workspace, "00_config-harness.json")) or {}
+    if config.get("executionPolicy"):
+        try:
+            state = _read_json_file(os.path.join(workspace, "execution-budget.json")) or {}
+            budget = budget_summary(config, state)
+            summary = data.get("executionSummary") or {}
+            if any(summary.get(key) != budget[key] for key in ("profile", "maxAutoFixRounds", "autoFixRounds")):
+                return "executionSummary는 공용 실행 정책·실제 보정 횟수와 일치해야 한다."
+            if status == "ok" and budget["pendingRound"]:
+                return "보정 후 검증이 끝나지 않은 결과는 ok일 수 없다."
+        except (ValueError, TypeError, KeyError):
+            return "INVALID_EXECUTION_POLICY: 실행 정책/예산 상태를 확인하라."
     if status not in {"ok", "partial", "failed"}:
         return "pipeline_result.json status는 ok|partial|failed 중 하나여야 한다."
     stages = data.get("stages")
@@ -396,14 +332,15 @@ def _check_coverage(data: dict) -> str:
     if data.get("gatePassed") is True:
         return ""
     problems = []
-    if not _loop_ran(data):
-        problems.append("iterations<1 (coverage-closer 루프 미수행)")
+    iterations = data.get("iterations")
+    if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations < 0:
+        problems.append("iterations는 실제 보정 횟수(0 이상의 정수)여야 한다")
     if not _nonempty_list(data.get("remainingGaps")):
         problems.append("remainingGaps 누락/빈 배열 (잔여 gap 전량 보고 위반 — 임의 제외 금지)")
     if not problems:
         return ""
     return (
-        "게이트 미수행 산출물: 08_coverage_result.json이 gatePassed=false인데 "
+        "무효 커버리지 산출물: 08_coverage_result.json이 gatePassed=false인데 "
         + ", ".join(problems)
         + ". "
         + _CONTRACT_HINT
@@ -429,6 +366,11 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
                 return ("00_config-harness.json이 유효한 HarnessConfig JSON이 아니다"
                         "(springProfile 필수) — configure-harness를 호출해 Phase E "
                         "체크리스트 통과 후 생성된 config를 기록하라.")
+            if basename == "00_config-harness.json":
+                try:
+                    execution_policy(data)
+                except (ValueError, TypeError):
+                    return "INVALID_EXECUTION_POLICY"
             if basename == "pipeline_result.json":
                 message = _check_pipeline_result(data, workspace)
                 if message:
@@ -475,19 +417,6 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
             message = _check_coverage(data)
             if message:
                 return message
-        gate_failed, loop_agent = data.get("gatePassed") is not True, "coverage-closer"
-        if (
-            data.get("status") != "failed"
-            and gate_failed
-            and _loop_ran(data)
-            and not agent_type
-            and not _spawned(workspace, loop_agent, session_id)
-        ):
-            return (
-                "루프 증거 위조 의심: %s이 iterations>=1을 주장하지만 이 세션에서 "
-                "%s가 스폰된 기록이 없다. 게이트 루프는 %s 에이전트 위임으로만 "
-                "수행할 수 있다. %s" % (basename, loop_agent, loop_agent, _DELEGATION_HINT)
-            )
     elif basename in PRODUCERS:
         producer = PRODUCERS[basename]
         if agent_type == producer:
@@ -499,12 +428,6 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
             )
         elif stub:
             pass  # durable resume 복원 경로
-        elif not _spawned(workspace, producer, session_id):
-            return (
-                "위임 없이 산출물 기록: %s를 쓰려면 이 세션에서 "
-                "Agent(subagent_type=test-autoevermation-harness-plugin:%s)로 해당 단계를 실제 수행했어야 한다. %s"
-                % (basename, producer, _DELEGATION_HINT)
-            )
 
     # 순서 게이트 (stub 면제 — 단독 스킬 세션의 정당한 경로 보호).
     # run-active는 main()의 전역 게이트가 이미 보장하므로 여기서 재검사하지 않는다.
@@ -516,7 +439,7 @@ def _zone_a(basename: str, tool_name: str, tool_input: dict, workspace: str,
         if missing:
             return (
                 "순서 게이트: %s 기록 전에 선행 산출물(%s)이 있어야 한다 — "
-                "해당 선행 단계를 먼저 위임 수행하라. %s"
+                "해당 선행 단계를 먼저 수행하라. %s"
                 % (basename, ", ".join(missing), _DELEGATION_HINT)
             )
     return ""
@@ -534,24 +457,15 @@ def _zone_b(workspace: str, session_id: str, agent_type: str) -> str:
         return (
             "4.5 승인 게이트 미통과: 시나리오 설계(04_scenario_set.json)와 사용자 승인"
             "(04b_approval.json) 없이 src/test/java에 테스트를 기록할 수 없다. "
-            "4단계(scenario-generator 위임)→test_docs/scenarios/ 저장→AskUserQuestion "
+            "4단계(scenario-generator 역할 수행)→test_docs/scenarios/ 저장→AskUserQuestion "
             "승인 순서를 먼저 완료하라."
         )
-    if agent_type in TEST_WRITE_AGENTS:
-        return ""
-    # v0.34.0: test-fixer는 isolation 없이 메인 트리에서 직접 수정하므로
-    # "오케스트레이터 Edit + spawn-test-fixer 마커" 예외는 없다(있으면 스폰 마커만으로
-    # 메인 세션의 src/test/java Edit가 전부 통과하는 구멍이 된다).
-    if agent_type:
+    if agent_type and agent_type not in TEST_WRITE_AGENTS:
         return (
             "하네스 활성 세션에서 %s 에이전트는 src/test/java를 기록할 수 없다 "
             "(허용: %s)." % (agent_type, ", ".join(sorted(TEST_WRITE_AGENTS)))
         )
-    return (
-        "하네스 활성 세션에서 오케스트레이터의 테스트 인라인 작성/수정 금지: "
-        "5단계 생성은 Agent(subagent_type=test-autoevermation-harness-plugin:test-code-generator)에, 실패 보정은 "
-        "Agent(subagent_type=test-autoevermation-harness-plugin:test-fixer)에 위임하라. %s" % _DELEGATION_HINT
-    )
+    return ""
 
 
 # ------------------------------------------------------------------- Zone C
@@ -559,22 +473,22 @@ def _zone_b(workspace: str, session_id: str, agent_type: str) -> str:
 
 def _zone_c(abs_path: str, workspace: str) -> str:
     """test_docs 기록 판정 (run-active 전제). deny 메시지 또는 ''."""
-    path = abs_path
+    path = abs_path.casefold() if os.name == "nt" else abs_path
     if "/test_docs/scenarios/" in path and path.endswith(".md"):
         if not _artifact_exists(workspace, "04_scenario_set.json"):
             return (
                 "test_docs/scenarios/ 문서는 4단계 시나리오 설계 산출물"
                 "(04_scenario_set.json) 이후에만 기록할 수 있다 — scenario-generator를 "
-                "먼저 위임 수행하라."
+                "먼저 수행하라."
             )
     if "/test_docs/refactoring/" in path:
         base = os.path.basename(path)
-        if base.startswith("RA-") and base.endswith(".md"):
+        if base.startswith("ra-" if os.name == "nt" else "RA-") and base.endswith(".md"):
             if not _artifact_exists(workspace, "03b_refactor_advisory.json"):
                 return (
                     "test_docs/refactoring/RA-*.md는 3.5단계 산출물"
                     "(03b_refactor_advisory.json) 이후에만 기록할 수 있다 — "
-                    "refactor-advisor를 먼저 위임 수행하라."
+                    "refactor-advisor를 먼저 수행하라."
                 )
     return ""
 
@@ -604,6 +518,8 @@ def main() -> int:
 
         abs_path = _abspath(file_path, cwd)
         basename = os.path.basename(abs_path)
+        if os.name == "nt":
+            basename = basename.casefold()
         workspace = _workspace_root(abs_path, cwd)
 
         # v0.32.0 — SINGLE GATE: nothing is judged unless this session has an
@@ -620,6 +536,8 @@ def main() -> int:
         if _inside_workspace(abs_path, os.path.join(workspace, MARKERS_DIR)):
             message = ("_workspace/.markers는 훅 전용 실행 증거다 — "
                        "Write/Edit 도구로 생성·수정할 수 없다.")
+        elif _inside_workspace(abs_path, workspace) and basename in {"execution-budget.json", "execution-budget.lock"}:
+            message = "보정 예산은 harness_policy.py budget으로만 갱신한다. 자동 재개 시 초기화하지 않는다."
         elif (
             _inside_workspace(abs_path, workspace)
             and (basename in PRODUCERS
@@ -627,9 +545,9 @@ def main() -> int:
                  or basename == COVERAGE_ARTIFACT)
         ):
             message = _zone_a(basename, tool_name, tool_input, workspace, session_id, agent_type)
-        elif "/src/test/java/" in abs_path:
+        elif "/src/test/java/" in (abs_path.lower() if os.name == "nt" else abs_path):
             message = _zone_b(workspace, session_id, agent_type)
-        elif "/test_docs/" in abs_path:
+        elif "/test_docs/" in (abs_path.lower() if os.name == "nt" else abs_path):
             message = _zone_c(abs_path, workspace)
 
         if message:

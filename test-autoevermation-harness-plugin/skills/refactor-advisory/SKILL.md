@@ -5,8 +5,12 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 
 ## 실행 전 호스트 확인
 
-[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 질문 대기·JavaParser/소스 분석 경로로 치환한다.
 
+
+## 실행 주체
+
+메인이 해당 역할을 직접 수행한다. 아래 Agent 호출 예시는 독립 작업을 선택적으로 위임할 때의 형식이다. 승인·입출력·검증 책임은 동일하며 위임만을 위해 같은 작업을 반복하지 않는다.
 
 ## 목적
 
@@ -15,7 +19,7 @@ description: 시나리오 생성 전에 테스트 대상 코드가 너무 복잡
 반환한다. 탐지 기준·임계값·근거 출처의 정본: [refactor-advisory.md](../../references/refactor-advisory.md) §2.
 
 이 스킬은 **read-only 분석**까지만 수행한다. 권고 `.md`(`test_docs/refactoring/RA-*.md`) 저장·
-`AskUserQuestion` 결정 게이트(포함/제외)·4단계 입력 필터링은 **다운스트림(`full-pipeline` 3.5단계)**이
+권고를 기본 포함하고 4.5 시나리오 승인에서 함께 제시하는 결정·승인 범위 필터링은 **다운스트림(`full-pipeline`)**이
 수행한다(fallback-policy.md #19). 단독 호출 시에는 판정 결과만 보고한다.
 
 ---

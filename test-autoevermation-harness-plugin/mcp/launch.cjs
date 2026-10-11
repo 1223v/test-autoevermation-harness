@@ -34,6 +34,7 @@ const DATA_DIR = (IS_CODEX ? process.env.PLUGIN_DATA : process.env.CLAUDE_PLUGIN
   || process.env.PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || path.join(SCRIPT_DIR, ".plugin-data");
 // Inherited by bootstrap and every Python child, including stdlib hook scripts.
 process.env.PYTHONUTF8 = "1";
+process.env.PYTHONIOENCODING = "utf-8";
 const RELOAD_HINT = IS_CODEX ? "restart the Codex session" : "/reload-plugins";
 const PIN_FILE = path.join(DATA_DIR, "python-path");
 const LOCK_DIR = path.join(DATA_DIR, ".python-install.lock");
@@ -113,7 +114,7 @@ function installUv() {
     r = spawnSync(
       "powershell.exe",
       ["-ExecutionPolicy", "ByPass", "-NoProfile", "-c", "irm https://astral.sh/uv/install.ps1 | iex"],
-      { stdio: ["ignore", "inherit", "inherit"], timeout: 600000, windowsHide: true },
+      { stdio: ["ignore", 2, 2], timeout: 600000, windowsHide: true },
     );
   } else {
     // POSIX에서 sh는 보장된다 — 파이프 실행만 셸에 위임.
@@ -126,7 +127,7 @@ function installUv() {
     const pipeCmd = tool === "curl"
       ? "curl -LsSf https://astral.sh/uv/install.sh | sh"
       : "wget -qO- https://astral.sh/uv/install.sh | sh";
-    r = spawnSync("sh", ["-c", pipeCmd], { stdio: ["ignore", "inherit", "inherit"], timeout: 600000 });
+    r = spawnSync("sh", ["-c", pipeCmd], { stdio: ["ignore", 2, 2], timeout: 600000 });
   }
   if (!r || r.status !== 0) {
     log("uv installer failed");
@@ -152,16 +153,25 @@ function provisionPython() {
   const LOCK_STALE_MS = 600000;
   const lockIsStale = () => {
     try {
+      let owner = 0;
+      try { owner = Number(fs.readFileSync(path.join(LOCK_DIR, "owner"), "utf8")); }
+      catch (e) { if (e.code !== "ENOENT") return false; }
+      if (owner > 0) {
+        try { process.kill(owner, 0); return false; }
+        catch (e) { return e.code === "ESRCH"; }
+      }
       return Date.now() - fs.statSync(LOCK_DIR).mtimeMs > LOCK_STALE_MS;
     } catch (_) {
       return false;
     }
   };
   const tryAcquireLock = () => {
-    try { fs.mkdirSync(LOCK_DIR); return true; } catch (_) { /* 보유 중 */ }
+    const acquire = () => { fs.mkdirSync(LOCK_DIR); fs.writeFileSync(path.join(LOCK_DIR, "owner"), String(process.pid)); return true; };
+    try { return acquire(); } catch (_) { /* 보유 중 */ }
     if (lockIsStale()) {
+      try { fs.unlinkSync(path.join(LOCK_DIR, "owner")); } catch (_) {}
       try { fs.rmdirSync(LOCK_DIR); } catch (_) { /* 경쟁 제거됨 */ }
-      try { fs.mkdirSync(LOCK_DIR); return true; } catch (_) { /* 타 프로세스 선점 */ }
+      try { return acquire(); } catch (_) { /* 타 프로세스 선점 */ }
     }
     return false;
   };
@@ -169,6 +179,7 @@ function provisionPython() {
   if (tryAcquireLock()) {
     const release = () => {
       try {
+        fs.unlinkSync(path.join(LOCK_DIR, "owner"));
         fs.rmdirSync(LOCK_DIR);
       } catch (_) {
         /* 이미 정리됨 */
@@ -190,7 +201,7 @@ function provisionPython() {
         }
       }
       log(`installing managed Python ${UV_PY_VERSION} via uv (one-time download) ...`);
-      let r = spawnSync(uv, ["python", "install", UV_PY_VERSION], { stdio: ["ignore", "inherit", "inherit"], timeout: 600000, windowsHide: true });
+      let r = spawnSync(uv, ["python", "install", UV_PY_VERSION], { stdio: ["ignore", 2, 2], timeout: 600000, windowsHide: true });
       if (r.status !== 0) {
         log("'uv python install' failed");
         return false;
@@ -216,6 +227,7 @@ function provisionPython() {
     if (pinnedPython()) return true;
     if (!fs.existsSync(LOCK_DIR)) break;
     if (lockIsStale()) {
+      try { fs.unlinkSync(path.join(LOCK_DIR, "owner")); } catch (_) {}
       try { fs.rmdirSync(LOCK_DIR); } catch (_) { /* 경쟁 제거됨 */ }
       return provisionPython();
     }
@@ -253,8 +265,14 @@ function resolvePython() {
 
 /** 자식 프로세스를 stdio 상속으로 실행하고 종료 코드를 그대로 전달한다(MCP stdio 패스스루). */
 function runInherit(cmd, args) {
-  const child = spawn(cmd, args, { stdio: "inherit", windowsHide: true });
-  const forward = (sig) => { try { child.kill(sig); } catch (_) { /* 이미 종료 */ } };
+  const child = spawn(cmd, args, { stdio: "inherit", windowsHide: true, detached: !IS_WIN });
+  const forward = (sig) => {
+    if (child.exitCode !== null || !child.pid) return;
+    try {
+      if (IS_WIN) spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 30000 });
+      else process.kill(-child.pid, sig);
+    } catch (_) {}
+  };
   process.on("SIGINT", () => forward("SIGINT"));
   process.on("SIGTERM", () => forward("SIGTERM"));
   child.on("exit", (code, signal) => process.exit(signal ? 143 : (code == null ? 1 : code)));
@@ -263,6 +281,18 @@ function runInherit(cmd, args) {
 
 function main() {
   const argv = process.argv.slice(2);
+  // Markdown substitution does not export variables into Claude Bash sessions.
+  // Manual commands carry the durable DATA path explicitly.
+  const dataAt = argv.indexOf("--data");
+  if (dataAt !== -1) {
+    const value = argv[dataAt + 1];
+    if (!value || !path.isAbsolute(value)) { log("--data requires an absolute directory"); process.exit(1); }
+    process.env[IS_CODEX ? "PLUGIN_DATA" : "CLAUDE_PLUGIN_DATA"] = value;
+    // Constants above must also use the explicit path; restart without --data.
+    const clean = argv.slice(); clean.splice(dataAt, 2);
+    runInherit(process.execPath, [__filename, ...clean]); return;
+  }
+  if (IS_WIN && DATA_DIR.length > 170) log("DATA path is long; if Windows venv/import fails, configure a shorter official host data location (no automatic relocation).");
   const bootstrap = path.join(SCRIPT_DIR, "bootstrap.py");
 
   if (argv[0] === "--ensure-only") {

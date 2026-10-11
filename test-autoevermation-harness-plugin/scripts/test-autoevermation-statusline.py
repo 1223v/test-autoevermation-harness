@@ -102,8 +102,11 @@ def run_delegate(command, stdin_bytes):
             return ""
         # ${CLAUDE_CONFIG_DIR:-$HOME/.claude} 같은 셸 확장을 위해 셸 경유 필요.
         # delegate 문자열은 그 OS에서 저장된 것이므로 OS 기본 셸로 실행한다.
-        if os.name == "nt":
-            shell_cmd = [os.environ.get("COMSPEC", "cmd.exe"), "/c", command]
+        configured_shell = (load_config() or {}).get("delegateShell")
+        if configured_shell:
+            shell_cmd = [*configured_shell, command]
+        elif os.name == "nt":
+            shell_cmd = ["powershell.exe", "-NoProfile", "-Command", command]
         else:
             shell_cmd = ["/bin/sh", "-c", command]
         proc = subprocess.run(
@@ -156,7 +159,7 @@ def self_heal(cfg, stdin_bytes):
         cmd = sl.get("command", "") if isinstance(sl, dict) else ""
         if OWNER_MARK in cmd:
             if delegate:
-                settings["statusLine"] = {"type": "command", "command": delegate}
+                settings["statusLine"] = cfg.get("delegateStatusLine") or {"type": "command", "command": delegate}
             else:
                 settings.pop("statusLine", None)
             try:

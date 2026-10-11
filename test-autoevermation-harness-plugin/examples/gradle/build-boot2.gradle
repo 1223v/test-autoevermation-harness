@@ -44,8 +44,8 @@ test {
     finalizedBy jacocoTestReport
 }
 
-// JaCoCo 0.8.12는 Java 8 런타임에서도 정상 (RESEARCH_NOTES §8).
-jacoco { toolVersion = '0.8.12' }
+// JaCoCo 0.8.15는 Java 8 런타임에서도 정상 (RESEARCH_NOTES §8).
+jacoco { toolVersion = '0.8.15' }
 
 def coverageExcludes = [
     '**/*Application*',

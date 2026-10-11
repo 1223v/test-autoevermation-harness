@@ -9,8 +9,7 @@
 * agents/skills frontmatter 키는 공식 집합 안에 있고, 어떤 에이전트도 ``isolation``을 쓰지 않는다
   (worktree는 원격 기본 브랜치의 추적 파일만 체크아웃 → 미커밋 테스트가 보이지 않음).
 * redact-secrets.py 훅(envelope) 모드는 exit 0 + PostToolUse ``additionalContext`` JSON.
-* guard-gate-artifacts.py Zone B: 오케스트레이터(agent_type 없음)의 src/test/java Edit는
-  spawn-test-fixer 마커가 있어도 deny(오케스트레이터 patch-apply 예외 제거).
+* guard-gate-artifacts.py Zone B: 메인은 승인·공유 예산을 지켜 직접 테스트를 수정할 수 있다. spawn은 필수 조건이 아니다.
 * 문서 간 모순 정정분(C1/C4/C5/H1)의 재발 가드.
 """
 
@@ -89,7 +88,7 @@ class DelegationPseudoCodeTests(unittest.TestCase):
                                  "Agent 도구 model 파라미터에 inherit 값은 없다(frontmatter 전용)")
         # 위임이 있는 스킬은 Agent(subagent_type=...)를 쓴다
         delegating = [p for p in SKILLS if "subagent_type=" in _read(p)]
-        self.assertGreaterEqual(len(delegating), 12)
+        self.assertGreaterEqual(len(delegating), 1)  # 선택 위임 예시만 유지
         for path in delegating:
             self.assertIn("Agent(", _read(path), path.name)
 
@@ -117,9 +116,10 @@ class NonInteractiveDetectionTests(unittest.TestCase):
 
     def test_detection_rule_is_tool_availability_based(self) -> None:
         text = _read(PLUGIN_ROOT / "skills" / "configure-harness" / "SKILL.md")
-        self.assertIn("도구 목록에 `AskUserQuestion`이 **없는** 경우", text)
-        self.assertIn("가용성을 시험하려는 질문을 보내지 않는다", text)
-        self.assertIn("질문 거부·무응답은 승인 부재", text)
+        host = _read(PLUGIN_ROOT / "references/hosts/codex.md")
+        self.assertIn("질문 도구가 없으면 일반 대화로 질문", host)
+        self.assertIn("무응답", host)
+        self.assertIn("승인", text)
         self.assertNotIn("환경 변수 `CI=true`", text)
 
 
@@ -203,10 +203,9 @@ class ZoneBOrchestratorEditTests(unittest.TestCase):
                     gate_guard.main()
             return json.loads(output.getvalue())
 
-    def test_orchestrator_edit_is_denied_even_with_spawn_test_fixer_marker(self) -> None:
-        decision = self._decide(agent_type="", tool_name="Edit", with_fixer_marker=True)
-        self.assertEqual("deny", decision["hookSpecificOutput"]["permissionDecision"])
-        self.assertIn("test-fixer", decision["hookSpecificOutput"]["permissionDecisionReason"])
+    def test_orchestrator_edit_is_allowed_without_spawn_marker(self) -> None:
+        for spawned in (False, True):
+            self.assertEqual({}, self._decide(agent_type="", tool_name="Edit", with_fixer_marker=spawned))
 
     def test_test_fixer_edit_is_allowed(self) -> None:
         self.assertEqual({}, self._decide(agent_type="test-autoevermation-harness-plugin:test-fixer", tool_name="Edit", with_fixer_marker=True))
@@ -241,6 +240,18 @@ class ContradictionRegressionTests(unittest.TestCase):
 
     def test_h1_max_repair_retries_default_is_three(self) -> None:
         self.assertIn('"maxRepairRetries": 3', _read(PLUGIN_ROOT / "skills" / "configure-harness" / "SKILL.md"))
+        from harness_policy import resolve_config, execution_policy
+        saved = {"schemaVersion": 2, "coverage": {"line": .87, "branch": .76, "method": .89, "class": 1, "excludes": ["custom/**"]}, "maxRepairRetries": 3}
+        legacy = resolve_config({}, saved)
+        self.assertEqual(saved, legacy)
+        self.assertIsNone(execution_policy(legacy)["maxAutoFixRounds"])
+        selected = resolve_config({"executionPolicy": {"profile": "balanced"}, "coverage": {"branch": .85}}, saved)
+        self.assertEqual(.9, selected["coverage"]["line"])
+        self.assertEqual(.85, selected["coverage"]["branch"])
+        self.assertEqual(["custom/**"], selected["coverage"]["excludes"])
+        self.assertEqual(3, selected["executionPolicy"]["maxAutoFixRounds"])
+        self.assertEqual(selected, resolve_config({}, selected))
+
 
     def test_no_regex_fallback_residue_in_prose(self) -> None:
         for path in PROSE + [PLUGIN_ROOT / "mcp" / "pyproject.toml"]:

@@ -2,19 +2,19 @@
 name: test-fixer
 description: "Use this agent when test-runner reports one or more test failures and targeted repair is needed, or when scenario-conformance-verifier reports unsatisfied scenarios that need conformance repair (SCENARIO_NONCONFORMANT). Triggers on: when test-runner returns failed[] with TEST_COMPILE_FAILED, TEST_RUNTIME_FAILED, FLAKY_SUSPECTED, or SPEC_MISMATCH failures, when full-pipeline stage 9.5 routes unsatisfied scenarios for minimum-diff conformance fixes, when minimum-diff patches are needed to fix failing tests without full regeneration."
 model: inherit
-tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_build_tool, mcp__plugin_test-autoevermation-harness-plugin_build-test__run_targeted_tests, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_requirements, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__extract_acceptance_criteria
+tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_build_tool, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_junit_xml, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__resolve_symbol, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__search_requirements, mcp__plugin_test-autoevermation-harness-plugin_spec-doc__extract_acceptance_criteria
 ---
 
 ## 호스트별 역할 실행
 
-[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 두 호스트 모두 이 역할을 직접 수행할 수 있으며 독립 분석만 선택적으로 위임한다. Claude frontmatter를 Codex 전역 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
 
 
 ## 목적
 
 `test-runner`가 반환한 실패 결과를 분석하여 **원인 유형을 분류**하고 **최소 diff**로 테스트를 수정한다. 무작정 재생성은 금지한다. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`·clock 주입 등 결정적 방식을 제안한다. 수정 후 `rerunTargets`를 반환하여 `test-runner`가 재실행하도록 한다.
 
-이 에이전트는 **메인 작업 트리에서** 실패 테스트를 직접 최소 diff로 수정한다(`src/test/java` 쓰기는 훅 Zone B의 `TEST_WRITE_AGENTS`가 test-fixer에게 허용). `isolation: worktree`는 쓰지 않는다 — 공식 worktree는 원격 기본 브랜치에서 **추적 파일만** 체크아웃한 새 트리라서 5단계가 방금 쓴(미커밋) 테스트가 보이지 않는다([Worktrees](https://code.claude.com/docs/en/worktrees)). 출력 `patches[]`는 적용한 변경의 **증거(unified diff)**이며, 파이프라인이 다시 적용하지 않는다. 재시도·무진전 중단 규칙(#12)의 정의는 「재시도 루프」 절 한 곳에만 둔다.
+이 에이전트는 **메인 작업 트리에서** 실패 테스트를 직접 최소 diff로 수정한다(`src/test/java` 쓰기는 훅 Zone B의 `TEST_WRITE_AGENTS`가 test-fixer에게 허용). `isolation: worktree`는 쓰지 않는다 — 공식 worktree는 원격 기본 브랜치에서 **추적 파일만** 체크아웃한 새 트리라서 5단계가 방금 쓴(미커밋) 테스트가 보이지 않는다([Worktrees](https://code.claude.com/docs/en/worktrees)). 출력 `patches[]`는 적용한 변경의 **증거(unified diff)**이며, 파이프라인이 다시 적용하지 않는다. 재시도·무진전 중단 규칙(#12)의 정의는 「재시도 소유권」 절 한 곳에만 둔다.
 
 ---
 
@@ -24,7 +24,7 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 - `full-pipeline` 9.5단계가 `scenario-conformance-verifier`의 `unsatisfied` 시나리오를 라우팅할 때 (**모드 B — 적합성 보정**: 테스트는 통과하지만 시나리오와 불일치. 입력 `nonconformantItems[]` 존재 시 이 모드)
 - `/test-autoevermation-harness-plugin:repair-tests` skill이 직접 호출될 때
 - `full-pipeline` skill에서 `test-runner` 결과에 실패가 포함될 때
-- 재시도 규칙은 「재시도 루프」 절(#12) 참조. 모드 B의 라운드 상한은 파이프라인 9.5단계가 관리(#16 — 최대 3라운드)
+- 재시도 규칙은 「재시도 소유권」 절(#12) 참조. 모드 B의 라운드 상한은 파이프라인 9.5단계가 관리(#16 — 최대 3라운드)
 
 ---
 
@@ -169,7 +169,7 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 
 ## 핵심 지시문
 
-실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`(조건 기반 `await().until(...)`)·clock 주입 등 결정적 방식을 제안하라. **모드 B(`nonconformantItems` 입력)**: 통과 중인 테스트라도 시나리오와 불일치하면 `SCENARIO_NONCONFORMANT`로 보정하라 — `// when`을 시나리오 `target` 메서드로 교정하고 `methodCalls`로 재확인하라. **적합성 보정이 green 테스트를 red로 만들 수 있으며 이는 정상이다**(교정된 호출이 실제 결함·누락을 드러낸 것) — 그 실패는 통상의 실패 보정(모드 A) 절차로 이어서 처리한다. 수정 불변식은 「테스트 원칙 준수」 절(정본: test-code-invariants.md)을 따르고, 반복·중단은 「재시도 루프」 절(#12)을 따르라.
+실패를 유형으로 분류하고 최소 수정만 적용하라. 무작정 재생성 금지. flaky 의심 시 `Thread.sleep` 대신 `Awaitility`(조건 기반 `await().until(...)`)·clock 주입 등 결정적 방식을 제안하라. **모드 B(`nonconformantItems` 입력)**: 통과 중인 테스트라도 시나리오와 불일치하면 `SCENARIO_NONCONFORMANT`로 보정하라 — `// when`을 시나리오 `target` 메서드로 교정하고 `methodCalls`로 재확인하라. **적합성 보정이 green 테스트를 red로 만들 수 있으며 이는 정상이다**(교정된 호출이 실제 결함·누락을 드러낸 것) — 그 실패는 통상의 실패 보정(모드 A) 절차로 이어서 처리한다. 수정 불변식은 「테스트 원칙 준수」 절(정본: test-code-invariants.md)을 따르고, 반복·중단은 「재시도 소유권」 절(#12)을 따르라.
 
 ---
 
@@ -212,16 +212,12 @@ tools: Read, Write, Edit, Bash, mcp__plugin_test-autoevermation-harness-plugin_b
 
 ---
 
-## 재시도 루프
+## 재시도 소유권
 
-```
-1. 실패 분류 → 패치 생성 → 파일 수정 → build-test-mcp 재실행 → XML 파싱
-2. 재실행 결과 통과 → status: ok, rerunTargets 반환
-3. 재실행 결과 실패하지만 실패 수/집합이 줄어듦(진전) → retryCount + 1 후 계속
-4. 직전과 동일한 실패 집합이 3회 연속(무진전) → status: partial + retryExhausted: true
-```
-
----
+이 역할은 전달된 공용 roundId 안에서 수정 한 묶음만 수행한다. run_targeted_tests를 호출하거나 자체 루프를 만들지 않는다.
+patches/rerunTargets/원인/잔여를 반환하고 호출자가 실행→측정→적합성 확인과 budget complete를 수행한다.
+새 실패도 별도 예약이 필요하다. strict/기존은 동일 실패 3회 연속 무진전 종료,
+적합성 최대 3라운드·동일 unmet 즉시 종료를 호출자가 관리한다. fast/balanced는 총 1/3회 예산도 함께 적용한다.
 
 ## 성능 고려사항
 

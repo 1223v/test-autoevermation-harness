@@ -1,9 +1,11 @@
 # Spring 테스트 하네스 플러그인
 
-Codex 앱·CLI 및 Claude Code 기반 Spring 테스트코드 자동 생성 플러그인 (0.35.0).
+Codex 앱·CLI 및 Claude Code 기반 Spring 테스트코드 자동 생성 플러그인 (0.35.1).
 스펙 문서·AST 분석·시나리오 설계·코드 생성·실행·보정을 하나의 파이프라인으로 연결한다.
 
-**Codex 사용자:** [앱·CLI 설치/운영 가이드](docs/CODEX.md)를 따른다. JavaParser와 소스·컴파일 근거를 사용하고 `lspAvailable:false`를 기록한다. 아래 Claude 네이티브 기능·설치·LSP·상태줄·훅 예시는 Claude Code용이며, 공용 파이프라인과 산출물 계약은 같다. [호스트 대응표](references/host-runtime.md)에서 차이를 확인한다.
+[내부 구조·데이터 흐름](docs/ARCHITECTURE.md) · [호환성 수정·검증](docs/compatibility-remediation.md)
+
+**Codex 사용자:** [설치부터 첫 실행까지: 앱·CLI 사용 가이드](docs/CODEX.md)를 따른다. 환경 준비, 시나리오 승인, 결과 확인, 재실행·업데이트와 문제 해결을 안내한다. JavaParser와 소스·컴파일 근거를 사용하고 `lspAvailable:false`를 기록한다. 아래 Claude 네이티브 기능·설치·LSP·상태줄·훅 예시는 Claude Code용이며, 공용 파이프라인과 산출물 계약은 같다. [호스트 대응표](references/host-runtime.md)에서 차이를 확인한다.
 
 **내장 작업 원칙:** 파일·구조 읽기 → 실제 버전의 공식 문서 → 근거 있는 TODO → 실행 → 결과 확인. 별도 Superpowers 설치, 의무 TDD·mutation·메타 테스트·중복 승인은 추가하지 않는다. [상세 정책](references/evidence-workflow.md).
 
@@ -170,7 +172,7 @@ rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 
 이후 Claude Code를 재시작하고 위 [설치](#설치) 절차를 다시 실행한다.
 
-**하네스 실행 상태 재설정:** `_workspace/`를 지워도 영속 증거(생성 테스트·승인 시나리오·리포트)가 남아 있으면 `detect_pipeline_state` 판정으로 알맞은 단계부터 재개한다(위 "상태 복원 재개(v0.20.0+)"). 완전 초기화·부분 재실행·상태줄 원복의 상세 절차는 [docs/GUIDE.md §4.6](./docs/GUIDE.md)이 정본이다.
+**하네스 실행 상태 재설정:** `execution-budget.json`은 보존한다. 다른 중간 산출물이 없어도 영속 증거(생성 테스트·승인 시나리오·리포트)가 남아 있으면 `detect_pipeline_state` 판정으로 알맞은 단계부터 재개한다(위 "상태 복원 재개(v0.20.0+)"). 완전 초기화·부분 재실행·상태줄 원복의 상세 절차는 [docs/GUIDE.md §4.6](./docs/GUIDE.md)이 정본이다.
 
 ---
 
@@ -202,25 +204,17 @@ rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 
 ---
 
-## 실행 강제 (enforcement)
+## 승인·실행 정책
 
-파이프라인의 단계 위임·산출물 영속화·순서는 프롬프트 지시가 아니라 **PreToolUse 훅이 물리 강제**한다
-(prose는 강제가 아니라는 v0.18 원칙의 확장). `record-run-context.py`가 full-pipeline 실행과 subagent
-스폰의 물리 증거를 `_workspace/.markers/`에 남기고, `guard-gate-artifacts.py`가 ① 위임 증거 없는
-`_workspace` 단계 산출물 기록, ② 오케스트레이터의 `src/test/java` 직접 기록, ③ 선행 산출물 없는
-후속 기록(순서 게이트), ④ 8단계 커버리지의 무효·위조 산출물을 deny한다.
+두 호스트 모두 직접 수행이 기본이다. 독립 분석만 선택적으로 위임한다.
+Claude의 guard-gate-artifacts는 활성 파이프라인 세션에서 승인·선행 산출물·결과 유효성을 검사한다. spawn은 완료 조건이 아니다.
+Codex는 같은 승인·증거 정책을 스킬로 수행하며 Claude 훅이나 가짜 마커를 만들지 않는다.
 
-> **강제 범위 (v0.32.0)**: 두 훅 모두 `_workspace/.markers/run.json`이 현재 세션과 일치할 때 —
-> 즉 **full-pipeline이 실제로 도는 동안에만** 판정한다. **하네스를 쓰지 않는 세션에서는 어떤 경로를
-> 편집해도 막히지 않는다.** v0.22.0~v0.29.0에는 Zone A에 이 게이트가 빠져 있어 무관한 세션까지
-> 차단했고, 그 오탐 때문에 v0.30.0에서 해제·v0.31.0에서 삭제했다가 v0.32.0에서 게이트를 바로잡아
-> 복원했다.
+최초 설정은 빠름(80/70/80/100%, 보정 총 1회), 균형(90/80/90/100%, 총 3회, 추천), 엄격(95/90/95/100%, 기존 종료 규칙) 중 한 번 선택한다.
+정책 없는 기존 설정은 보존한다. 조회·실행·측정은 자동 수정으로 넘어가지 않는다.
+같은 입력·범위·JDK·보고서의 실행 결과를 공유한다. 보정 예산은 재개해도 유지되며 소진 시 partial과 잔여를 보고한다.
+상세: [사용 가이드](docs/GUIDE.md#3-동작-방식), [Codex 가이드](docs/CODEX.md), [진단·검증 기록](docs/efficiency-audit.md).
 
-상세: [docs/GUIDE.md](./docs/GUIDE.md) §2.5.
-**"하네스 때문에 뭐가 막히나?"의 전수 답변**: [docs/tool-restrictions.md](./docs/tool-restrictions.md) —
-훅·에이전트 frontmatter·MCP 환경변수·`settings.json`까지 도구 제약 가능 경로를 등급별로 정리했다.
-
----
 
 ## Skills (15종)
 
@@ -237,7 +231,7 @@ rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 | `generate-tests` | `/test-autoevermation-harness-plugin:generate-tests` | JUnit Jupiter + Spring Test 코드 생성 |
 | `run-tests` | `/test-autoevermation-harness-plugin:run-tests` | 빌드 도구 감지 후 최소 범위 테스트 실행 |
 | `repair-tests` | `/test-autoevermation-harness-plugin:repair-tests` | 실패 원인 분류 후 최소 diff 보정 |
-| `measure-coverage` | `/test-autoevermation-harness-plugin:measure-coverage` | JaCoCo near-100% 커버리지 게이트 루프 |
+| `measure-coverage` | `/test-autoevermation-harness-plugin:measure-coverage` | JaCoCo 측정·유효 결과 공유, 자동 수정 없음 |
 | `verify-scenarios` | `/test-autoevermation-harness-plugin:verify-scenarios` | 시나리오 적합성 검증 + `test_docs/` 정리 |
 | `setup-statusline` | `/test-autoevermation-harness-plugin:setup-statusline` | Claude Code 상태줄에 플러그인 버전·진행률·현재 단계 표시(설치/제거 — `setup-harness` S1과 동일 스크립트) |
 | `edit-tests` | `/test-autoevermation-harness-plugin:edit-tests` | **파이프라인 외** — 사용자가 지목한 기존 테스트를 repo-ast AST 근거로 직접 편집(이름 변경·단언 추가/조정·정리). 실행은 하지 않고 `run-tests`로 안내 |
@@ -301,22 +295,11 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"   # 다�
 
 ---
 
-## v0.2 신규: near-100% 커버리지 · 인터랙티브 설정
+## 설정·커버리지
 
-- **환경 세팅 선행(`setup-harness`, v0.24.0에서 전용 명령으로 분리)**: [environment-setup.md](references/environment-setup.md)
-  체크리스트(E1~E10 — MCP SDK·JavaParser jar·JDT LS·JDK·테스트 실행 JDK)와 상태줄을 TODO로 **선세팅**한다 —
-  대화형=항목별 함께 세팅, CI=결정적 항목 자동 세팅. `full-pipeline`/`configure-harness`는 세팅하지 않고
-  **E-verify 프로브로 검증만** 하며, 미충족이면 파이프라인을 시작하지 않고 `setup-harness` 실행을 안내한다.
-  (빌드도구·Spring 프로파일은 0.5단계, 대상 빌드 능력·캐시는 0.6단계 소관.)
-- **인터랙티브 설정(`configure-harness`)**: 파이프라인 시작 시 AskUserQuestion으로 3항목을 질문해
-  도메인 특화 `HarnessConfig`를 구성한다 — ① 스펙 문서 경로 추가, ② 테스트 대상 폴더/패키지 선별,
-  ③ 커버리지 임계값·제외 규칙.
-- **커버리지 게이트(`measure-coverage` + `coverage-closer`)**: JaCoCo로 LINE/BRANCH/METHOD/CLASS를
-  측정하고 near-100% 미달 시 추가 테스트를 생성·재측정하는 루프(기본 LINE≥0.95 / BRANCH≥0.90 /
-  METHOD≥0.95 / CLASS=1.00, 제외 allowlist 적용).
-기준 버전·API는 [RESEARCH_NOTES.md](./RESEARCH_NOTES.md) 참조.
-
----
+저장 설정과 확인 가능한 정보를 먼저 사용하고 누락·충돌만 묶어 질문한다. 모드·예산은 [공용 정책](references/execution-policy.md)을 따른다.
+환경 준비의 실행 주체는 setup-harness다. 필요한 변경 동의를 받은 뒤 준비하고 원래 작업을 재개한다.
+커버리지 측정은 현재 카운터·gap을 반환한다. 추가 생성은 명시적인 개선 요청의 공유 예산 안에서만 수행한다.
 
 ## v0.8 신규: 대상 빌드 능력 프로비저닝 · 캐시 프라이밍
 
@@ -324,7 +307,7 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"   # 다�
 
 - **빌드 능력(#17)**: `detect_build_capabilities(root)`가 JaCoCo 플러그인과 XML 출력을 필수 판정한다. 대화형은 승인 후 최소 스니펫을 주입하고, CI는 누락 시 remediation으로 중단한다.
 - **캐시 프라이밍(#18)**: `check_dependency_cache`가 콜드 캐시를 신호 → 대화형은 승인 후 `run_targeted_tests(online=True)`
-  **1회** 온라인 프라이밍(또는 Maven `dependency:go-offline`), 이후 오프라인 유지. 상시 온라인 아님(보안 기본값 유지).
+  6단계 실제 테스트와 겸하는 **1회** 온라인 실행, 이후 오프라인 유지. 상시 온라인 아님(보안 기본값 유지).
 
 > 근거(공식문서): [Gradle JaCoCo XML 기본 OFF](https://docs.gradle.org/current/userguide/jacoco_plugin.html),
 > [Gradle `--offline` 미캐시 실패](https://docs.gradle.org/current/userguide/dependency_caching.html),
@@ -374,7 +357,7 @@ export REPO_AST_JAVAPARSER_JAR="$(pwd)/target/astcli-1.0.0-shaded.jar"   # 다�
 - **네트워크(빌드)**: build-test MCP 서버가 `BUILD_TEST_ALLOW_NETWORK=0`(`.mcp.json` 기본값)을 읽어 gradle `--offline`/maven `-o`를 붙인다 — 빌드 CLI 플래그이지 도구·도메인 차단이 아니다. 도메인 allowlist는 없다.
 - **경로 경계(MCP 입력)**: repo-ast `REPO_AST_ALLOW_ROOT`(프로젝트 루트 밖 경로 거부), spec-doc `SPEC_DOC_ALLOWLIST`/`SPEC_DOC_WORKSPACE`. 도구 수준 Read deny(generated/vendor/build)는 없다.
 - **민감정보 보고**: `scripts/redact-secrets.py --mode warn`(PostToolUse)이 토큰·비밀번호·접속문자열 패턴을 **보고**한다 — 파일을 수정(마스킹)하지 않는다.
-- **hooks**: PreToolUse deny 2종(`guard-gate-artifacts.py` 산출물·위임 게이트, `record-run-context.py` 4.5 승인 게이트)은 하네스 파이프라인이 도는 세션에서만 발동하고, 그 외에는 아무것도 막지 않는다. `docs/tool-restrictions.md` 참조.
+- **hooks**: PreToolUse deny 2종(`guard-gate-artifacts.py` 산출물·승인 게이트, `record-run-context.py` 4.5 승인 게이트)은 하네스 파이프라인이 도는 세션에서만 발동하고, 그 외에는 아무것도 막지 않는다. `docs/tool-restrictions.md` 참조.
 - **쉘 인자 escaping**: build-test-mcp(`run_targeted_tests`)에서 shlex로 강제.
 - **CI secrets**: GitHub Actions Secrets에만 저장. 로그 출력 금지.
 - **secret scanning**: GitHub 저장소 기능(Settings > Security > Secret scanning)으로 운영.

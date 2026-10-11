@@ -5,8 +5,12 @@ description: JavaParser 기반으로 Spring 프로젝트의 클래스/메서드/
 
 ## 실행 전 호스트 확인
 
-[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 먼저 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 순차 실행·질문 대기·JavaParser/소스 분석 경로로 치환한다.
+[호스트 실행 계약](../../references/host-runtime.md)과 해당 호스트 문서, [근거 중심 작업 절차](../../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 아래 입력·출력과 검증 규칙은 공용이다. `Agent`·질문·LSP·훅·경로 예시는 Claude Code용이며, Codex는 호스트 문서의 질문 대기·JavaParser/소스 분석 경로로 치환한다.
 
+
+## 실행 주체
+
+메인이 해당 역할을 직접 수행한다. 아래 Agent 호출 예시는 독립 작업을 선택적으로 위임할 때의 형식이다. 승인·입출력·검증 책임은 동일하며 위임만을 위해 같은 작업을 반복하지 않는다.
 
 ## 목적
 

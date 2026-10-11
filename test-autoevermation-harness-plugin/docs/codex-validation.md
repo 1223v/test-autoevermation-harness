@@ -1,5 +1,7 @@
 # 0.35.0 실행 검증 기록
 
+> 아래는 0.35.0의 기존 실행 기록이다. 현재 0.35.1 구현·검증·미실행 범위는 [호환성 수정 기록](compatibility-remediation.md)에 분리해 기록한다.
+
 검증일: 2026-10-08. Windows 11, Python 3.14, MCP SDK 2.3.0(기존 `>=2.2,<3` 범위), Node, JDK 17.0.7, Gradle 8.12, Maven 3.9.9, 번들 Codex CLI/app-server `0.162.0-alpha.2`에서 수행했다. 의존성 선언·플러그인 자체 테스트 파일은 변경하지 않았다. 새 테스트 스위트는 추가하지 않았다.
 
 ## 실제 확인한 범위
@@ -8,6 +10,7 @@
 |---|---|
 | portable plugin.json·mcp.json | 선언된 agent-plugins.org 1.0.0 공식 JSON Schema 검증 통과 |
 | CLI 로컬 마켓플레이스/설치 | 격리된 Codex 홈에서 marketplace add → plugin add → list; 0.35.0 installed/enabled 확인 |
+| CLI 원격 Git 마켓플레이스/설치 | main `4c9acea` 게시 후 별도 격리 홈에서 `1223v/test-autoevermation-harness --ref main` 등록 → 설치 → list; 모두 exit 0, 0.35.0 installed/enabled 및 marketplaceSource git 확인 |
 | 앱 서버 스킬 로딩 | 실제 설치 캐시를 `skills/list(forceReload:true)`로 로드; 스킬 15개, 파싱 오류 0 |
 | 앱 서버 MCP 연결 | `mcpServerStatus/list`에서 repo-ast 5개, spec-doc 4개, build-test 11개 도구 로딩, toolsError 없음 |
 | 직접 stdio MCP | Node → bootstrap → SDK2 연결로 health 3종, AST 4개 도구, 스펙 인덱싱·검색·추출, 빌드 감지 호출 확인 |
@@ -40,12 +43,15 @@ python -m unittest discover -s tests -q
 
 테스트 파일을 고쳐 결과를 통과로 만들지 않았다. 전체 검사 통과라고 보고하지 않는다.
 
+## 설치·사용 가이드 보완 검증
+
+같은 날 `docs/CODEX.md`를 실제 사용 순서와 요청 예시로 확장하고 양쪽 README의 진입 링크를 갱신했다. Git 설치 원시 결과의 버전·installed/enabled·Git 소스, 가이드와 README의 로컬 링크·목차 20개, 코드 블록·매니페스트 버전 및 `git diff --check`를 확인했다. UTF-8 환경에서 기존 `test_official_contract.py` 검사 18개가 통과했다. 문서 5개만 변경했으며 플러그인 자체 테스트 파일은 무변경이다. 문서 보완을 위해 전체 197개 검사나 빌드 통합 실행을 반복하지 않았다.
+
 ## 확인된 환경 제한과 미실행 범위
 
 - 깊은 격리 Codex 홈에서는 SDK 설치가 Windows 긴 경로 제한에 걸려 MCP 초기화가 실패했다. 짧은 별도 홈에서 공식 bootstrap 재실행 후 앱 서버 MCP 3종 연결이 성공했다. 시스템 레지스트리/전역 설정은 변경하지 않았다.
 - **한글·공백 프로젝트 경로에서 Gradle 통합 실행은 통과**했다. 같은 경로의 Maven/JDK 17.0.7/JaCoCo 0.8.12 조합은 테스트 실행은 성공했지만 에이전트가 깨진 경로의 `jacoco.ex`에 데이터를 기록해 정규 `jacoco.xml`을 만들지 못했다. 하네스는 `JACOCO_REPORT_NOT_FOUND`로 거부했다. 이 환경의 Maven 커버리지는 ASCII 프로젝트 경로에서 검증했다. 한글 Maven 경로의 전체 성공을 주장하지 않는다.
 - 실제 데스크톱 Plugins 화면에서 클릭 설치·표시를 확인하지 않았다. 앱이 사용하는 **app-server 프로토콜**의 설치본 로딩과 연결을 확인한 것이다.
 - Codex/Claude의 모델을 통한 대화형 승인 → 생성 → 보정 전체 세션은 실행하지 않았다. 공용 MCP·기존 검사·지침 리뷰 결과를 전체 대화형 E2E 통과로 해석하지 않는다.
-- 원격 Git 마켓플레이스는 이번 로컬 변경을 아직 push하지 않았으므로 해당 버전의 원격 설치는 실행하지 않았다. 로컬 설치를 확인했으며 Git 설치 명령은 CLI 공식 도움말과 패키징 계약에 맞췄다.
 
-일회성 원시 실행 자료는 저장소의 무시된 `_workspace/`에 `mcp-live.json`, `parity-boundary.json`, `app-server-evidence.json`, `app-server-mcp-short.json`, `real-builds-final/results.json` 등으로 남겼다. 초기 실패 자료도 보존하며 배포 패키지에 포함하지 않는다.
+일회성 원시 실행 자료는 저장소의 무시된 `_workspace/`에 `mcp-live.json`, `parity-boundary.json`, `app-server-evidence.json`, `app-server-mcp-short.json`, `codex-git-install.json`, `real-builds-final/results.json` 등으로 남겼다. 초기 실패 자료도 보존하며 배포 패키지에 포함하지 않는다.

@@ -58,8 +58,9 @@ def current_interpreter_has_mcp():
     """Both the supported SDK version AND its actual public server API must load."""
     try:
         from importlib.metadata import version
-        match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:\.post\d+)?", version("mcp"))
-        if not match or not (2, 2, 0) <= tuple(map(int, match.groups())) < (3, 0, 0):
+        from packaging.specifiers import SpecifierSet
+        from packaging.version import Version
+        if Version(version("mcp")) not in SpecifierSet(">=2.2,<3"):
             return False
         from mcp.server.mcpserver import MCPServer
         return callable(MCPServer)
@@ -145,7 +146,15 @@ class InstallLock:
                         time.sleep(.1)
             else:
                 import fcntl
-                fcntl.flock(self.fd, fcntl.LOCK_EX)
+                deadline = time.monotonic() + 600
+                while True:
+                    try:
+                        fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("MCP install lock timed out")
+                        time.sleep(.1)
         except BaseException:
             self.fd.close()
             raise
@@ -211,7 +220,7 @@ def ensure_venv():
             command = [sys.executable, "-m", "venv"]
             if os.path.isdir(venv_dir):
                 command.append("--clear")
-            r = subprocess.run(command + [venv_dir], capture_output=True, text=True)
+            r = subprocess.run(command + [venv_dir], capture_output=True, text=True, timeout=300)
             if r.returncode != 0:
                 log("venv creation failed: %s" % (r.stderr or r.stdout).strip())
                 return None
@@ -221,6 +230,7 @@ def ensure_venv():
             [py, "-m", "pip", "install", "--quiet", "-r", REQUIREMENTS],
             capture_output=True,
             text=True,
+            timeout=600,
         )
         if r.returncode != 0:
             log("pip install failed: %s" % (r.stderr or r.stdout).strip()[-2000:])
@@ -290,7 +300,19 @@ def main():
         # → python bootstrap → 서버 이므로, bootstrap이 먼저 끝나면 node도 끝나고
         # MCP stdio 연결이 그 자리에서 죽는다. 서버가 살아 있어도 파이프가 끊긴다.
         # 따라서 Windows에서는 자식을 stdio 상속으로 돌리고 끝까지 기다린다.
-        return subprocess.run(argv).returncode
+        import signal
+        from harness_runtime import stop_process_tree
+        child = subprocess.Popen(argv)
+        def stop(sig, _frame):
+            stop_process_tree(child)
+            raise SystemExit(128 + sig)
+        previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGINT, signal.SIGTERM)}
+        try:
+            return child.wait()
+        finally:
+            stop_process_tree(child)
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
 
     os.execv(py, argv)
     return 1  # execv 성공 시 도달 불가

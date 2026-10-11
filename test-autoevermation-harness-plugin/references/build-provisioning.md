@@ -52,7 +52,7 @@ tasks.jacocoTestReport { reports { xml.required.set(true) } }
 <plugin>
   <groupId>org.jacoco</groupId>
   <artifactId>jacoco-maven-plugin</artifactId>
-  <version>0.8.12</version>
+  <version>0.8.15</version>
   <executions>
     <execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>
     <execution><id>report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>
@@ -67,7 +67,7 @@ tasks.jacocoTestReport { reports { xml.required.set(true) } }
 보장 못 하므로 **콜드/신규 플러그인** 상황에선 1회 프라이밍을 권한다.
 
 **처리.**
-- **대화형**: `primed:false`이거나 방금 플러그인을 주입했다면 메인 대화가 공식 `questions` 배열로 의존성/플러그인의 1회 온라인 설치 승인을 질문 → "예"면 `run_targeted_tests(..., online=True)`를 **1회** 실행(또는 Maven `mvn dependency:go-offline`)
+- **대화형**: `primed:false`이거나 방금 플러그인을 주입했다면 메인 대화가 공식 `questions` 배열로 의존성/플러그인의 1회 온라인 설치 승인을 질문 → "예"면 6단계의 실제 대상 테스트에 `online=True, with_coverage=True`를 한 번 적용한다. 준비만을 위한 별도 테스트 호출은 하지 않는다
   → 이후 호출은 다시 오프라인. "아니오"면 오프라인 그대로 진행(실패 위험 고지).
 - **비대화형·CI**: 자동 온라인 전환 금지. `BUILD_TEST_ALLOW_NETWORK=1` 옵트인 또는 사전 캐시 워밍업을
   remediation으로 안내. 미충족이면 첫 오프라인 실행 실패를 `partial`로 보고.
@@ -80,3 +80,7 @@ tasks.jacocoTestReport { reports { xml.required.set(true) } }
 - 두 항목은 **0.6단계**(configure-harness, 0.5 프로파일 확정 직후·인터뷰 전)에서 처리한다 —
   JaCoCo 에이전트는 `test` 실행 중 attach되므로 **6단계 run-tests 이전에** 빌드 능력이 갖춰져야 한다.
 - `_workspace/00b_build_provision.json`에 감지·주입·프라이밍 결과를 보존(부분 재실행 시 재사용).
+
+## 호환성 보완
+
+[compatibility-runtime.md](compatibility-runtime.md)을 함께 적용한다. configurationVerified는 실제 configuration/effective POM 확인 여부이며 미확인 설정을 확정으로 기록하지 않는다. Windows 한글 Maven 경로의 windowsMavenAgent 제안은 기존 setup 승인에서만 적용하며 기존 JVM·agent 옵션과 module workingDirectory를 보존한다. Gradle <6.1은 xml.enabled/isEnabled를 사용한다. Maven report는 Failsafe verify 이후에 실행하도록 순서를 확인한다.

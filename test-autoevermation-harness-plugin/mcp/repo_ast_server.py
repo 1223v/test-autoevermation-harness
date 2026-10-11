@@ -45,8 +45,11 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Optional
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness_runtime import runtime_info, persisted_jar_state
 
 try:  # pragma: no cover - import shim so py_compile/tests work without the SDK
     from mcp.server.mcpserver import MCPServer
@@ -273,7 +276,11 @@ def _locate_jar() -> Optional[str]:
     jar = _match_jar(_target_dir())
     if jar:
         return jar
-    return _match_jar(_data_dir() / _DATA_JAR_SUBDIR)
+    directory = _data_dir() / _DATA_JAR_SUBDIR
+    state = persisted_jar_state(directory)
+    if (directory / "astcli-state.json").exists():
+        return state["path"] if state and state["sourceFingerprint"] == _source_fingerprint() else None
+    return _match_jar(directory)  # legacy installation: health still requests E6 integrity migration
 
 
 def _target_dir() -> Path:
@@ -296,7 +303,11 @@ def _jdk_available() -> bool:
             timeout=15,
             check=False,
         )
-        return proc.returncode == 0
+        output = (proc.stderr or b"") + (proc.stdout or b"")
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        match = re.search(r'version\s+"(?:1\.)?(\d+)', output)
+        return proc.returncode == 0 and bool(match and int(match.group(1)) >= 17)
     except Exception:  # noqa: BLE001
         return False
 
@@ -322,7 +333,7 @@ def _plugin_version() -> Optional[str]:
         return None
 
 
-def _run_java_cli(jar: str, target: Path) -> Optional[dict[str, Any]]:
+def _run_java_cli(jar: str, target: Path, context: dict | None = None) -> Optional[dict[str, Any]]:
     """Invoke the JavaParser CLI jar and parse its JSON output.
 
     Returns the parsed dict, or ``None`` on any failure (the caller then excludes
@@ -330,17 +341,26 @@ def _run_java_cli(jar: str, target: Path) -> Optional[dict[str, Any]]:
     v0.31.0). Never raises.
     """
     java = os.environ.get("REPO_AST_JAVA_BIN", "java")
+    command = [java, "-jar", jar, str(target)]
+    if context:
+        if context.get("javaVersion"):
+            command += ["--language-level", str(context["javaVersion"])]
+        for source in context.get("sourceRoots", []):
+            command += ["--source-root", source]
+        for entry in context.get("classpath", []):
+            command += ["--classpath", entry]
     try:
         proc = subprocess.run(  # noqa: S603 - fixed args, no shell
-            [java, "-jar", jar, str(target)],
+            command,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=120,
             check=False,
         )
     except Exception:  # noqa: BLE001
         return None
-    if proc.returncode != 0 or not proc.stdout.strip():
+    if not proc.stdout or not proc.stdout.strip():
         return None
     try:
         return json.loads(proc.stdout)
@@ -532,7 +552,8 @@ def _failed_result(code: str, message: str, remediation: list[str]) -> dict[str,
 
 
 def _public_methods(cls: dict[str, Any]) -> list[str]:
-    return [m["signature"] for m in cls.get("methods", []) if m.get("signature")]
+    return [m["signature"] for m in cls.get("methods", [])
+            if m.get("signature") and m.get("isPublic", str(m["signature"]).startswith("public "))]
 
 
 def _method_calls(cls: dict[str, Any]) -> dict[str, list[str]]:
@@ -542,11 +563,12 @@ def _method_calls(cls: dict[str, Any]) -> dict[str, list[str]]:
     fallback (only the JavaParser CLI extracts call expressions). Used by the
     scenario target-call conformance gate (test-code-generator Stage 5 /
     scenario-conformance-verifier Stage 9)."""
-    return {
-        m["name"]: list(m.get("invokedMethods") or [])
-        for m in cls.get("methods", [])
-        if m.get("name")
-    }
+    result: dict[str, list[str]] = {}
+    for method in cls.get("methods", []):
+        if method.get("name"):
+            calls = result.setdefault(method["name"], [])
+            calls.extend(c for c in method.get("invokedMethods", []) if c not in calls)
+    return result
 
 
 def _method_call_details(cls: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
@@ -557,15 +579,16 @@ def _method_call_details(cls: dict[str, Any]) -> dict[str, list[dict[str, str]]]
     collaborators (orderService.cancel() vs paymentClient.cancel()) by joining
     scope against the test class's field types. Empty under the regex fallback
     (only the JavaParser CLI extracts call expressions)."""
-    return {
-        m["name"]: [
-            {"name": str(c.get("name", "")), "scope": str(c.get("scope", ""))}
-            for c in (m.get("invokedCalls") or [])
-            if isinstance(c, dict) and c.get("name")
-        ]
-        for m in cls.get("methods", [])
-        if m.get("name")
-    }
+    result: dict[str, list[dict[str, str]]] = {}
+    for method in cls.get("methods", []):
+        if method.get("name"):
+            calls = result.setdefault(method["name"], [])
+            for c in method.get("invokedCalls", []):
+                if isinstance(c, dict) and c.get("name"):
+                    item = {"name": str(c["name"]), "scope": str(c.get("scope", ""))}
+                    if item not in calls:
+                        calls.append(item)
+    return result
 
 
 def _risk_points_for(cls: dict[str, Any]) -> list[str]:
@@ -657,9 +680,17 @@ def _build_result(
                 {
                     "fqcn": fqcn,
                     "kind": kind,
+                    "file": pf["file"],
+                    "declarationKind": cls.get("declarationKind", "class"),
+                    "fields": cls.get("fields", []),
+                    "methods": cls.get("methods", []),
                     "publicMethods": _public_methods(cls),
                     "methodCalls": _method_calls(cls),
                     "methodCallDetails": _method_call_details(cls),
+                    "methodCallsBySignature": {m["signature"]: m.get("invokedMethods", [])
+                                               for m in cls.get("methods", []) if m.get("signature")},
+                    "methodCallDetailsBySignature": {m["signature"]: m.get("resolvedInvokedCalls", m.get("invokedCalls", []))
+                                                     for m in cls.get("methods", []) if m.get("signature")},
                     "annotations": cls.get("annotations", []),
                     "stereotype": next(
                         (
@@ -716,11 +747,44 @@ def _build_result(
     return result
 
 
+def _analysis_context(value: dict | None, scope: Path | None) -> dict | None:
+    if value is None:
+        return None
+    base = scope or Path.cwd().resolve()
+    context = dict(value)
+    if context.get("javaVersion"):
+        version = str(context["javaVersion"]).removeprefix("1.").split(".")[0]
+        if not version.isdigit() or not 8 <= int(version) <= 26:
+            raise ValueError("INVALID_JAVA_LEVEL: supported source levels are 8–26")
+        context["javaVersion"] = version
+    evidence = context.get("classpathEvidence")
+    declared = set()
+    if evidence:
+        path = (base / evidence).resolve()
+        if not _is_allowed(path, base):
+            raise ValueError("CLASSPATH_EVIDENCE_DENIED")
+        declared = set(path.read_text(encoding="utf-8-sig").splitlines())
+    caches = [Path.home() / ".m2" / "repository", Path.home() / ".gradle" / "caches"]
+    for key in ("sourceRoots", "classpath"):
+        entries = []
+        for raw in context.get(key, []):
+            path = (base / raw).resolve()
+            allowed = _is_allowed(path, base)
+            if key == "classpath" and not allowed and _allow_root() is None:
+                allowed = str(path) in declared and any(path.is_relative_to(p.resolve()) for p in caches)
+            if not allowed or not path.exists() or (key == "classpath" and path.suffix.lower() != ".jar"):
+                raise ValueError("ANALYSIS_PATH_DENIED: " + str(path))
+            entries.append(str(path))
+        context[key] = entries
+    return context
+
+
 def _analyze(paths: list[str], kinds: Optional[list[str]] = None,
-             root: str | None = None) -> dict[str, Any]:
+             root: str | None = None, analysis_context: dict | None = None) -> dict[str, Any]:
     """Core analysis entrypoint shared by every tool. Pure / side-effect free."""
     try:
         scope = _request_root(root)
+        context = _analysis_context(analysis_context, scope)
     except (ValueError, OSError) as exc:
         return _failed_result(str(exc).split(":", 1)[0], str(exc),
                               ["Pass the confirmed absolute root inside REPO_AST_ALLOW_ROOT."])
@@ -747,7 +811,7 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None,
                 "Run setup-harness E6: build mcp/javaparser-cli and persist to the host's "
                 "PLUGIN_DATA (Codex) or CLAUDE_PLUGIN_DATA (Claude), or set "
                 "REPO_AST_JAVAPARSER_JAR to a prebuilt astcli shaded jar.",
-                "Ensure a JDK 'java' runtime is on PATH (or set REPO_AST_JAVA_BIN).",
+                "Ensure Java 17+ is on PATH (or set REPO_AST_JAVA_BIN), independently of the build JVM.",
             ],
         )
 
@@ -765,9 +829,9 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None,
     for f in files:
         try:
             cleaned = _strip_comments_and_strings(
-                f.read_text(encoding="utf-8", errors="replace")
+                f.read_text(encoding="utf-8-sig")
             )
-        except OSError:
+        except (OSError, UnicodeError):
             continue
         decls.update(_scan_annotation_decls(cleaned))
     custom_stereotypes, composed_mappings = _build_meta_index(decls)
@@ -780,12 +844,15 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None,
     java_parsed = 0
     unparsed: list[str] = []
     for f in files:
-        data = _run_java_cli(jar, f)
+        data = _run_java_cli(jar, f, context) if context else _run_java_cli(jar, f)
         if data is None:
             degraded = True
             unparsed.append(str(f))
             continue
         java_parsed += 1
+        if data.get("parseProblems") or data.get("errors"):
+            degraded = True
+            unparsed.extend(str(p) for p in data.get("parseProblems", data.get("errors", [])))
         parsed.append(_normalize_java_cli_output(data, f, custom_stereotypes))
 
     result = _build_result(
@@ -797,6 +864,8 @@ def _analyze(paths: list[str], kinds: Optional[list[str]] = None,
         custom_stereotypes=custom_stereotypes,
         composed_mappings=composed_mappings,
     )
+    result["analysisContext"] = context or {"javaVersion": None, "languageLevel": "CURRENT (26)",
+                                           "sourceRoots": [], "classpath": []}
     if unparsed:
         # degraded:true is a hard-stop signal for consumers (fallback-policy #2),
         # so name the offending files instead of leaving the flag unexplained.
@@ -845,9 +914,10 @@ def _normalize_java_cli_output(
         # invoked-method *names* (structure metadata, no arguments/bodies).
         for m in cls.get("methods", []):
             m.pop("body", None)
+            m["isPublic"] = m.get("public", m.get("isPublic", str(m.get("signature", "")).startswith("public ")))
             m["invokedMethods"] = [str(c) for c in (m.get("invokedMethods") or [])]
             m["invokedCalls"] = [
-                {"name": str(c.get("name", "")), "scope": str(c.get("scope", ""))}
+                {k: str(c.get(k, "")) for k in ("name", "scope")}
                 for c in (m.get("invokedCalls") or [])
                 if isinstance(c, dict) and c.get("name")
             ]
@@ -917,11 +987,12 @@ def build_server() -> Any:
         jar_stale: Optional[bool] = None
         try:
             data_jar_dir = _data_dir() / _DATA_JAR_SUBDIR
+            committed = persisted_jar_state(data_jar_dir)
             if jar_path is not None:
                 jar_persisted = Path(jar_path).resolve().parent == data_jar_dir.resolve()
             marker = data_jar_dir / _FINGERPRINT_BASENAME
             if _match_jar(data_jar_dir) and marker.is_file():
-                recorded = marker.read_text(encoding="utf-8").strip()
+                recorded = committed["sourceFingerprint"] if committed else marker.read_text(encoding="utf-8").strip()
                 current = _source_fingerprint()
                 if recorded and current:
                     jar_stale = recorded != current
@@ -929,17 +1000,20 @@ def build_server() -> Any:
             jar_persisted, jar_stale = None, None
         return {
             "server": "repo-ast",
+            "runtime": runtime_info(),
             "pluginVersion": _plugin_version(),
             "javaparser": {
                 "jarFound": jar_path is not None,
                 "jarPath": jar_path,
                 "javaOk": java_ok,
+                "minimumJavaVersion": 17,
                 "requireJavaparser": require,
                 # 업데이트 생존성 진단: persisted=false는 jar가 버전 키 캐시에만
                 # 있어 다음 플러그인 업데이트 때 소실됨을 뜻한다(E6 persist 필요).
                 # stale=true는 CLI 소스가 바뀌어 재빌드가 필요함을 뜻한다.
                 "jarPersisted": jar_persisted,
                 "jarStale": jar_stale,
+                "jarIntegrityVerified": bool(persisted_jar_state(_data_dir() / _DATA_JAR_SUBDIR)),
             },
             "allowRoot": allow_root,
             "rootRequired": os.environ.get("HARNESS_HOST") == "codex",
@@ -947,7 +1021,7 @@ def build_server() -> Any:
         }
 
     @mcp.tool()
-    def parse_java_file(path: str, root: str | None = None) -> dict:
+    def parse_java_file(path: str, root: str | None = None, analysis_context: dict | None = None) -> dict:
         """Parse a single Java file, returning structure-only AST metadata.
 
         Emits class/method signatures, fields and annotations (never method
@@ -961,10 +1035,10 @@ def build_server() -> Any:
         distinguish same-named methods on different collaborators. Conforms to
         AstAnalysisResult.
         """
-        return _analyze([path], root=root)
+        return _analyze([path], root=root, analysis_context=analysis_context)
 
     @mcp.tool()
-    def resolve_symbol(paths: list[str], symbol: str, root: str | None = None) -> dict:
+    def resolve_symbol(paths: list[str], symbol: str, root: str | None = None, analysis_context: dict | None = None) -> dict:
         """Locate a fully-qualified type or simple name across the given paths.
 
         Returns an AstAnalysisResult whose testTargets are filtered to types
@@ -976,14 +1050,14 @@ def build_server() -> Any:
         remain scoped to the ENTIRE analyzed path set. Narrow ``paths`` if you
         need those fields scoped to the symbol as well.
         """
-        full = _analyze(paths, root=root)
+        full = _analyze(paths, root=root, analysis_context=analysis_context)
         if full["status"] == "failed":
             return full
         needle = symbol.strip()
         matched = [
             t
             for t in full["testTargets"]
-            if t["fqcn"] == needle or _short(t["fqcn"]) == _short(needle)
+            if (t["fqcn"] == needle if "." in needle else _short(t["fqcn"]) == needle)
         ]
         full["testTargets"] = matched
         if not matched:
@@ -998,17 +1072,17 @@ def build_server() -> Any:
         return full
 
     @mcp.tool()
-    def list_spring_components(paths: list[str], root: str | None = None) -> dict:
+    def list_spring_components(paths: list[str], root: str | None = None, analysis_context: dict | None = None) -> dict:
         """List Spring stereotype components found under the given paths.
 
         Detects @RestController/@Controller/@Service/@Repository/@Component and
         classifies each into a target kind.
         """
-        return _analyze(paths, kinds=["controller", "service", "repository", "component"], root=root)
+        return _analyze(paths, kinds=["controller", "service", "repository", "component"], root=root, analysis_context=analysis_context)
 
     @mcp.tool()
     def extract_test_targets(paths: list[str], kinds: list[str] | None = None,
-                             root: str | None = None) -> dict:
+                             root: str | None = None, analysis_context: dict | None = None) -> dict:
         """Extract test-target candidates (public methods + Spring stereotypes).
 
         ``kinds`` optionally restricts results to a subset of
@@ -1016,7 +1090,7 @@ def build_server() -> Any:
         AstAnalysisResult. Symbols are never inferred: unresolved references are
         returned in ``unresolvedSymbols``. Method bodies are never returned.
         """
-        return _analyze(paths, kinds=kinds, root=root)
+        return _analyze(paths, kinds=kinds, root=root, analysis_context=analysis_context)
 
     return mcp
 

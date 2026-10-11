@@ -13,7 +13,7 @@
     <plugin>
       <groupId>org.apache.maven.plugins</groupId>
       <artifactId>maven-compiler-plugin</artifactId>
-      <!-- 버전은 Spring Boot BOM(io.spring.dependency-management)이 관리 -->
+      <!-- 버전은 Boot starter-parent pluginManagement가 관리. BOM import만 사용하면 별도 버전 지정. -->
       <configuration>
         <release>17</release>
         <compilerArgs>
@@ -27,7 +27,7 @@
     <plugin>
       <groupId>org.apache.maven.plugins</groupId>
       <artifactId>maven-surefire-plugin</artifactId>
-      <!-- 버전은 Spring Boot BOM이 관리; JUnit Platform 지원은 2.22.0+ -->
+      <!-- Boot starter-parent pluginManagement 관리; BOM 단독 사용 시 별도 버전 지정. -->
       <configuration>
         <!-- JUnit XML 리포트 출력 경로: CI artifact 업로드 경로와 일치 -->
         <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
@@ -52,12 +52,12 @@
       </configuration>
     </plugin>
 
-    <!-- JaCoCo 커버리지 게이트 (RESEARCH_NOTES §3, 0.8.12)
+    <!-- JaCoCo 커버리지 게이트 (RESEARCH_NOTES §3, 0.8.15)
          prepare-agent → test → report → check(rule 위반 시 빌드 실패) -->
     <plugin>
       <groupId>org.jacoco</groupId>
       <artifactId>jacoco-maven-plugin</artifactId>
-      <version>0.8.12</version>
+      <version>0.8.15</version>
       <configuration>
         <!-- near-100% 게이트 제외 allowlist (RESEARCH_NOTES §6) -->
         <excludes>
@@ -74,7 +74,7 @@
         </execution>
         <execution>
           <id>report</id>
-          <phase>test</phase>
+          <phase>verify</phase>
           <goals><goal>report</goal></goals>
           <!-- XML 리포트: target/site/jacoco/jacoco.xml → parse_jacoco_report 소비 -->
         </execution>

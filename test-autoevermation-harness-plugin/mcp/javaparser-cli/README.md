@@ -58,3 +58,7 @@ java -jar target/astcli-1.0.0-shaded.jar path/to/Foo.java
 }
 ```
 **계약 보안**: 메서드 본문은 절대 출력하지 않는다(시그니처/애노테이션 메타만). 해석 실패 심볼은 `unresolvedSymbols`로 분리한다.
+
+## 호환성 실행
+
+CLI runtime은 Java 17+이며 대상 source level은 `--language-level 8`부터 `26`까지 지정한다(생략 CURRENT=26). `--source-root`와 `--classpath`를 반복해 확인된 소스 루트/jar만 전달한다. JSON 및 소스는 UTF-8이며 parseProblems·unresolvedSymbols를 실패/보류 근거로 사용한다. 본문·호출 인자는 출력하지 않는다.

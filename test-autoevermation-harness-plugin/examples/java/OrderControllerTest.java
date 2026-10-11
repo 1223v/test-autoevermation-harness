@@ -14,7 +14,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,10 +28,12 @@ import org.springframework.test.web.servlet.ResultActions;
 @WebMvcTest(OrderController.class)
 @TestPropertySource(
     properties = {
-      "spring.security.enabled=false",
       "order.page-size-default=20",
     })
 class OrderControllerTest {
+  // Boot 4 webmvc-test starter required. With security enabled, configure the
+  // scenario's authenticated/anonymous user explicitly; a generic property does
+  // not disable the application's SecurityFilterChain.
 
   @Autowired private MockMvc mockMvc;
 

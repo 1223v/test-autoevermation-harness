@@ -1,3 +1,4 @@
 # Spring Test Harness — MCP 서버 런타임 의존성
 # RESEARCH_NOTES §1: 공식 MCP Python SDK (MCPServer 포함). Python 3.10+.
 mcp[cli]>=2.2,<3
+packaging>=26.1,<27

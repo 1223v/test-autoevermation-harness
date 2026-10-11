@@ -1,6 +1,6 @@
 # 리팩토링 권고 게이트 (SSOT)
 
-> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·강제 위임 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
+> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·승인·순서 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
 
 이 문서는 하네스의 **리팩토링 권고 산출물(`test_docs/refactoring/`)·탐지 기준·사용자 결정 게이트(3.5단계)**에 대한
 단일 출처(Single Source of Truth)다. `full-pipeline`·`refactor-advisory` 스킬과 `refactor-advisor` 에이전트는 이 문서를 따른다.
@@ -190,28 +190,15 @@ decidedAt: —
 
 ---
 
-## 4. 결정 게이트 (3.5단계 — fallback-policy.md #19)
+## 4. 시나리오 승인과 함께 결정 (fallback-policy.md #19)
 
-`refactor-advisor`가 `RefactorAdvisoryResult`를 반환한 직후(플래그 0건이면 게이트 생략, 3→4 직결):
-
-1. **선(先) 기록**: 각 advisory를 `test_docs/refactoring/RA-<id>.md`(`decision: pending`)로 쓰고
-   `refactoring/INDEX.md`와 메인 `test_docs/INDEX.md` 요약 절을 갱신한다.
-2. **결정 게이트**:
-   - **대화형**: 권고 요약(대상·범주·severity 표)을 제시하고 `AskUserQuestion`으로 묻는다 —
-     선택지 `전체 포함(권장)` / `일부 제외` / `전체 제외` (4.5 게이트 #15의 3옵션 패턴 미러 —
-     AskUserQuestion은 질문당 옵션 최대 4개이므로 대상별 나열 대신 고정 옵션 + 후속 입력을 쓴다).
-     - `일부 제외`: 후속 질문 또는 자유 입력으로 제외할 `RA-id`를 받는다. 제외분은 `decision: excluded`.
-   - **비대화형·CI**: **전 대상 포함 + `warnings` 기록**(권고 `.md`는 그대로 작성). 침묵 누락 금지.
-3. **반영**: 포함분 `decision: included`, 제외분 `decision: excluded`(+ `decidedAt`, 사유)로 frontmatter를 갱신한다.
-   결과를 `_workspace/03c_advisory_gate.json`에 저장한다.
-4. **필터**: 제외 대상 FQCN을 뺀 `includedTargets` 기준으로 `astResult.testTargets`·`sourceResult`를 필터링해
-   4단계(generate-scenarios) 입력으로 넘긴다. **전 대상 제외로 포함이 0건이면** 4.5의 "승인 0건"에 준해
-   `status: "partial"` + "생성 대상 없음(전량 리팩토링 권고)" 보고 후 중단한다.
-
-포함된 대상의 시나리오·테스트가 생성되면(4~5단계 이후) 해당 `RA-*.md`의 "추적성" 절에 SC-id·테스트 메서드를 기록한다.
-
-에이전트 판정이 `failed`면 **경고 후 전 대상 포함으로 진행**한다(`warnings: REFACTOR_ADVISORY_FAILED`) —
-권고는 보조 게이트이므로 파이프라인을 차단하지 않는다(2단계 AST 실패의 하드 중단과 다름).
+권고가 있으면 RA 문서와 INDEX를 먼저 작성하고 기본적으로 전 대상을 포함한다.
+`03c_advisory_gate.json`에는 `includedTargets`와 기본 포함 근거를 기록한 뒤 시나리오를 설계한다.
+4.5 승인 화면에 시나리오 요약과 권고·제외 효과를 함께 제시한다. 별도 권고 선택 질문은 하지 않는다.
+사용자가 제외한 대상만 `decision:excluded`로 기록하고 03c·04·04b를 일치시킨다. 제외는 승인 범위 축소이며 현재 범위를 거짓으로 충족 처리하는 근거가 아니다.
+전량 제외 시 partial과 생성 대상 없음을 반환한다. 비대화형은 기존 명시적 CI 정책을 따른다.
+권고 분석 실패는 REFACTOR_ADVISORY_FAILED 경고와 전 대상 포함으로 진행하되 MCP 연결 실패는 #20에 따라 중단한다.
+포함 대상의 문서에는 SC-id·테스트 메서드 추적성을 갱신한다.
 
 ---
 

@@ -108,6 +108,57 @@ class BuildContractV2(unittest.TestCase):
         self.assertTrue(gate['pass'])
         self.assertFalse(unfiltered['pass'])
 
+    def test_shared_execution_reuses_only_matching_inputs_scope_jdk_reports(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root, "src/main/java/A.java")
+            source.parent.mkdir(parents=True)
+            source.write_text("class A {}", encoding="utf-8")
+            test = Path(root, "src/test/java/Example.java")
+            test.parent.mkdir(parents=True)
+            test.write_text("class Example {}", encoding="utf-8")
+            buildfile = Path(root, "build.gradle")
+            buildfile.write_text("plugins { id 'java' }", encoding="utf-8")
+            def fake_run(*args, **kwargs):
+                junit(root)
+                return dict(exitCode=0, timedOut=False, stdoutTail='', stderrTail='')
+            with patch.object(build, '_run_subprocess', side_effect=fake_run) as process, patch.object(build, '_gradle_context', return_value=None):
+                def run(**kw):
+                    return build.run_targeted_tests('gradle', 'Example', root, with_coverage=False, reuse_if_fresh=True, **kw)
+                first = run(online=True)
+                self.assertEqual('ok', first['status'])
+                self.assertTrue(run()['reused'])  # online priming and offline validation share evidence
+                self.assertEqual(1, process.call_count)
+                for path in (source, test, buildfile, Path(first['reportPaths'][0])):
+                    path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+                    self.assertFalse(run()['reused'], str(path))
+                with patch.dict(build.os.environ, {'JAVA_TOOL_OPTIONS': '-Xmx123m'}):
+                    self.assertFalse(run()['reused'])
+                self.assertFalse(run(java_home=root)['reused'])
+                self.assertFalse(run(task='integrationTest')['reused'])
+                self.assertEqual(8, process.call_count)
+                run()  # restore a successful current scope after integrationTest's missing report
+                evidence_path = build._evidence_path(root)
+                evidence = json.loads(evidence_path.read_text(encoding='utf-8'))
+                evidence['exitCode'] = 1
+                evidence_path.write_text(json.dumps(evidence), encoding='utf-8')
+                self.assertFalse(run()['reused'])
+                for relative in ('.mvn/maven.config', '.mvn/jvm.config', '.mvn/wrapper/maven-wrapper.properties',
+                                 'mvnw', 'mvnw.cmd', 'gradlew', 'gradlew.bat', 'scripts/test-policy.gradle',
+                                 'scripts/test-policy.gradle.kts'):
+                    control = Path(root, relative)
+                    control.parent.mkdir(parents=True, exist_ok=True)
+                    for content in ('# first', '# changed'):
+                        control.write_text(content, encoding='utf-8')
+                        self.assertFalse(run()['reused'], relative)
+                    control.unlink()
+                    self.assertFalse(run()['reused'], relative + ' removed')
+                with patch.dict(build.os.environ, {'MAVEN_ARGS': '-DskipTests'}):
+                    self.assertFalse(run()['reused'])
+                original = test.read_bytes()
+                gate = build.coverage_gate(root, require_fresh=True)
+                self.assertFalse(gate['pass'])
+                self.assertEqual(original, test.read_bytes())
+
     def test_empty_scope_never_passes(self):
         with tempfile.TemporaryDirectory() as root:
             jacoco(root)

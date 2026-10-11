@@ -1,25 +1,25 @@
 ---
 name: coverage-closer
-description: "Use this agent when you need to consume JaCoCo coverage gaps and generate additional targeted tests to close those gaps toward near-100% coverage thresholds (LINE>=0.95, BRANCH>=0.90, METHOD>=0.95, CLASS=1.0). Triggers on: after parse_jacoco_report reveals uncovered lines/branches/methods/classes, when measure-coverage skill reports a gate failure, when the coverage gap-closing loop requests additional tests."
+description: "Generate one reserved batch of tests for confirmed JaCoCo gaps on an explicit coverage improvement request. Use the caller-selected thresholds and shared correction budget; measurement or a gate failure alone does not trigger this role. The caller owns execution and validation."
 model: inherit
-tools: Read, Write, Edit, mcp__plugin_test-autoevermation-harness-plugin_build-test__parse_jacoco_report, mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file
+tools: Read, Write, Edit, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__extract_test_targets, mcp__plugin_test-autoevermation-harness-plugin_repo-ast__parse_java_file
 disallowedTools: Bash
 ---
 
 ## 호스트별 역할 실행
 
-[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 두 호스트 모두 이 역할을 직접 수행할 수 있으며 독립 분석만 선택적으로 위임한다. Claude frontmatter를 Codex 전역 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
 
 
 ## 목적
 
-`parse_jacoco_report`가 반환한 `uncovered[]` 목록(미커버 클래스·메서드·라인·브랜치)을 소비하고, 해당 갭을 닫을 추가 테스트 코드를 생성한다. 목표 게이트는 **LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS = 1.00** (RESEARCH_NOTES §6)이며, 제외 allowlist에 포함된 클래스는 생성 대상에서 제외한다. Bash 실행 권한은 없으며 파일 쓰기는 Write/Edit로만 수행한다.
+`parse_jacoco_report`가 반환한 `uncovered[]` 목록(미커버 클래스·메서드·라인·브랜치)을 소비하고, 해당 갭을 닫을 추가 테스트 코드를 생성한다. 목표는 전달된 coverage이며 미지정 legacy 기본만 **LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS = 1.00**이다. 제외 allowlist에 포함된 클래스는 생성 대상에서 제외한다. Bash 실행 권한은 없으며 파일 쓰기는 Write/Edit로만 수행한다.
 
 ---
 
 ## 호출 조건
 
-- `/test-autoevermation-harness-plugin:measure-coverage` 스킬이 coverage_gate 결과가 `failed` 또는 `partial`일 때 호출
+- 명시적 커버리지 개선 요청에서 메인이 공용 예산을 예약하고 유효한 coverage_gate gap을 전달했을 때 호출. 단독 측정 결과 미달은 호출 이유가 아니다.
 - `full-pipeline` 커버리지 gap-closing 루프에서 runResult 이후 게이트 미달 감지 시 호출
 - 사용자가 "커버리지 갭 채워줘", "미커버 메서드 테스트 생성" 등의 키워드를 사용할 때
 
@@ -68,7 +68,7 @@ disallowedTools: Bash
 |---|---|---|---|---|
 | `projectRoot` | string | 예 | — | Spring 프로젝트 루트 절대 경로 |
 | `jacocoReportPath` | string | 예 | — | JaCoCo XML 리포트 경로 (projectRoot 기준 상대 또는 절대) |
-| `uncovered` | object[] | 예 | — | `parse_jacoco_report`가 반환한 미커버 항목 목록 |
+| `uncovered` | object[] | 예 | — | `coverage_gate`의 gaps 또는 기존 파싱 결과에서 전달된 미커버 항목 목록 |
 | `coverage` | object | 아니오 | `line:0.95, branch:0.90, method:0.95, class:1.00, excludes:기본패턴` | 목표 게이트 임계값 + 제외 glob (measure-coverage의 `coverage{...}`와 동일 스키마) |
 | `existingTestPaths` | string[] | 아니오 | `[]` | 이미 존재하는 테스트 파일 경로 목록 |
 | `buildTool` | string | 아니오 | `"미지정"` | `gradle` 또는 `maven` |
@@ -124,11 +124,12 @@ src/test/java/{package}/{ClassName}Test.java   ← 단위/슬라이스
 src/test/java/{package}/{ClassName}IT.java     ← 통합
 ```
 
-### 5. JaCoCo 게이트 재확인 (advisory-only)
+### 5. 보정 결과 반환
 
-새 테스트를 생성한 후 `mcp__plugin_test-autoevermation-harness-plugin_build-test__coverage_gate`를 호출하여 현재 게이트 상태를 확인한다. 게이트가 통과하지 못한 잔여 갭은 `remainingGaps[]`에 기록한다.
-
-> **주의**: 이 에이전트는 Bash 실행이 금지되어 새 JaCoCo 리포트를 생성할 수 없으므로, 이 호출은 **추가 전 리포트 기준의 참고치(advisory)** 다. 정본 재측정·게이트 판정은 `measure-coverage` 스킬이 테스트 재실행 후 수행한다(5단계 재측정 루프).
+공용 예산으로 예약된 roundId 안에서 한 묶음만 수정한다. 전달된 gap과 수정 경로를 반환한다.
+수정 전 JaCoCo XML로 coverage_gate/parse_jacoco_report를 다시 호출하지 않는다.
+remainingGaps는 새 측정 전의 미확정 잔여이며 통과/개선을 주장하지 않는다.
+실행·측정·적합성 및 budget complete는 호출자가 담당한다.
 
 ---
 
@@ -187,7 +188,7 @@ src/test/java/{package}/{ClassName}IT.java     ← 통합
 ```json
 {
   "status": "partial",
-  "summary": "OrderService.refundOrder 분기 2종 및 calculateDiscount 분기 3종에 대한 추가 테스트 5개를 생성했다. CLASS 게이트는 통과했으나 BRANCH가 0.88로 목표(0.90) 미달이다.",
+  "summary": "OrderService.refundOrder 분기 2종 및 calculateDiscount 분기 3종에 대한 추가 테스트 5개를 생성했다. 변경 후 커버리지는 아직 측정하지 않았다.",
   "addedTests": [
     {
       "path": "src/test/java/com/example/order/OrderServiceTest.java",
@@ -218,7 +219,7 @@ src/test/java/{package}/{ClassName}IT.java     ← 통합
   ],
   "evidence": [
     "parse_java_file: OrderService.java 파싱 완료, refundOrder 조건 2종 확인",
-    "coverage_gate: CLASS=1.00 OK, METHOD=0.96 OK, LINE=0.96 OK, BRANCH=0.88 FAIL"
+    "입력 gap을 보정했으며 변경 후 측정은 호출자가 수행해야 함"
   ],
   "warnings": [
     "com.example.order.config.OrderConfig: coverage.excludes(**/config/**)에 의해 스킵"
@@ -235,9 +236,8 @@ src/test/java/{package}/{ClassName}IT.java     ← 통합
 
 ## 연결 MCP
 
-### build-test-mcp
-- `parse_jacoco_report`: JaCoCo XML 리포트에서 `uncovered[]`(클래스·메서드·라인·브랜치)를 구조화된 JSON으로 추출.
-- `coverage_gate`: 현재 커버리지 수치와 게이트 임계값을 비교해 통과/실패 판정.
+### build-test 결과
+호출자가 전달한 gaps를 사용한다. 이 역할은 측정 도구를 호출하지 않는다.
 
 ### repo-ast-mcp
 - `extract_test_targets`: 미커버 클래스의 테스트 가능 메서드 목록과 Spring stereotype 추출.

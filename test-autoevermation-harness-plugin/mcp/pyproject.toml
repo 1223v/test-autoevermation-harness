@@ -1,11 +1,12 @@
 [project]
 name = "test-autoevermation-harness-mcp"
-version = "0.14.0"
+version = "0.35.1"
 description = "Spring 테스트 하네스용 MCP 서버 3종 (repo-ast / spec-doc / build-test). 공식 MCP Python SDK(MCPServer) 기반."
 requires-python = ">=3.10"
 dependencies = [
     # RESEARCH_NOTES §1
     "mcp[cli]>=2.2,<3",
+    "packaging>=26.1,<27",
 ]
 
 # repo-ast 서버의 JavaParser 백엔드는 별도 jar(mcp/javaparser-cli)로 빌드한다.
@@ -17,4 +18,4 @@ test-autoevermation-harness-spec-doc = "spec_doc_server:main"
 test-autoevermation-harness-build-test = "build_test_server:main"
 
 [tool.setuptools]
-py-modules = ["repo_ast_server", "spec_doc_server", "build_test_server"]
+py-modules = ["repo_ast_server", "spec_doc_server", "build_test_server", "harness_runtime", "harness_policy"]

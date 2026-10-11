@@ -37,7 +37,7 @@
 
 ## 2. 컨트롤러 슬라이스 — 프로파일별 전체 템플릿
 
-### 2-A. Boot 4.x / 3.4+ (jupiter + @MockitoBean) — "latest"
+### 2-A. Boot 4.x (jupiter + @MockitoBean) — "latest"
 
 ```java
 import static org.mockito.BDDMockito.given;
@@ -48,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -61,13 +61,15 @@ class OrderControllerTest {
   @Test
   @DisplayName("활성 주문 단건 조회 — JSON 구조를 준수한다")
   void listActiveOrders_singleOrder() throws Exception {
-    given(orderQueryService.findActiveOrders()).willReturn(java.util.List.of(/* ... */));
+    given(orderQueryService.findActiveOrders()).willReturn(java.util.Collections.emptyList() /* 실제 fixture 사용 */);
     mockMvc.perform(get("/api/orders/active").accept("application/json"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.orders").isArray());
   }
 }
 ```
+
+Boot 3.4/3.5는 위 MockitoBean을 유지하면서 `WebMvcTest` import를 `org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest`로 선택한다. Boot 4 웹 슬라이스는 `spring-boot-starter-webmvc-test`가 필요하다.
 
 ### 2-B. Boot 2.2 – 3.3 (jupiter + @MockBean)
 
@@ -114,7 +116,7 @@ public class OrderControllerTest {
 
   @Test
   public void listActiveOrders_singleOrder_returnsOkJson() throws Exception {
-    given(orderQueryService.findActiveOrders()).willReturn(java.util.List.of(/* ... */));
+    given(orderQueryService.findActiveOrders()).willReturn(java.util.Collections.emptyList() /* 실제 fixture 사용 */);
     mockMvc.perform(get("/api/orders/active").accept("application/json"))
         .andExpect(status().isOk());
   }
@@ -139,7 +141,7 @@ public class OrderControllerTest {
 
 ## 4. JPA 슬라이스 (`@DataJpaTest`)
 
-모든 프로파일에서 애노테이션은 동일. 차이는 **엔티티 네임스페이스**(§1)와 JUnit 엔진(§2)뿐.
+Boot 2/3: `org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest`. Boot 4: `org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest` 및 `spring-boot-starter-data-jpa-test`. 엔티티 네임스페이스(§1)와 JUnit 엔진(§2)도 함께 선택한다.
 - junit4면 `@RunWith(SpringRunner.class)` 추가.
 - 엔티티가 `javax.persistence`(2.x) / `jakarta.persistence`(3.x+)인지 대상 소스로 확인.
 
@@ -151,7 +153,7 @@ public class OrderControllerTest {
 
 ```kotlin
 tasks.named<Test>("test") { useJUnitPlatform() }
-jacoco { toolVersion = "0.8.12" }
+jacoco { toolVersion = "0.8.15" }
 ```
 
 Boot 2.4+에서 JUnit4 테스트가 일부 남아 있으면 vintage 엔진을 명시 추가:
@@ -165,7 +167,7 @@ testImplementation("org.junit.vintage:junit-vintage-engine") { exclude(group = "
 ```groovy
 // Boot 2.0/2.1: spring-boot-starter-test가 JUnit4를 가져온다. Platform 불필요.
 test { useJUnit() }        // ← useJUnitPlatform() 아님
-jacoco { toolVersion = '0.8.12' }   // Java 8 런타임 정상
+jacoco { toolVersion = '0.8.15' }   // Java 8 런타임 정상
 java { sourceCompatibility = JavaVersion.VERSION_1_8 }
 ```
 
@@ -173,12 +175,13 @@ java { sourceCompatibility = JavaVersion.VERSION_1_8 }
 
 ```xml
 <!-- Boot 2.x (Java 8): -->
-<maven.compiler.release>8</maven.compiler.release>   <!-- 또는 source/target 1.8 -->
+<maven.compiler.source>8</maven.compiler.source>
+<maven.compiler.target>8</maven.compiler.target> <!-- JDK 8 / compiler 3.10.1 -->
 <!-- Boot 3.x+/4.x (Java 17): -->
 <maven.compiler.release>17</maven.compiler.release>
 ```
 
-Surefire는 JUnit Platform(2.22+)·JUnit4 모두 지원. JaCoCo 플러그인 `0.8.12` 동일.
+Surefire는 JUnit Platform(2.22+)·JUnit4 모두 지원. JaCoCo 플러그인 `0.8.15` 동일.
 
 ---
 

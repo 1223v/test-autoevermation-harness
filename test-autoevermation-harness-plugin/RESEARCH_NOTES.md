@@ -1,4 +1,32 @@
-# RESEARCH_NOTES — 핀 고정된 공식 버전/API (2026-06-25 검증)
+# RESEARCH_NOTES — 핀 고정된 공식 버전/API (최종 조사 2026-10-08; 과거 기록은 버전별)
+
+## 0.35.1 호환성 수정 근거 (2026-10-08)
+
+[감사](docs/compatibility-audit.md)의 전체 파일 inventory/source ledger를 재사용하고 변경 대상·공식 구현을 추가 읽었다. 조사 순서와 판단은 아래 표, 실제 결과·미실행·기존 검사 실패는 [수정 기록](docs/compatibility-remediation.md)에 분리한다. 이전 0.35.0 절의 검증 결과는 당시 기록이다.
+
+| 읽은 파일·심볼 | 공식 URL | 확인 버전 | 적용 결정 |
+|---|---|---|---|
+| build_test_server `_detect_boot_version`, `_effective_pom`, `_gradle_context`, `_maven_jacoco_flags` | [Maven POM](https://maven.apache.org/pom.html), [lifecycle](https://maven.apache.org/guides/introduction/introduction-to-the-lifecycle.html), [Gradle task selector](https://docs.gradle.org/current/userguide/command_line_interface.html#sec:executing_tasks_in_multi_project_builds) | 실행 Maven3.9.9/Gradle8.12; Boot2/3/4 계약 | XML·실제 configuration/effective POM 대조, 주석/pluginManagement/phase=none 제외, 불명확하면 partial |
+| build_test_server `_coverage_result`, `_input_snapshot`, `_fresh_run`, `run_targeted_tests` | [Gradle JaCoCo](https://docs.gradle.org/current/userguide/jacoco_plugin.html), [JaCoCo Maven](https://www.jacoco.org/jacoco/trunk/doc/maven.html), [Python subprocess](https://docs.python.org/3.14/library/subprocess.html) | JaCoCo0.8.12 기존 runner;0.8.15 새 실제 실행, Python3.14 | module/report/exec 범위 확인, 명시 커스텀·aggregate API, 콘텐츠 지문·build 종료 결과로 재개 판정 |
+| AstCli ParserConfiguration·PrintStream·TypeDeclaration, repo_ast `_analysis_context`, `_method_call_details` | [JavaParser3.28.2 소스](https://github.com/javaparser/javaparser/blob/javaparser-parent-3.28.2/javaparser-core/src/main/java/com/github/javaparser/ParserConfiguration.java) | JavaParser3.28.2; 실행 JDK17.0.7; CURRENT26 | UTF-8/최소17, 명시 source level·sourceRoots·확인된 dependency jar, parseProblems·미해결·signature·FQCN 보존 |
+| spec_doc `_safe_read`, `_ORIGINALS`, `index_docs`, `_GENERATION` | [MCP SDK2 migration](https://py.sdk.modelcontextprotocol.io/migration/), [Python codecs](https://docs.python.org/3.14/library/codecs.html) | MCP2.3.0; 지원 >=2.2,<3 | 원문 기준 일괄 인덱스, UTF-8/BOM·입력 오류/한도, 최신 요청만 게시·취소 검사 |
+| launch/bootstrap/runtime/persist의 DATA·잠금·종료·atomic_json | [MCP stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#stdio), [os.replace](https://docs.python.org/3.14/library/os.html#os.replace), [taskkill](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill), [Claude 변수](https://code.claude.com/docs/en/plugins-reference#where-each-variable-resolves) | Node24.12/Python3.14/Windows11; Codex0.162.0-alpha.2 | stderr 설치 로그, bounded lock·소유 트리, 수동 --data, 검증 jar+원자 manifest·immutable 이전 사본 보관 |
+| bootstrap `interpreter_has_mcp`, requirements/pyproject | [PEP440](https://packaging.python.org/en/latest/specifications/version-specifiers/), [packaging26.1 pyproject](https://github.com/pypa/packaging/blob/26.1/pyproject.toml) | 승인 packaging>=26.1,<27; 실제26.3 | 정상 local/축약 SDK2 버전 수용, SDK 실제 MCPServer import 함께 확인 |
+| JDT Java 선택/launcher, statusline shell, artifact Zone C | [JDT launcher](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/v1.60.0/org.eclipse.jdt.ls.product/scripts/jdtls.py), [Claude Windows statusline](https://code.claude.com/docs/en/statusline#windows-configuration) | JDT LS1.60.0 Java21+; Windows PATH/JAVA_HOME | 검증 Java/Python 고정, delegate 전체 설정·셸 보존, Windows casefold. Codex 제외 유지 |
+| Boot2/4 Java·Gradle·Maven 예제·version-compatibility | [Boot4 migration](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide), [compiler source/target](https://maven.apache.org/plugins/maven-compiler-plugin/examples/set-compiler-source-and-target.html), [Gradle compatibility](https://docs.gradle.org/current/userguide/compatibility.html), [JaCoCo changes](https://www.jacoco.org/jacoco/trunk/doc/changes.html) | compiler3.10.1, Java8–26; JaCoCo0.8.15 | Collections/source-target8, 슬라이스 import/starter 분리, 구형 DSL, BOM과 plugins 구분. 전체 조합 통과를 주장하지 않음 |
+| `_windows_maven_agent_proposal`, build-provisioning | [JaCoCo agent](https://www.jacoco.org/jacoco/trunk/doc/agent.html), [Unicode issue1735](https://github.com/jacoco/jacoco/issues/1735) | 실제 Maven3.9.9/JDK17/JaCoCo0.8.15 | 기존 승인 안에서 실제 workingDirectory·argLine/property·agent 옵션 보존; execution override·미해결 조건은 제안 없이 질문/보류 |
+| manifests/marketplaces, CODEX/ARCHITECTURE/호스트 규칙 | [OpenAI 패키징](https://developers.openai.com/plugins/build/plugins), [스킬](https://developers.openai.com/plugins/build/skills) | plugin0.35.1 로컬; Codex0.162.0-alpha.2 | 스키마2·5/4/11 도구·15스킬 유지, 로컬 설치와 원격main0.35.0 구분, GUI/model 미실행 명시 |
+
+구현 TODO와 결과:
+
+- [x] 빌드·모듈·최신성·승인 계약 수정 및 실제 Maven/Gradle 실행.
+- [x] AST 구조·오류·언어/인코딩·컨텍스트·FQCN 계약 수정 및 실제 JVM 확인.
+- [x] 스펙 원문·일괄 입력·인코딩·스냅샷 경합 처리.
+- [x] 런타임·DATA·영속화·호스트 경계와 승인된 최소 의존성 핀 정리.
+- [x] 예제·버전 설명·설치/사용·구조·변경 이력·검증 범위 문서화.
+- [x] 기존197개 검사 실행·실패 분류, 원본 tests15파일 지문 무변경 확인; 실제 stdio/Codex 설치/app-server/기존 통합 runner 재사용.
+- [ ] 기존 검사 전체 녹색: 계약·내부 mock 기대값과 새 동작이 다르고 baseline/Windows 오류가 남음. 자체 tests 수정 금지에 따라 숨기지 않음.
+- [ ] GUI·모델 전체 생성 대화, Claude 실제 세션, 다른 OS·Boot/JDK 행렬: 미실행.
 
 
 ## 0. Codex 0.35.0 구현 근거 (2026-10-08)
@@ -26,9 +54,22 @@
 - [x] 설치 가이드·호스트 차이·변경 이력 및 실제 검증 기록 정리.
 - [x] 기존 검사·실제 stdio·Codex 설치/app-server·기존 Gradle/Maven 통합 실행.
 - [ ] 데스크톱 GUI 클릭 설치와 실제 대화형 전체 파이프라인: 이 세션에서는 미실행.
-- [ ] 원격 Git 설치: 변경 push 후 확인 필요. 이번 작업에서 게시하지 않음.
+- [x] 원격 Git 설치: main `4c9acea` 게시 후 격리된 Codex 홈에서 Git 마켓플레이스 등록·0.35.0 설치·installed/enabled 확인.
 
 구현 조사와 검증에서 확인된 환경 제한은 [docs/codex-validation.md](docs/codex-validation.md)에 기록한다. 이 절은 Codex 추가 범위의 근거이며 아래 기존 Spring/JUnit/JaCoCo 버전 정책을 변경하지 않는다.
+
+### Codex 설치·사용 가이드 보완 (2026-10-08)
+
+| 읽은 파일·심볼 | 공식 근거 | 확인 버전 | 적용 결정 |
+|---|---|---|---|
+| `docs/CODEX.md`, 양쪽 README, `.agents/plugins/marketplace.json`, root `plugin.json` | [패키징·마켓플레이스](https://developers.openai.com/plugins/build/plugins), [CLI 명령](https://learn.chatgpt.com/docs/developer-commands) | 플러그인 0.35.0; Codex 0.162.0-alpha.2; 당일 공식 문서 | 실제 성공한 Git 설치를 기본 예시로 사용. 앱의 소스 선택·활성화와 CLI 설치 확인을 구분 |
+| `setup-harness`, `configure-harness`, `full-pipeline`, `edit-tests`, `references/hosts/codex.md` | [스킬·플러그인 사용](https://learn.chatgpt.com/docs/skills-and-plugins) 및 기존 호스트 계약 | schemaVersion 2; 배포 스킬 15개 | 자연어 실행 예시와 승인·재개·산출물 안내. 환경 준비와 설정/실행 분리, 직접 편집은 자동 테스트 실행이 아님 |
+
+실행 TODO:
+
+- [x] 설치 → 대상 프로젝트 선택 → 환경 준비 → 시나리오 승인 → 결과 확인을 따라 할 수 있도록 기존 가이드 확장.
+- [x] 업데이트·제거·재실행·문제 해결 및 README 진입 링크 정리.
+- [x] Git 설치 검증 기록 갱신. 로컬 링크·목차 20개와 코드 블록·버전 확인, 기존 문서 계약 검사 18개 통과, 문서 5개만 변경 및 테스트 파일 무변경 확인.
 
 > 모든 구현은 이 문서를 단일 진실 소스로 삼는다. 값은 웹검색으로 확인한 공식 출처 기반이며, 빌드 시점에 프로젝트의 resolved BOM/플러그인 카탈로그로 재확인할 것.
 
@@ -72,10 +113,10 @@
 - 보안: 코드 본문·호출 인자 미반환(노드/시그니처/애노테이션/호출 메서드 **이름** 메타만 — v0.17.0 `invokedMethods`/`methodCalls`), 프로젝트 루트 내부 경로 allowlist(`REPO_AST_ALLOW_ROOT`).
 
 ## 3. 커버리지: JaCoCo
-- 버전: **0.8.12** (Java 17+ 정상 동작). 공식: [JaCoCo Gradle Plugin](https://docs.gradle.org/current/userguide/jacoco_plugin.html), [DSL: JacocoCoverageVerification](https://docs.gradle.org/current/dsl/org.gradle.testing.jacoco.tasks.JacocoCoverageVerification.html)
+- 버전: **0.8.15** (Java 8+ runtime, Java 26 class file 공식 지원). 공식: [JaCoCo Gradle Plugin](https://docs.gradle.org/current/userguide/jacoco_plugin.html), [DSL: JacocoCoverageVerification](https://docs.gradle.org/current/dsl/org.gradle.testing.jacoco.tasks.JacocoCoverageVerification.html)
 - 카운터: **LINE, BRANCH, METHOD, CLASS**, INSTRUCTION, COMPLEXITY. 우리는 LINE/BRANCH/METHOD/CLASS 4종 게이트.
 - Gradle: `jacocoTestReport`(리포트, XML/HTML) + `jacocoTestCoverageVerification`(게이트). `violationRules { rule { limit { counter='BRANCH'; value='COVEREDRATIO'; minimum=0.90 } } }`. `check.dependsOn(jacocoTestCoverageVerification)`.
-- Maven: `org.jacoco:jacoco-maven-plugin:0.8.12`, goals `prepare-agent` + `report` + **`check`**(rule가 위반되면 빌드 실패). XML 리포트 위치: `target/site/jacoco/jacoco.xml`.
+- Maven: `org.jacoco:jacoco-maven-plugin:0.8.15`, goals `prepare-agent` + `report` + **`check`**(rule가 위반되면 빌드 실패). XML 리포트 위치: `target/site/jacoco/jacoco.xml`.
 - 제외 allowlist: 생성코드/DTO/config/`*Application` 등은 `excludes`로 제외(near-100% 현실화).
 
 ## 5. Spring 최신 테스트 API (Boot 4.1.0 = "latest" 프로파일)
@@ -97,7 +138,7 @@
 | Boot | Framework | Java(min) | 네임스페이스 | JUnit 기본 | Mock 애노테이션 | Mock import |
 |---|---|---|---|---|---|---|
 | 2.0–2.1 | 5.0–5.1 | **8** | `javax.*` | **JUnit 4**(Vintage) | `@MockBean` | `org.springframework.boot.test.mock.mockito.MockBean` |
-| 2.2–2.3 | 5.2 | 8 | `javax.*` | JUnit 5(Vintage 제외) | `@MockBean` | (동일) |
+| 2.2–2.3 | 5.2 | 8 | `javax.*` | JUnit 5(Vintage 기본 포함) | `@MockBean` | (동일) |
 | 2.4–2.7 | 5.3 | 8(≤17) | `javax.*` | JUnit 5(Vintage 제거) | `@MockBean` | (동일) |
 | 3.0–3.3 | 6.0–6.1 | **17** | `jakarta.*` | JUnit 5 | `@MockBean` | (동일) |
 | 3.4–3.x | 6.2 | 17 | `jakarta.*` | JUnit 5 | `@MockitoBean`(권장) | `org.springframework.test.context.bean.override.mockito.MockitoBean` |
@@ -110,7 +151,7 @@
 4. **빌드/툴 베이스라인**: Java 8(2.x)/17(3.x+); Gradle `useJUnit()`(순수 junit4) vs `useJUnitPlatform()`; JaCoCo 버전 폴백(§아래).
 
 **JaCoCo 버전 폴백** (Java 베이스라인별)
-- JaCoCo: **0.8.12**는 Java 8 런타임에서도 정상(바이트코드 5–23 지원). 매우 오래된 Gradle(≤6.x)이면 `toolVersion`만 0.8.8+로 낮춰도 됨. 공식: [JaCoCo Releases](https://www.jacoco.org/jacoco/trunk/doc/changes.html)
+- JaCoCo: **0.8.15**는 runtime Java 8 이상 및 class file Java 26까지 공식 지원한다. 0.8.12는 Java 22까지 공식 지원/23은 실험이다. Gradle wrapper 실행 JVM과 계측 class file 버전을 각각 확인하며 묵시 다운핀하지 않는다. 공식: [JaCoCo Releases](https://www.jacoco.org/jacoco/trunk/doc/changes.html)
 
 ## 6. near-100% 커버리지 정책(현실화)
 - 목표 게이트(기본, 런타임 조정 가능): LINE ≥ 0.95, BRANCH ≥ 0.90, METHOD ≥ 0.95, CLASS ≥ 1.00.

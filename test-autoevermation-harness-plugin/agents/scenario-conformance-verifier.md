@@ -8,7 +8,7 @@ disallowedTools: Bash
 
 ## 호스트별 역할 실행
 
-[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 먼저 읽는다. Codex에서는 이 문서를 작업 지침으로 읽어 인라인 실행하며 Claude frontmatter를 전역 에이전트 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
+[호스트 실행 계약](../references/host-runtime.md)과 현재 호스트 문서, [근거 중심 작업 절차](../references/evidence-workflow.md)를 현재 문맥에 없을 때만 읽는다. 두 호스트 모두 이 역할을 직접 수행할 수 있으며 독립 분석만 선택적으로 위임한다. Claude frontmatter를 Codex 전역 설정으로 설치하지 않는다. 아래 Claude 전용 LSP·도구·훅 요구는 호스트 어댑터로 치환하고 공용 데이터·검증 계약은 유지한다.
 
 
 ## 목적
@@ -60,16 +60,14 @@ disallowedTools: Bash
 1. **매핑** — `scenarioRef`로 시나리오 → 테스트 메서드를 찾는다. 메서드명 접두(`SC-001`→`sc001_`)와 javadoc의
    `scenarioRef`/`criteriaRef`를 함께 사용한다. 생성 파일을 `Read`/`parse_java_file`로 읽어 메서드를 식별한다.
    매핑 메서드가 없으면 `verdict: "missing"`.
-2. **실행 결과 기계 확증 (무조건)** — `parse_junit_xml`을 호출해 `testcases[]`({class, name, result: passed|failed|skipped, flaky})에서
+2. **실행 결과 기계 확증** — 같은 최신 실행의 runResult.testcases를 사용하고 누락 시에만 같은 범위 `parse_junit_xml`을 호출해 `testcases[]`({class, name, result: passed|failed|skipped, flaky})에서
    매핑된 각 테스트 메서드의 결과를 **기계로 확증**한다. `failed[]` 부재로부터의 추론 금지 — `@Disabled`(skipped)·미실행
    테스트도 `failed[]`에는 없다.
    - `result: "passed"` → 통과 확정. `flaky: true`면 재시도 이력(Surefire rerunFailure / Gradle mergeReruns flakyFailure)이
      있는 것이므로 `warnings`에 기록한다(FLAKY_SUSPECTED 후보).
    - `result: "failed"` → `verdict: "unsatisfied"`.
    - `result: "skipped"` 또는 `testcases[]`에 부재(미실행) → `verdict: "unsatisfied"` + `nonconformanceClass: "NOT_EXECUTED"`.
-   - XML 리포트 자체가 없을 때(`parse_junit_xml` `status:"failed"` — 예: 빌드 실패 직후)만 `runResult`의
-     "`failed[]`에 없고 실행 스코프에 포함되면 passed" 추론 규칙으로 대체하고, 그 사실을 `warnings`에 기록한다
-     (이 경우 해당 시나리오의 `judgment`는 `"read-based"`).
+   - 최신 XML이 없거나 입력/보고서 지문이 바뀌면 실행 성공을 추론하지 않는다. `run-tests`를 재실행하고 확증할 수 없으면 `NOT_EXECUTED`/failed로 보류한다. config의 report_dirs와 현재 실행의 reportPaths를 사용한다.
 3. **target 호출 기계 대조** — `parse_java_file`을 테스트 파일에 실행해 `testTargets[].methodCalls`(테스트 메서드 → 호출 메서드 단순명)와
    `testTargets[].methodCallDetails`(호출 레코드 `{name, scope}` — scope는 단순 수신자 식별자, 복잡식이면 `""`)를 얻는다.
    - **unit/직접호출 시나리오**: 시나리오 `target`(`FQCN#method`)의 메서드 단순명이 매핑된 테스트 메서드의 `methodCalls`에 없으면
@@ -78,7 +76,7 @@ disallowedTools: Bash
    - **수신자 대조(동명 메서드 방어)**: 단순명이 일치해도, `methodCallDetails`의 해당 호출 `scope`가 비어 있지 않으면
      테스트 클래스의 `fields`에서 **target 클래스 단순명과 타입이 일치하는 필드명**과 대조한다 — scope가 다른 협력자
      필드(예: target `OrderService#cancel`인데 `paymentClient.cancel()`만 호출)면 동일하게 `WRONG_TARGET_CALL`.
-     scope가 `""`(복잡식·직접 호출) 또는 매칭 필드를 특정할 수 없으면 단순명 일치를 유지하되 수신자 미확인을 `notes`에 남긴다.
+     scope가 비었거나 필드를 특정할 수 없으면 `resolvedInvokedCalls`/`methodCallDetailsBySignature`의 declaringType·resolvedSignature와 실제 소스를 확인한다. 오버로드는 메서드 서명으로 대조한다. 필요한 의미가 미해결이면 질문/보류하며 단순명만으로 satisfied를 기록하지 않는다.
    - **slice/integration 시나리오**: 시나리오 `when`의 HTTP verb/경로 문자열이 `perform(...)` 요청과 일치하는지,
      `given`의 협력자 stub 메서드명이 `methodCalls`에 있는지 대조한다.
 4. **then 충족** — 테스트 본문의 `// then` 단언이 시나리오 `then` 항목을 빠짐없이 반영하는지 본다.
@@ -86,7 +84,7 @@ disallowedTools: Bash
    given도 시나리오와 어긋나지 않는지 점검한다(mock 설정 일치 — 어긋나면 `"GIVEN_MISMATCH"`).
 5. **판정** — `satisfied`(매핑+통과 확증+target 호출 일치+then 충족) / `unsatisfied`(매핑되나 실패·미실행·target 불일치·단언 부족) / `missing`(매핑 없음, `nonconformanceClass: "MAPPING_MISSING"`).
    `thenCovered`를 `충족/전체`(예: `2/3`)로 기록하고, `unsatisfied`/`missing`에는 `nonconformanceClass`를 반드시 기록한다(9.5단계 보정 라우팅 힌트).
-   각 시나리오에 **`judgment`를 기록한다**: 실행 결과(절차 2)와 target 대조(절차 3)가 모두 기계 근거(`testcases[]` + 비(非)degraded `methodCalls`)로 성립하면 `"machine"`, 하나라도 읽기 기반 대체 판정(XML 미존재 추론)이 섞이면 `"read-based"`.
+   각 시나리오에 **`judgment`를 기록한다**: 실행 결과(절차 2)와 target 대조(절차 3)가 모두 기계 근거(`testcases[]` + 비(非)degraded `methodCalls`)로 성립하면 `"machine"`, target 수신자를 실제 소스로 확정했으면 `"read-based"`.
 
 then 충족·given 점검은 **읽기 기반 판단**(LLM이 테스트 본문과 시나리오를 대조)이지만, **실행 결과 확증(2단계)과 target 호출 대조(3단계)는 기계 판정**이다. `methodCalls`가 비어 있을 때는 repo-ast 응답의 `degraded` 플래그로 원인을 구분한다 — `degraded:true`는 JavaParser가 그 파일을 읽지 못해 **결과에서 제외됐다**는 신호다(v0.31.0부터 대체 추출기 없음): 읽기 기반으로 대체 판정하지 말고 `status:"failed"` + `errors`에 대상 파일과 remediation을 기록해 중단한다(fallback-policy #20). `degraded:false`인데 비어 있으면 실제로 호출이 없는 것이므로 결정적 `WRONG_TARGET_CALL`이다.
 

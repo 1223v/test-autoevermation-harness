@@ -5,7 +5,34 @@
 
 ---
 
+## [Unreleased] — 실행 비용·사용 흐름
+
+- 조회·실행·측정·개선 경로 분리, 직접 수행 기본, 시나리오 승인에 권고 병합.
+- 선택 executionPolicy와 지속되는 공용 보정 예산, 기존 설정 호환 유지.
+- 입력·범위·JDK·보고서 지문으로 실행 결과 공유. 핵심 스킬 300줄 이하와 조건부 참조.
+- [진단·검증 기록](docs/efficiency-audit.md)에 실제 검증 범위와 기존 실패를 구분.
+
 ## [Unreleased]
+
+---
+
+## [0.35.1] - 2026-10-08
+
+### Fixed
+
+- Boot 버전·활성 JaCoCo 설정을 실제 Gradle configuration/Maven effective POM과 대조한다. 미확정 프로파일은 질문·보류하며 주석이나 pluginManagement만으로 성공 처리하지 않는다.
+- 깊은 모듈·사용자 지정 보고서와 모듈별 최신성을 확인하고, 실행 입력·보고서 지문을 기록한다. 시나리오 승인·테스트 매핑이 없거나 이전 실행 증거가 낡으면 재개 단계를 낮춘다.
+- JavaParser의 UTF-8·언어 수준·파싱 진단, record/enum/중첩 타입, file/fields, public 메서드·오버로드·정확한 FQCN 조회와 확인된 클래스패스를 처리한다.
+- 스펙을 일괄 인덱싱하고 마스킹한 원문에서 수용 기준을 추출한다. 인코딩·미지원 형식·한도·범위 오류와 취소/인덱싱 경합을 보고한다.
+- 런처의 UTF-8·stderr 설치 로그·유한 잠금·프로세스 종료, DATA 전달·jar 원자 영속화, Claude의 JDT JVM/Python 선택·Windows 상태줄 셸·산출물 경로 대소문자를 보완한다.
+
+### Changed
+
+- 기본 JaCoCo 예제를 0.8.15로 갱신하고 PEP 440 SDK 버전 확인에 packaging >=26.1,<27을 사용한다. JavaParser 3.28.2, MCP >=2.2,<3, 기본 오프라인·스키마 v2·기존 MCP 도구 이름을 유지한다.
+- Java 8/Boot 2·Boot 4 예제와 Gradle 구버전 DSL·Maven BOM/리포트 설명을 수정한다. Windows Maven 한글 경로 우회는 확정된 JVM/agent 옵션·모듈 작업 경로를 보존하는 조건부 설정 제안이며 기존 승인을 따른다.
+- [설치·사용](docs/CODEX.md), [내부 구조](docs/ARCHITECTURE.md), [호환성 수정·검증](docs/compatibility-remediation.md)을 정리한다. 자체 테스트 파일은 변경하지 않았다. 미실행 환경과 기존 검사 실패는 검증 기록에 별도로 남긴다.
+
+이 버전은 현재 작업 브랜치의 로컬 패키지다. 원격 main 설치와 공개 릴리스 여부는 구분한다.
 
 ---
 

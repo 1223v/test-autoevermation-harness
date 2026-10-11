@@ -5,6 +5,8 @@
 이 문서는 `test-autoevermation-harness-plugin` 플러그인이 **어떤 구조로, 어떤 순서로 동작하는지**와
 **설치부터 실행·설정·산출물 해석까지 어떻게 사용하는지**를 한 곳에 정리한 종합 가이드다.
 
+- 공용 구조·사용 흐름: [ARCHITECTURE.md](ARCHITECTURE.md)
+- 호환성 수정·검증: [compatibility-remediation.md](compatibility-remediation.md)
 - 빠른 개요·표 위주 요약: [README.md](../README.md)
 - 흐름 다이어그램(Mermaid): [pipeline-flow.md](./pipeline-flow.md)
 - 단계·정책의 정본(SSOT): [skills/full-pipeline/SKILL.md](../skills/full-pipeline/SKILL.md) · [references/](../references/)
@@ -33,7 +35,7 @@
 
 ## 1. 개요
 
-**Spring 프로젝트에 테스트 코드를 자동으로 생성·검증하는 Claude Code 플러그인**이다.
+**Spring 프로젝트에 테스트 코드를 생성·검증하는 Codex 앱·CLI 및 Claude Code 공용 플러그인**이다. 아래 슬래시 명령과 Agent/LSP/훅은 Claude 예시이고 Codex는 CODEX.md의 자연어 요청·호스트 지침을 사용한다.
 명령 하나(`/test-autoevermation-harness-plugin:full-pipeline`)로 아래 전 과정을 오케스트레이션한다.
 
 ```
@@ -52,14 +54,10 @@ AST 구조 추출  ───┘                                                 
 - **BDD living documentation**: 시나리오는 given/when/then 구조로 설계되고, 테스트 메서드명에
   `scenarioRef`(`SC-001` → `sc001_…`)가 박히며, 결과가 대상 프로젝트의 `test_docs/`에
   시나리오↔테스트코드↔결과 매핑으로 영속화된다.
-- **게이트 3종**: ① 3.5단계 리팩토링 권고(테스트 부적합 코드 선별), ② 4.5단계 시나리오 승인(승인분만 생성),
-  ③ 9단계 적합성 검증(통과한 테스트가 시나리오를 실제로 만족하는지 — target 호출은 `methodCalls` 기계 대조,
-  불일치는 9.5단계 자동 보정 루프가 최대 3라운드 교정). 대화형은 `AskUserQuestion`으로 묻고,
-  CI는 정책에 따라 자동 진행/중단한다.
-- **품질 루프**: JaCoCo near-100% 커버리지 게이트(기본 LINE≥0.95/BRANCH≥0.90/METHOD≥0.95/CLASS=1.00)는
-  미커버 gap이 줄어드는 동안 반복하고, 동일 gap이 3회 연속이면 `partial`로 잔여를 전량 보고한다.
+- **승인과 검증**: 리팩토링 권고는 시나리오 승인에서 함께 제시한다. 승인한 시나리오만 생성하고 실제 테스트·JaCoCo·적합성을 확인한다.
+- **보정 예산**: 빠름 1회·균형 3회는 원인을 합산하며 엄격/기존은 무진전 종료 규칙을 유지한다. 마지막 수정 뒤 검증도 생략하지 않는다.
 - **독립 실행**: oh-my-claudecode 등 외부 플러그인에 의존하지 않는다. Claude Code 네이티브 기능
-  (플러그인·`Agent` 서브에이전트·`AskUserQuestion`·MCP·훅)만 필수다 — Python 3.10+는 없으면
+  (플러그인·질문·MCP·훅)을 사용하며 위임은 선택이다 — Python 3.10+는 없으면
   자동 설치된다(v0.15.0+, 전 OS: macOS/Linux/WSL/Windows). 상세: [DEPENDENCIES.md](../DEPENDENCIES.md).
 
 ---
@@ -75,7 +73,7 @@ test-autoevermation-harness-plugin/
 ├── agents/        (11종)        ← Agent(subagent_type=...)로 호출되는 서브에이전트. 실제 분석/생성 수행
 ├── mcp/           (서버 3종)    ← Python MCPServer stdio 서버. 결정적 작업(파싱·빌드실행·리포트 해석)
 │   └── javaparser-cli/          ← JavaParser 기반 정밀 AST CLI (mvnw 동봉, 필수 빌드)
-├── hooks/hooks.json + scripts/  ← 산출물·위임 게이트(PreToolUse deny)·실행 증거 기록·시크릿 warn 보고
+├── hooks/hooks.json + scripts/  ← 산출물·승인 게이트(PreToolUse deny)·실행 증거 기록·시크릿 warn 보고
 ├── references/    (9종)         ← 정책·절차의 SSOT 문서 (스킬·에이전트가 인용)
 ├── docs/                        ← 이 가이드 + pipeline-flow.md(다이어그램)
 └── .lsp.json                    ← (필수) Eclipse JDT LS 등록
@@ -100,7 +98,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | `generate-tests` | 5 | JUnit + Spring Test 코드 생성 (버전 프로파일 분기) |
 | `run-tests` | 6 | 빌드 도구 감지 후 최소 범위 테스트 실행 |
 | `repair-tests` | 7 | 실패 원인 분류 후 최소 diff 보정 |
-| `measure-coverage` | 8 | JaCoCo near-100% 게이트 루프 |
+| `measure-coverage` | 8 | JaCoCo 측정·결과 공유, 개선은 요청 시만 |
 | `verify-scenarios` | 9 | 시나리오 적합성 검증 + `test_docs/` 정리 |
 | `setup-statusline` | (부가) | Claude Code statusLine에 Test-AutoEverMation 진행률 줄(버전·%·현재 단계) 설치/제거 (`setup-harness` S1과 동일 스크립트) |
 | `edit-tests` | 파이프라인 외 (사후) | 사용자가 지목한 기존 테스트를 repo-ast AST 근거로 직접 편집(이름 변경·단언 추가/조정·정리). 실행은 `run-tests`로 안내 |
@@ -160,7 +158,7 @@ XML 파싱, 버전 감지 등 LLM에 맡기면 안 되는 부분).
 | 훅 | 시점 | 동작 |
 |---|---|---|
 | `scripts/record-run-context.py` | PreToolUse(Skill·Agent — 구 Task alias 포함) + PostToolUse(detect_pipeline_state) | **v0.22.0 실행 강제(enforcement) 기록자**: full-pipeline 호출 시 cwd와 대상 `projectRoot`의 `_workspace/.markers/run.json`(하네스 활성·라우팅) 기록 + 단계 계약 리마인더 주입, 파이프라인 subagent 스폰 시 대상 프로젝트에 `spawn-<agent>.json` 기록(위임 증거), `detect_pipeline_state`의 실제 요청 root·커버리지 임계값과 응답을 결합해 durable-resume allowlist를 기록. 시나리오 미승인(`04b` 부재) 상태의 test-code-generator 스폰은 deny |
-| `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **위임·산출물 물리 강제**: spawn 마커·테스트 파일 소유권·순서 게이트와 8단계 커버리지 불변식을 검사한다. **파이프라인이 도는 세션에서만 판정**(아래) |
+| `scripts/guard-gate-artifacts.py` | PreToolUse(Write·Edit) | **산출물 검사**: 승인·공유 예산·테스트 파일 역할·순서 게이트와 8단계 커버리지 불변식을 검사한다. **파이프라인이 도는 세션에서만 판정**(아래) |
 | `scripts/redact-secrets.py` | PostToolUse(Write·Edit) | 생성물의 토큰·비밀번호·접속문자열 패턴을 **보고**(warn 모드 — 파일을 수정하지 않으며, 발견 내용은 `hookSpecificOutput.additionalContext`로 모델에 전달) |
 
 **쓰기 가드의 단일 게이트(v0.32.0).** `guard-gate-artifacts.py`는 이제
@@ -194,7 +192,7 @@ v0.32.0은 **빠져 있던 게이트를 전 Zone에 적용**해 강제를 되살
 상태의 `test-code-generator` 스폰)이며, **하네스 파이프라인이 활성인 세션에서만** 발동한다 —
 쓰기 도구와 무관하므로 v0.30.0 차단 해제 대상이 아니다.
 
-**`_workspace/.markers/` 컨벤션(v0.22.0).** 훅 간 공유되는 물리 증거 저장소: `run.json`(세션별 하네스 활성 신호와 정규화된 `projectRoot`), `spawn-<subagent_type>.json`(대상 프로젝트의 단계 위임 증거), `pipeline-state.detected.json`(실제 탐지 요청·응답에 결합된 durable-resume 허용 목록). full-pipeline을 호출할 때마다 같은 Claude 세션이어도 이전 spawn/detect 증거는 자동 청소된다. 08 복원 권한은 호출 임계값 4종이 유효한 schema v2 config와 같을 때만 부여하며, config가 없으면 네 값 모두 1.0이어야 한다. **v0.29.0부터 `detect_pipeline_state`가 stale로 판정한 증거(소스가 리포트보다 새로움)에는 복원 권한을 부여하지 않는다.** 이 디렉터리는 훅 전용이라 Write/Edit로 수정할 수 없다. 인프라 오류 시 훅은 fail-open(세션 불파괴), 판정 로직은 fail-closed다. 계약 드리프트 재검용 프로브는 `scripts/dev/probe-hook-stdin.py`.
+**`_workspace/.markers/` 컨벤션(v0.22.0).** 훅 간 공유되는 물리 증거 저장소: `run.json`(세션별 하네스 활성 신호와 정규화된 `projectRoot`), `spawn-<subagent_type>.json`(대상 프로젝트의 선택 위임의 관측 기록), `pipeline-state.detected.json`(실제 탐지 요청·응답에 결합된 durable-resume 허용 목록). full-pipeline을 호출할 때마다 같은 Claude 세션이어도 이전 spawn/detect 증거는 자동 청소된다. 08 복원 권한은 호출 임계값 4종이 유효한 schema v2 config와 같을 때만 부여하며, config가 없으면 네 값 모두 1.0이어야 한다. **v0.29.0부터 `detect_pipeline_state`가 stale로 판정한 증거(소스가 리포트보다 새로움)에는 복원 권한을 부여하지 않는다.** 이 디렉터리는 훅 전용이라 Write/Edit로 수정할 수 없다. 인프라 오류 시 훅은 fail-open(세션 불파괴), 판정 로직은 fail-closed다. 계약 드리프트 재검용 프로브는 `scripts/dev/probe-hook-stdin.py`.
 
 `settings.json`은 **권장 권한값 문서**다 — Claude Code는 플러그인 settings.json의 `permissions`를
 자동 적용하지 않으므로(공식 제약), 이 자세를 원하는 사용자가 자기 프로젝트 `.claude/settings.json`
@@ -210,96 +208,43 @@ AST-only degrade는 더 이상 허용되지 않는다.
 
 ## 3. 동작 방식
 
-정본: [skills/full-pipeline/SKILL.md](../skills/full-pipeline/SKILL.md) ·
-[orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) ·
-다이어그램: [pipeline-flow.md](./pipeline-flow.md)
+### 3.1 실행 모델 — 직접 수행과 필요한 분석만 위임
 
-### 3.1 실행 모델 — 서브에이전트 팬아웃 + 파일 기반 전달
+두 호스트 모두 메인이 역할 지침을 직접 수행한다. 독립 스펙·AST 분석의 분리 실익이 있을 때만 위임한다.
+산출물은 _workspace에 저장하고 대상·필요 필드·경로만 전달한다. 공통 문서를 이미 읽은 문맥에서는 재읽지 않는다.
 
-- 1·2단계(스펙 인덱싱 ∥ AST 추출)만 **병렬**(`Agent` 팬아웃), 나머지는 산출물 의존이라 **순차 파이프라인**.
-- 각 단계 산출물(JSON)은 메인 컨텍스트로 옮기지 않고 `_workspace/{단계}_{산출물}.json`에 저장하고
-  **경로만** 다음 단계에 전달한다(컨텍스트 토큰 절감 + 감사 추적 + 부분 재실행의 기반).
-- SubagentStart/Stop의 실제 경과 시간을 기록하고, 호스트가 제공하지 않은 토큰 수는 생략한다
-  (병목 단계 식별용). 누적 명령:
-  `node "${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs" script "${CLAUDE_PLUGIN_ROOT}/scripts/record-timing.py" --workspace <ws> --stage <id> --agent <type> --model <model> --tokens <n> --duration-ms <n>`
+### 3.2 단계 흐름
 
-### 3.2 단계 흐름 (setup-harness → E-verify → 0 → … → 9)
+설정·분석 → 리팩토링 권고와 시나리오 설계 → 함께 제시한 시나리오 승인 → 최초 생성 → 실행·커버리지·적합성 확인 순서다.
+환경이 부족하면 필요한 변경에 동의받아 setup-harness로 준비하고 원래 작업을 재개한다. 재시작이 필요하면 재개 지점을 보존한다.
+한 번의 테스트 실행에서 JUnit과 JaCoCo를 함께 만든다. 입력·범위·JDK·보고서 지문이 같을 때 결과를 공유한다.
+보정은 실패 테스트→시나리오 불일치→커버리지 부족 순으로 한 묶음을 수행하고 반드시 6→8→9를 재검증한다.
 
-| 단계 | 스킬 / 에이전트 | 하는 일 | 산출물 |
-|---|---|---|---|
-| **사전(선행)** | **setup-harness** | 환경 세팅 체크리스트 E1~E10을 응답 텍스트 체크리스트로 표시하며 **세팅**(설치·빌드·프로비저닝). 필수: E1 Python·E2 MCP SDK·E3 서버등록·**E3b MCP 라이브 연결 검증(`health` 3종 실호출)**·**E4 JDK 21+**·**E5/mvnw**·**E6 JavaParser jar**·**E7 JDT LS**·E10 실행JDK↔Mockito. 추가로 S1 상태줄 설치(선택). **사용자가 명시적으로 1회 실행** | — |
-| **E-verify** | configure-harness (Preflight) / full-pipeline(재사용·재개 경로) | 세팅 완료를 **검증만** 한다(프로브: `health`×3 · `java -version` · jar 존재 · `setup_jdtls.py --check-only` · 실행JDK↔Mockito). **세팅하지 않는다** — 미충족이면 파이프라인 **미시작**(하드 중단) + `"먼저 /test-autoevermation-harness-plugin:setup-harness 를 실행해 환경 세팅을 완료하세요"` | — |
-| **0** | configure-harness | 3항목 인터뷰(스펙 경로/대상 선별/커버리지 임계) → `HarnessConfig` | `00_config-harness.json` |
-| **0.5** | configure-harness | `detect_spring_profile`로 Boot 2.0–4.x 프로파일 확정. 미감지→질문(CI 중단), 충돌→확정 질문. **가정 금지** | (HarnessConfig에 병합) |
-| **0.6** | configure-harness | JaCoCo XML 능력 `detect→approve→inject` → 캐시 프라이밍 결정 | `00b_build_provision.json` |
-| **1 ∥ 2** | ingest-specs(spec-reviewer) ∥ analyze-ast(ast-structure-analyzer) | criteria 정규화 ∥ 테스트 대상·의존 그래프 추출 | `01_*.json`, `02_*.json` |
-| **3** | analyze-source(source-code-analyzer) | 호출 그래프·외부 I/O(DB/HTTP/clock/random) testSeam·DI/트랜잭션 경계 분석 | `03_*.json` |
-| **3.5** | refactor-advisory(refactor-advisor) + full-pipeline 게이트 | 테스트 부적합 코드 판정(§3.3) → `RA-*.md` **항상** 작성 → 포함/제외 결정 → 제외 FQCN을 이후 입력에서 필터 | `03b`, `03c`, `test_docs/refactoring/` |
-| **4** | generate-scenarios(scenario-generator) | criteria×seam 매핑으로 최소 시나리오 집합(unit P0 → slice P1 → integration P2), 동치류 3+ → `isParameterized` | `04_scenario_set.json` |
-| **4.5** | full-pipeline 승인 게이트 | 시나리오를 `test_docs/scenarios/<id>.md`(approval: pending)로 저장 → 대화형 승인/일부 제외/재설계, CI 자동 승인 → **승인분만** 진행 | `04b_approval.json` |
-| **5** | generate-tests(test-code-generator) | 프로파일 분기 코드 생성 — 컨트롤러 `@WebMvcTest`+MockMvc, JPA `@DataJpaTest`, 서비스는 컨텍스트 없는 단위, BDD 3단 본문 | `src/test/java/*`, `05_*.json` |
-| **6** | run-tests(test-runner) | 생성 클래스만 대상 한정 실행(Gradle `--tests`/Maven `-Dtest=`), JUnit XML 파싱 | `06_run_result.json` |
-| **7** | repair-tests(test-fixer) — 실패 시만 | 실패 유형 분류(COMPILE/RUNTIME/FLAKY/SPEC_MISMATCH/SYMBOL) → 최소 diff 보정 → 6단계 재실행. **그린까지 반복**, 동일 실패 3회 연속(무진전)이면 partial | `07_*.json` |
-| **8** | measure-coverage(coverage-closer) | JaCoCo 측정 → `coverage_gate` → 미달 gap에 보완 테스트 생성 → 재측정 루프. **스킵 불가**(#21 — advisory는 면제 사유 아님, 무효 산출물은 훅이 차단) | `08_*.json` |
-| **9** | verify-scenarios(scenario-conformance-verifier) | scenarioRef로 시나리오↔테스트 매핑 → target 호출 `methodCalls` 기계 대조(WRONG_TARGET_CALL) → satisfied/unsatisfied/missing 판정(then 단언 전수 반영 확인) → `test_docs/` 최종 갱신 | `09_conformance.json` |
-| **9.5** | full-pipeline(적합성 자동 보정) — unmet 시만 | unsatisfied→test-fixer 모드 B(`SCENARIO_NONCONFORMANT` 최소 diff) / missing→부분 재생성 → 6단계 재실행 → 8단계 커버리지 재검증 → 9단계 적합성 재검증. **최대 3라운드**, 동일 unmet 집합 즉시 무진전 중단(#16) | `09b_conformance_repair.json` |
-| 집계 | full-pipeline | `PipelineResult` JSON + Markdown 보고서 | `pipeline_result.json` |
+### 3.3 리팩토링 권고
 
-### 3.3 리팩토링 권고 게이트(3.5)의 판정 기준
+권고는 기록하고 대상을 기본 포함한다. 시나리오 승인에서 함께 확인하며 별도 포함/제외 질문을 하지 않는다.
+운영 코드 리팩토링은 별도 요청 없이 수행하지 않는다.
 
-[refactor-advisory.md](../references/refactor-advisory.md)(SSOT)의 3범주 — 임의 수치가 아니라 공식/1차 문서 근거로만 플래그한다:
+### 3.4 실행 모드와 승인
 
-- **complexity**: McCabe 순환복잡도 **CC > 10**(NIST SP 500-235 기준, 11–15 medium / >15 high).
-- **testability**: 생성자 실질 작업, `new` 직접 생성·싱글턴 등 숨은 의존, mutable static 상태,
-  미주입 `LocalDateTime.now()`/`new Random()` 등 seam, train-wreck 체인, 생성자 인자 >7
-  (Spring DI 레퍼런스·Google Testing Guide·Mockito javadoc 근거).
-- **efficiency**: 루프 내 repository/EntityManager 조회(N+1), 루프 내 원격 호출·재계산, `FetchType.EAGER` 남용
-  (Hibernate User Guide Fetching 장 근거).
+| 모드 | LINE | BRANCH | METHOD | CLASS | 모든 원인을 합산한 보정 |
+|---|---|---|---|---|---|
+| 빠름 | 80% | 70% | 80% | 100% | 1회 |
+| 균형(추천) | 90% | 80% | 90% | 100% | 3회 |
+| 엄격 | 95% | 90% | 95% | 100% | 기존 무진전 종료 규칙 |
 
-플래그돼도 **코드를 고치지 않는다** — 근거·수정법이 담긴 권고 문서(`test_docs/refactoring/RA-*.md`)를 남기고,
-"테스트 생성 대상에 포함할지"만 결정한다(제외분도 문서는 보존). 판정 에이전트가 실패하면 경고 후 전 대상
-포함으로 진행한다(보조 게이트 — 파이프라인을 막지 않음).
-
-### 3.4 대화형 vs 비대화형(CI) 분기
-
-모든 fallback 지점은 [fallback-policy.md](../references/fallback-policy.md)의 공통 패턴을 따른다(정책 개수·번호는 그 문서가 정본):
-
-- **대화형 CLI**: `AskUserQuestion`으로 묻고 답에 따라 진행/중단. 침묵 degrade·임의 기본값 금지.
-- **비대화형(`claude -p`)/CI**: 질문 불가 → **결정적 세팅 항목**(`pip install`, `mvn package`)은 자동 수행 후
-  재검증, **비결정적 항목**(버전 미감지·프로파일 충돌·미지정 입력)은 `status:"failed"` + remediation으로
-  하드 중단. 승인 게이트(3.5/4.5)는 자동 포함/승인 + 기록. 빌드 파일 자동 주입과 자동 온라인 전환은 **금지**
-  (`BUILD_TEST_ALLOW_NETWORK=1` 옵트인).
-- 비대화형 감지(공식 근거로 관측 가능한 신호만): `skipInterview: true` · 도구 목록에 `AskUserQuestion`이 없음
-  (서브에이전트·`--permission-prompts none`) · 첫 `AskUserQuestion` 호출이 차단·거부됨(plain `claude -p`·`dontAsk`).
-  환경변수·`-p` 플래그는 모델이 관측할 수 없으므로 조건이 아니다. 정본: `configure-harness` 「인터랙티브 모드 감지」.
+최초 설정에서 한 번 선택한다. 수치는 제품 정책이며 공식 권장값이 아니다. 정책 없는 기존 설정은 임계값·제외·반복 의미를 보존한다.
+모드 변경을 명시할 때만 새 기본값을 적용하며 같은 요청의 직접 지정값이 우선한다.
+모든 모드가 실제 테스트·JaCoCo·적합성과 시나리오 승인을 유지한다. 질문 도구 부재·취소·무응답을 승인으로 처리하지 않는다.
+명시적 비대화형 입력의 기존 정책은 별도 기록하며 필수 값이 없으면 중단한다.
 
 ### 3.5 부분 재실행 · 상태 복원
 
-Phase 0는 **세 신호**로 실행 범위를 정한다(정본: [SKILL.md](../skills/full-pipeline/SKILL.md) Phase 0 ·
-[orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1·§3):
+[요청별 경로](../references/execution-policy.md)에 따라 조회는 빌드 없이, 테스트 실행은 자동 수정 없이, 커버리지 측정은 추가 생성 없이 처리한다.
+자동 재개는 execution-budget.json을 유지한다. 빠름·균형에서 예산이 끝나면 검증 후 partial과 잔여를 반환한다.
+사용자가 “계속 보정해줘”라고 명시해야 추가 예산이 생긴다. 조회·세션 재시작으로는 초기화하지 않는다.
+strict/기존은 동일 실패·gap 3회 무진전, 적합성 최대 3라운드·동일 unmet 즉시 종료한다.
 
-1. **`_workspace/` 존재 + 부분 요청** → 요청 유형별 영향 단계만 재실행, 나머지는 기존 JSON을 Read로 재사용(아래 표).
-2. **`_workspace/` 부재/불완전**(fresh clone·checkout·새 세션·워크스페이스 로테이션) → `detect_pipeline_state`가
-   **영속 증거**(생성 테스트 `src/test/java`, 승인 시나리오 `test_docs/scenarios/*.md`, JaCoCo/JUnit 리포트)를
-   물리 판정하되 **출처(provenance)를 구분**한다. **하네스가 생성한** 테스트/시나리오면(`harnessProvenance:true`)
-   `_workspace/` stub + `_resume.json`을 복원해 **알맞은 단계부터 재개**(대화형=`AskUserQuestion`, CI=`recommendedEntryStage`).
-   **기존 손수 짠 테스트만**이면(`foreignTestsPresent:true`, `test_docs/` 없음) 5단계 완료로 보지 않고 **0단계부터 정식
-   생성**하되 기존 테스트를 `existingTestPaths`로 넘겨 공존 보완. 아무 증거도 없으면 0단계 초기 실행.
-3. **`_workspace/` 존재 + 새 입력** → 기존 `_workspace/`를 `_workspace_legacy_{YYYYMMDD_HHMMSS}/`로 옮겨 보존 후 초기 실행.
-
-| 요청 예 | 재실행 | 재사용 |
-|---|---|---|
-| "이 패키지만 다시" | 2→3→3.5→4→4.5→5→6→8→9 | `01_spec` |
-| "커버리지만 더 올려" | 8→9 | `01~06`, `04b` |
-| "테스트 실패 고쳐" | 7→6→8→9 | `01~05`, `04b` |
-| "시나리오 만족하는지만 확인" | 9 | `01~08`, `04b` |
-| `_workspace/` 없음 + **하네스 생성** 테스트("보완") | 6→8→9 | 실제 탐지 응답이 허용한 `04_scenario_set`·`05_test-gen_files`·`06_run_result`·`08_coverage_result` stub만 증거 수준에 맞춰 복원 |
-| `_workspace/` 없음 + **기존 손수 짠** 테스트만 | 0(정식 생성 전체) | 없음 — `testFiles[]`를 5·8단계 `existingTestPaths`로 공존 보완 |
-
-전체 매트릭스와 stub 복원 표는 §5.6 FAQ ·
-[orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1·§3.
-
----
 
 ## 4. 설치
 
@@ -375,7 +320,7 @@ PATH → brew(macOS) → eclipse.org milestone tarball(`${CLAUDE_PLUGIN_DATA}/jd
 >
 > **v0.24.0부터 환경 세팅은 `full-pipeline`이 아니라 `setup-harness`가 수행한다.** 플러그인 설치 후 최초 1회
 > `/test-autoevermation-harness-plugin:setup-harness`를 실행하면 된다. `full-pipeline`/`configure-harness`는
-> 시작 시 **검증(E-verify)만** 하고, 미완료면 이 명령을 안내하며 중단한다(자동 세팅·자동 위임 없음).
+> 시작 시 **검증(E-verify)만** 하고, 미완료면 필요한 변경 동의를 묶어 받고 setup-harness로 넘긴다. 준비 후 원래 작업을 재개한다.
 
 ### 4.5 제거
 
@@ -450,7 +395,7 @@ rm -rf ~/.claude/plugins/cache/test-autoevermation-harness
 이후 Claude Code를 재시작하고 §4.1 설치 절차를 다시 실행한다.
 
 **하네스 실행 상태 재설정:** 파이프라인 중간 산출물은 대상 프로젝트 루트의 `_workspace/`에 저장된다
-(부분 재실행의 기반, §3.5). **이 디렉터리를 삭제해도** 영속 증거(생성 테스트 `src/test/java`, 승인 시나리오
+(부분 재실행의 기반, §3.5). **예산 파일은 보존한다. 그 외 중간 산출물이 없어도** 영속 증거(생성 테스트 `src/test/java`, 승인 시나리오
 `test_docs/scenarios/*.md`, 커버리지/JUnit 리포트)가 남아 있으면 다음 실행은 처음이 아니라
 `detect_pipeline_state`가 판정한 단계부터 **재개**된다(§3.5 신호 2). 완전한 초기화(0단계 `configure-harness`
 인터뷰부터)를 원하면 `src/test/java`의 생성 테스트와 `test_docs/`까지 함께 정리해야 한다. 새 입력으로 다시
@@ -558,51 +503,11 @@ settings로는 main statusLine을 설정할 수 없다(공식: `agent`/`subagent
 
 ### 5.6 자주 묻는 질문 (이어하기 · 결과 개선)
 
-정본: [full-pipeline/SKILL.md](../skills/full-pipeline/SKILL.md) Phase 0 ·
-[orchestration-detail.md](../skills/full-pipeline/references/orchestration-detail.md) §2-1·§3.
+“결과만 보여줘”는 기존 결과와 신선도를 보고한다. “실행해줘”는 한 번 실행하고 자동 수정하지 않는다.
+“커버리지 측정해줘”는 유효 결과 공유 또는 한 번 실행·측정한다. “부족한 커버리지를 올려줘”는 승인 대상과 저장 예산 안에서 보정한다.
+partial이면 executionSummary.stopReason과 미해결 항목을 확인한다. 명시적인 계속 요청으로만 보정 예산을 추가한다.
+설정을 매번 다시 입력할 필요는 없다. 프로젝트용 호출 스킬은 저장 요청이 있을 때만 만든다.
 
-**Q. 이미 테스트가 있는 프로젝트에서 "보완/수정/업데이트"를 요청하면 어떻게 되나?**
-
-Phase 0가 `mcp__plugin_test-autoevermation-harness-plugin_build-test__detect_pipeline_state(root, line, branch, method, klass)`로 영속 증거를 물리 판정하되(유효한 schema v2 config가 없으면 임계값은 보수적으로 각 1.0), **테스트의 출처(provenance)를
-구분**한다 — 그 테스트가 *이 하네스가 생성한 것*(=`test_docs/` 존재, `harnessProvenance:true`)인지, *원래 프로젝트에
-손으로 짠 것*(`foreignTestsPresent:true`, `test_docs/` 없음)인지:
-
-- **하네스가 생성한 테스트/승인 시나리오가 있으면**(`resumable:true`): `_workspace/`가 없어도(fresh clone·`git
-  checkout`·새 세션) 처음부터 다시 돌지 않는다. stub과 `_resume.json`을 복원하고 재진입 단계를 확정한다 —
-  대화형은 `AskUserQuestion`으로 `[4 시나리오 재설계] [5 생성] [6 run-tests] [8 measure-coverage] [9 verify-scenarios]` 중 고른다.
-  CI/비대화형은 `recommendedEntryStage`를 사용한다. 여기서 **green JUnit**은 파서 결과가 `status:"ok"`, `passed>0`, `failed=[]`인 경우만 뜻한다. JUnit이 없거나 실패/partial이거나 테스트가 0개면 6, green JUnit 뒤 JaCoCo가 없거나 현재 임계 미달이면 8, green JUnit과 현재 임계를 통과한 JaCoCo가 모두 있으면 9다(승인 시나리오만 있고 테스트가 없으면 5). 상태줄에 `↩ resumed @ stage N` 표시(§5.5).
-- **기존(손수 짠) 테스트만 있으면**(`foreignTestsPresent:true`, `test_docs/` 없음): 이건 "5단계 완료"가 아니다.
-  하네스는 **0단계부터 정식으로** 스펙·AST·소스 분석 → 시나리오 설계 → 테스트 생성을 진행한다. 단, 감지된
-  `testFiles[]`를 **8단계 coverage-closer의 `existingTestPaths`**로 넘겨 **커버리지 갭만 채우며 공존**하고, 5단계
-  generate-tests는 기존 파일 덮어쓰기 확인·동일 경로 충돌 시 내용 비교로 손수 짠 테스트를 보존한다. (파일명만
-  `*Test.java`라고 해서 하네스가 만든 것으로 오인해 생성을 건너뛰지 않는다.)
-- **아무 증거도 없으면**(`resumable:false`, `foreignTestsPresent:false`): 0단계부터 초기 실행.
-
-**Q. 파이프라인 결과물이 마음에 안 들면 어떻게 요청하나?**
-
-원하는 결과에 맞춰 자연어로 부르면 Phase 0가 영향 단계만 재실행한다(나머지는 `_workspace/` 재사용):
-
-| 요청 유형 | 재실행 단계 | 재사용 |
-|---|---|---|
-| "이 패키지/클래스만 다시" | 2→3→3.5→4→4.5→5→6→8→9 | 01_spec |
-| "스펙 문서 추가했어" | 1→4→4.5→5→6→8→9 | 02_ast, 03_source, 03b·03c |
-| "리팩토링 권고만 다시" | 3.5→4→4.5→5→6→8→9 | 01~03 |
-| "시나리오 다시/승인 다시" | 4→4.5→5→6→8→9 | 01~03, 03b·03c |
-| "커버리지만 더 올려" | 8→9 | 01~06, 04b |
-| "테스트 실패 고쳐" | 7→6→8→9 | 01~05, 04b |
-| "임계값 바꿔서 다시" | configure(0)→8→9 | 01~06, 04b |
-| "시나리오 만족하는지만 확인" | 9 | 01~08, 04b |
-| "시나리오 적합성 불일치 고쳐" | 9.5→6→8→9 | 01~08, 04b, 09_conformance |
-| `_workspace/` 없음 + 하네스 생성 테스트 존재(보완) | 6→8→9 | 실제 탐지 응답이 허용한 04·05·06·08 stub만 증거 수준에 맞춰 복원 |
-
-**결과가 나오기 전에 미리 가로채고 싶다면** — 대화형은 생성 이전 두 승인 게이트에서 방향을 잡을 수 있다:
-
-- **3.5 리팩토링 권고 게이트**: 복잡·비효율·테스트 저해 코드를 플래그하면 `AskUserQuestion`으로 "전체 포함 /
-  일부 제외 / 전체 제외"를 물어, 부적합 대상을 시나리오 생성 전에 뺀다(§3.3).
-- **4.5 시나리오 승인 게이트**: 설계된 시나리오를 `test_docs/scenarios/<id>.md`(pending)로 보여주고
-  건별 "승인 / 제외 / 재설계"를 물어, 승인분만 테스트로 생성한다.
-
----
 
 ## 6. 설정
 

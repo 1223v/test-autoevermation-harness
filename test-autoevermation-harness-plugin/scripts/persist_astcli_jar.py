@@ -29,10 +29,15 @@ import json
 import os
 import shutil
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 CLI_DIR = PLUGIN_ROOT / "mcp" / "javaparser-cli"
+sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
+from harness_runtime import atomic_json, persisted_jar_state
+from bootstrap import InstallLock
 DATA_JAR_SUBDIR = "javaparser"
 FINGERPRINT_BASENAME = "astcli.fingerprint"
 
@@ -86,18 +91,40 @@ def status() -> dict:
         except OSError:
             recorded = None
     data_jar = match_jar(dest_dir)
+    committed = persisted_jar_state(dest_dir)
+    if committed:
+        data_jar = committed["path"]
+        recorded = committed["sourceFingerprint"]
+    valid = False
+    try:
+        digest = hashlib.sha256(Path(data_jar).read_bytes()).hexdigest() if data_jar else None
+        valid = bool(committed) or bool(data_jar and zipfile.is_zipfile(data_jar) and
+                     (dest_dir / "astcli.sha256").read_text(encoding="utf-8").strip() == digest)
+    except OSError:
+        pass
     return {
         "sourceFingerprint": current,
         "dataJar": data_jar,
         "recordedFingerprint": recorded,
         "targetJar": match_jar(CLI_DIR / "target"),
+        "integrityVerified": valid,
         "upToDate": bool(
-            data_jar and current and recorded and current == recorded
+            valid and current and recorded and current == recorded
         ),
     }
 
 
 def persist() -> dict:
+    dest_dir = data_dir() / DATA_JAR_SUBDIR
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        with InstallLock(str(dest_dir / ".persist.lock")):
+            return _persist_locked()
+    except OSError as exc:
+        return {"status": "failed", "error": "JAR_PERSIST_FAILED", "message": str(exc)}
+
+
+def _persist_locked() -> dict:
     target_jar = match_jar(CLI_DIR / "target")
     if not target_jar:
         return {
@@ -108,17 +135,39 @@ def persist() -> dict:
         }
     current = source_fingerprint()
     dest_dir = data_dir() / DATA_JAR_SUBDIR
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    # 이전 사본 제거 후 단일 jar 유지(이름이 바뀌어도 잔재가 남지 않도록).
-    for old in dest_dir.glob("*.jar"):
-        try:
-            old.unlink()
-        except OSError:
-            pass
-    dest = dest_dir / Path(target_jar).name
-    shutil.copy2(target_jar, dest)
-    if current:
-        (dest_dir / FINGERPRINT_BASENAME).write_text(current, encoding="utf-8")
+    if not current or not zipfile.is_zipfile(target_jar):
+        return {"status": "failed", "error": "INVALID_TARGET_JAR"}
+    # Replace only after the complete candidate has passed ZIP/CRC validation.
+    # Until then the previous jar and marker remain usable.
+    temporary = None
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".astcli-", dir=dest_dir)
+        os.close(fd)
+        shutil.copy2(target_jar, temporary)
+        with zipfile.ZipFile(temporary) as archive:
+            if archive.testzip() or "com/example/harness/AstCli.class" not in archive.namelist():
+                raise ValueError("invalid shaded CLI jar")
+        digest = hashlib.sha256(Path(temporary).read_bytes()).hexdigest()
+        dest = dest_dir / ("astcli-" + digest[:16] + ".jar")
+        os.replace(temporary, dest)
+        temporary = None
+        for name, value in (("astcli.sha256", digest), (FINGERPRINT_BASENAME, current)):
+            fd, temporary = tempfile.mkstemp(prefix=".marker-", dir=dest_dir)
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(value)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, dest_dir / name)
+            temporary = None
+        atomic_json(dest_dir / "astcli-state.json", {"jar": dest.name, "sha256": digest, "sourceFingerprint": current})
+        # Readers may still be starting the previous jar. Retain immutable jars;
+        # the atomic manifest alone selects the current one across updates.
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        return {"status": "failed", "error": "JAR_PERSIST_FAILED", "message": str(exc)}
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
     return {
         "status": "ok",
         "persistedJar": str(dest),

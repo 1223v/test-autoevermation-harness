@@ -1,6 +1,6 @@
 # Fallback 정책 (SSOT)
 
-> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·강제 위임 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
+> 호스트 범위: [호스트 실행 계약](host-runtime.md)을 먼저 적용한다. 이 문서의 Claude 도구·LSP·승인·순서 훅·상태줄 설명은 Claude Code 전용이다. Codex는 공용 단계·검증·승인을 유지하며 해당 호스트 어댑터를 사용한다.
 
 이 문서는 하네스의 **모든 fallback 지점의 처리 정책**에 대한 단일 출처(Single Source of Truth)다.
 모든 에이전트·스킬·MCP 서버는 fallback 상황에서 이 표를 따른다. 사용자가 직접 선택한 정책이며,
@@ -43,16 +43,16 @@
 | 9 | **test-runner XML 리포트 미생성** | 하위 에이전트는 보고서 누락 실패를 반환한다. 메인 대화가 "보고서 설정 수정 후 재실행 / 중단"을 확인한다. stdout만으로 통과 판정하지 않는다. CI: 중단 | `test-runner` |
 | 10 | **spec-doc 읽기불가(권한/암호PDF)** | 하위 에이전트는 미지원 형식/읽기불가 경로를 반환하고 메인 대화가 AskUserQuestion으로 "나머지로 계속 / 중단" 확인. CI: 중단 | `spec-reviewer`, `ingest-specs` |
 | 11 | **에이전트 불가항목 건너뛰기** (시그니처 미해석·매핑불가 criteria·원인분류불가·패치적용실패) | 하위 에이전트는 누락 원인을 반환하고 메인 대화가 AskUserQuestion으로 "건너뛰고 보고 / 중단" 확인. 이 선택은 임계값·승인·커버리지 게이트 면제가 아니다. CI: 중단 | `coverage-closer`, `scenario-generator`, `test-fixer`, `repair-tests` |
-| 12 | **full-pipeline 단계 실패 / 게이트 미수렴** | **성공까지 재시도.** 단, 직전과 **동일한 실패·동일 gap이 3회 연속**(무진전)이면 "무진전"으로 보고하고 중단 | `full-pipeline`, `orchestration-detail` |
-| 13 | **입력 필드 미지정**(projectRoot/buildTool/javaVersion/springVersion 등) | **전부 AskUserQuestion으로 질문.** auto-detect/기본값으로 자동 채우지 않음. CI: 중단 | `configure-harness`, `full-pipeline` |
+| 12 | **파이프라인 보정** | [execution-policy.md](execution-policy.md)의 한 예산을 공유한다. fast 총 1회·balanced 총 3회; 소진 시 필수 검증 후 partial. strict/기존은 동일 실패·gap 3회 연속 무진전 종료. 자동 재개는 예산을 초기화하지 않는다 | full-pipeline; harness_policy.py |
+| 13 | **입력 누락·충돌** | 저장 설정·확인 가능한 프로젝트 정보·현재 사용자 지정을 먼저 사용한다. 필수 누락·충돌만 한 번에 묶어 질문한다. CI에서 해결되지 않은 필수 값은 중단한다 | configure-harness |
 | 14 | (보안 기본값 — 유지) 의존성 해석 기본 오프라인(OS 네트워크 격리는 아님), `REPO_AST_ALLOW_ROOT` 미설정 시 cwd 한정, allowlist 밖 경로 스킵 | **현행 유지**(degradation이 아닌 보안 자세) | `build-test`, `repo-ast` |
 | 15 | **시나리오 승인 게이트**(4.5단계) | 시나리오는 사용자 승인을 받는다. **대화형: `AskUserQuestion`**(전체 승인/일부 제외·수정/재설계) → 승인분만 생성으로 진행. **CI/비대화형: 승인할 사람이 없으므로 자동 승인** 후 `test_docs/`에 기록(감사 추적). 승인은 본질적으로 대화형 전용 | `full-pipeline` 4.5단계; [scenario-docs.md](./scenario-docs.md) §3 |
-| 16 | **시나리오 적합성 미충족**(9단계 — unsatisfied/missing) | 통과한 테스트가 시나리오 given/when/then을 만족하는지 검증(target 호출은 repo-ast `methodCalls` 기계 대조). `unmet`이 있으면 **9.5단계 적합성 자동 보정 루프**를 대화형·CI 동일하게 자동 수행: unsatisfied→`test-fixer` 모드 B(`SCENARIO_NONCONFORMANT` 최소 diff), missing→`test-code-generator` 부분 재생성 → 6단계 테스트 → 8단계 커버리지 → 9단계 적합성 순으로 재검증. **최대 3라운드, 직전 라운드와 동일 unmet 집합이면 즉시 무진전 중단** — #12(무제한, 결정적 신호 전제)의 **명시적 예외**(적합성 판정은 일부 LLM 판단이라 진동 위험). 소진 후 잔여: 대화형=`AskUserQuestion`("수동 보정 계속/partial 종료"), CI=`status:"partial"` + 잔여 전량 보고. 임의 제외 금지 | `full-pipeline` 9.5단계; `verify-scenarios`; `scenario-conformance-verifier`; `test-fixer`(모드 B); [scenario-docs.md](./scenario-docs.md) §4 |
+| 16 | **시나리오 적합성 미충족** | 단독 확인은 partial과 unmet만 보고한다. 수정 요청/생성 파이프라인에서는 실패→적합성→커버리지 우선순위로 공유 예산을 예약한 뒤 수정하고 6→8→9를 검증한다. 적합성 최대 3라운드·동일 unmet 즉시 중단. 종료 뒤 추가 질문 없이 잔여를 보고하고 명시적인 계속 요청만 새 예산을 허용한다 | full-pipeline; verify-scenarios; execution-policy.md |
 | 17 | **대상 빌드 능력 미비**(JaCoCo XML 필수) | **0.6단계(E11)에서 detect→approve→inject.** `detect_build_capabilities(root)` 호출. JaCoCo 플러그인과 XML 출력을 필수 검사하고, 대화형은 승인한 최소 스니펫만 주입한 뒤 재감지한다. CI는 자동 주입 없이 remediation으로 중단한다. 침묵 주입 금지 | `build-test` `detect_build_capabilities`; `configure-harness` 0.6단계; [build-provisioning.md](./build-provisioning.md) §1 |
-| 18 | **콜드 의존성 캐시**(첫 오프라인 실행 의존성/플러그인 해석 실패 — 6단계 선행) | **0.6단계(E12)에서 점검.** Gradle `--offline`은 미캐시 모듈 시 빌드 실패. 대화형=`AskUserQuestion` 승인 후 `run_targeted_tests(online=True)` 1회 프라이밍(또는 Maven `dependency:go-offline`)→이후 오프라인 / CI=`BUILD_TEST_ALLOW_NETWORK=1` 옵트인·사전 워밍업 안내, 미충족 시 첫 실행 실패를 partial 보고. 상시 온라인 아님(#14 유지) | `build-test` `check_dependency_cache` `primed:false`; `run_targeted_tests(online=True)`; [build-provisioning.md](./build-provisioning.md) §2 |
-| 19 | **리팩토링 권고 게이트**(3.5단계) | 테스트 부적합 코드(복잡도·비효율·테스트 저해)가 플래그되면 권고 `.md`(`test_docs/refactoring/RA-*.md`)를 **항상 작성**한 뒤 생성 대상 포함 여부를 결정한다. **대화형: `AskUserQuestion`**(전체 포함/일부 제외/전체 제외) → 포함분만 4단계로. **CI/비대화형: 전 대상 포함+경고**(#15 자동승인과 정합 — 권고 기록만 남김). 임의 침묵 누락 금지. 전 대상 제외 시 `partial` 중단. MCP 연결 실패(#20)는 즉시 중단한다. 그 외 에이전트 판정 실패 시 경고 후 전 대상 포함으로 진행(보조 게이트 — 파이프라인 차단 안 함) | `full-pipeline` 3.5단계; `refactor-advisor`; [refactor-advisory.md](./refactor-advisory.md) §4 |
+| 18 | **콜드 의존성 캐시** | 다운로드·명령을 제시하여 최초 온라인 실행 동의를 받는다. 승인된 실제 대상 테스트 실행을 프라이밍과 겸하고 JUnit·JaCoCo 결과를 공유한다. 별도 선행 테스트 실행은 하지 않는다. CI는 기존 BUILD_TEST_ALLOW_NETWORK=1 옵트인 유지 | configure-harness; build-provisioning.md |
+| 19 | **리팩토링 권고** | 권고 문서를 작성하고 기본적으로 대상을 포함한다. 별도 선택 질문 없이 4.5 시나리오 승인에 권고와 제외 효과를 함께 제시한다. 사용자 지정 제외만 반영하며 전량 제외 시 partial. 분석 실패는 경고+전 대상 포함, MCP 실패는 #20 유지 | refactor-advisory.md §4 |
 | 20 | **MCP 서버 연결 실패** | **필수 — degrade·대체 없음.** `setup-harness`·E3b가 `repo-ast-mcp.health`·`spec-doc-mcp.health`·`build-test-mcp.health` 실제 호출로 라이브 연결을 세팅·검증하고, 파이프라인 시작 시 E-verify 프로브가 이를 재확인하며, 파이프라인 도중에도 MCP 도구 호출이 실패(도구 미노출/연결 끊김)하면 즉시 **하드 중단**한다. **Grep/Read/직접 파싱으로 대체하는 것을 금지**한다. remediation: ① 플러그인 활성화 확인 → ② `node ${CLAUDE_PLUGIN_ROOT}/mcp/launch.cjs --ensure-only` 수동 실행 → ③ `/reload-plugins` 또는 Claude Code 재시작 → ④ SessionStart 훅 stderr 확인. 대화형·CI 동일하게 하드 중단 | `setup-harness` E3b; `configure-harness`/`full-pipeline` E-verify 프로브; 전 스킬·에이전트의 MCP 도구 호출 지점 |
-| 21 | **커버리지 게이트 산출물 유효성 + advisory 비면제**(8단계) | RA advisory는 8단계 게이트의 면제 사유가 아니다. **무효 조건**: `08_coverage_result.json`이 `gatePassed:false` ∧ (`iterations<1` ∨ `remainingGaps` 빈 배열)이면 실제 보완 루프와 잔여 전량 보고가 없으므로 무효다. `guard-gate-artifacts.py`가 이를 차단한다(파이프라인 활성 세션 한정) | `full-pipeline` 8단계; `measure-coverage`; `guard-gate-artifacts.py` |
+| 21 | **커버리지 결과 유효성** | advisory는 면제 사유가 아니다. gatePassed:false이면 실제 remainingGaps와 0 이상의 정수 iterations가 필요하다. 측정만 하거나 보정 예산이 없으면 iterations:0인 partial은 유효하다. stale/실행 실패 결과는 성공으로 기록하지 않는다 | measure-coverage; guard-gate-artifacts.py |
 
 > **`setup-harness` 추가 환경 항목**(번호 없는 세팅 점검, 정본: [environment-setup.md](./environment-setup.md)):
 > E1 Python 3.10+ · E4 **JDK 21+**(jar 빌드·JDT LS 구동 공통, 필수) · E5 Maven 3.6.3+(또는 동봉 `mvnw` — 시스템 Maven 불필요) · **E10 테스트 실행 JDK↔Mockito 호환**
@@ -62,10 +62,10 @@
 
 ## 재시도 경계 상세 (#12)
 
-- repair-tests → run-tests, coverage-closer → measure-coverage를 **게이트 충족까지 반복**한다.
-- **무진전 판정**: 직전 반복과 비교해 동일한 실패 시그니처 또는 동일한 미커버 라인/브랜치 집합이 **3회 연속**이면 무진전으로 간주한다.
-- 무진전 시: `status: "partial"` + 잔여 실패/gap을 **전량 보고**하고 중단(무한 루프 방지). 임의 제외 금지.
-- 진전이 있는 한(실패 수·gap이 줄어드는 한) 횟수 상한 없이 계속 재시도한다.
+메인만 보정 라운드를 예약·완료한다. repair-tests·coverage-closer·적합성 보정은 한 묶음의 수정 후 반환하며 자체 빌드/중첩 루프를 만들지 않는다.
+수정 후 실행→커버리지→적합성 확인을 생략하지 않는다. 빠름·균형의 마지막 보정 뒤에도 검증한다.
+strict/기존만 진전이 있는 동안 계속할 수 있다. 동일 실패/gap 3회 무진전, 적합성 최대 3라운드·동일 unmet 즉시 중단을 유지한다.
+미해결 항목은 partial과 전량 보고하고 임의 제외하지 않는다. 예산 파일·명시적인 계속 요청은 [공용 정책](execution-policy.md)을 따른다.
 
 ## 비대화형 감지
 
